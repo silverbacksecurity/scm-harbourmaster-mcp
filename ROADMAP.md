@@ -9,6 +9,35 @@ do about it.
 
 ## Recently shipped
 
+- **Config Cleanup API + CIDR-aware rule-shadow detection** (2026-08-15) —
+  `scm_zerohit_rules` (`tools/config_cleanup.py`) covers pan.dev's brand-new
+  Config Cleanup API (zero-hit security/NAT rules, async analysis status
+  disclosed, `posture` host — different from the usual `sase` host).
+  `scm_rule_shadow_audit` (`tools/audit.py`) adds a standalone whole-rulebase
+  shadow audit alongside the existing `scm_commit_preview` gate — no drift
+  baseline or pending commit required. Both new tools ride a major upgrade
+  to the shared shadow-detection engine (`audit/commit_preview.py`): real
+  CIDR subnet containment (stdlib `ipaddress`, including hyphenated ranges)
+  and recursive address-group resolution replace the old literal-string-set
+  comparison, with FQDN/wildcard/dynamic-group/unresolvable addresses
+  falling back to the old literal check rather than risking a false
+  "shadowed" claim, and negated-field rule pairs skipped entirely from
+  analysis. Also fixed a real gap in `scm_commit_preview`: pre-rulebase and
+  post-rulebase rules were checked in two separate passes, so a pre-rule
+  shadowing a later post-rule was never caught — now one combined-list pass,
+  matching Panorama/SCM's actual pre-then-post evaluation order. An
+  adversarial security-audit pass on this same-day upgrade caught a
+  **critical** false-positive class before it shipped: Remote Networks and
+  Mobile Users are mutually exclusive enforcement pipelines, but the merged
+  rulebase list let a Remote-Networks-only rule be flagged as "shadowing" —
+  safe to remove — a Mobile-Users-only rule it can never actually affect;
+  fixed same-day with a scope-exclusion check, plus two related bugs the
+  audit surfaced (rule metadata/offender-ranking keyed by bare name could
+  misattribute a finding when a name repeats across the pre/post rulebase;
+  `scm_commit_preview`'s `focus_names` could leak an unrelated pre-existing
+  shadow across rulebases via the same name-collision path). 32 new tests
+  (18 → 41 in `test_commit_preview.py`, plus 9 new in
+  `test_config_cleanup_tools.py`).
 - **MT Monitor round 3** (2026-07-17) — `scm_mt_analytics` now covers 24 views
   across 34 of 36 catalog paths: alerts, threat list/source, app source, incident
   list/trends/tenants/impacted, service health (CDL, gateway, outliers, unique
@@ -215,15 +244,18 @@ do about it.
 
 ## Next
 
-_Last pan.dev check: 2026-07-31 — new API family found: Site Management
-(NGFW device onboarding, added to pan.dev 2026-06-26), not yet in the
-endpoint catalog or tooled. Compliance Framework APIs (2026-07-14) were
-already shipped as `scm_compliance_center`/`scm_compliance_framework`.
-`pan-scm-sdk` (0.15.1) and `prisma-sase` (6.8.1b1) both current with
-PyPI/GitHub latest — no SDK updates pending.
-All other API-coverage Next items shipped 2026-07-17; remaining coverage
-items are blocked on RBAC, licensed tenants, PAN spec fixes, or Planner
-API-key smoke testing._
+_Last pan.dev check: 2026-08-15 — endpoint catalog regenerated (pan.dev
+commit `0a0fc283` → `8c059a77`, 3,830 endpoint paths). Surfaced one new API
+family: Config Cleanup (`config-cleanup/v1/zerohit-rules`, `posture` host) —
+shipped same day as `scm_zerohit_rules`, alongside a standalone
+`scm_rule_shadow_audit` tool and a CIDR-aware upgrade to the shared
+shadow-detection engine (see Recently shipped, above). Site Management
+(found 2026-07-31) shipped the same day it was found. `pan-scm-sdk` (0.15.1)
+and `prisma-sase` (6.8.1b1) both current with PyPI/GitHub latest — no SDK
+updates pending.
+All other API-coverage Next items shipped 2026-07-17/2026-07-31; remaining
+coverage items are blocked on RBAC, licensed tenants, PAN spec fixes, or
+Planner API-key smoke testing._
 
 - ✅ **Site Management (NGFW device onboarding)** — shipped 2026-07-31 as
   `scm_site_management` (`tools/site_management.py`), covering the new

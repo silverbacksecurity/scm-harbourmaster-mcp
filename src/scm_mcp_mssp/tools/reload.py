@@ -63,6 +63,7 @@ _RELOAD_ORDER = [
     "scm_mcp_mssp.tools.email_dlp",
     "scm_mcp_mssp.tools.posture",
     "scm_mcp_mssp.tools.compliance",
+    "scm_mcp_mssp.tools.config_cleanup",
     "scm_mcp_mssp.tools.config_orch",
     "scm_mcp_mssp.tools.site_management",
     "scm_mcp_mssp.tools.cdl_logforwarding",

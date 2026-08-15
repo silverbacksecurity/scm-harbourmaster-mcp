@@ -30,7 +30,15 @@ from ..audit.asbuilt_report import AsBuiltReportBuilder
 from ..audit.asbuilt_verify import VERIFIED_SECTIONS
 from ..audit.bpa_checks import run_all_checks
 from ..audit.cloner import clone_config
-from ..audit.commit_preview import bpa_delta, find_shadowed_rules, render_commit_preview
+from ..audit.commit_preview import (
+    bpa_delta,
+    build_address_index,
+    find_shadowed_rules,
+    render_commit_preview,
+    render_shadow_audit,
+    rule_identity,
+    unresolved_address_names,
+)
 from ..audit.drift_baseline import (
     check_drift,
     diff_snapshots,
@@ -2136,8 +2144,13 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
              modify, triaged HIGH/MEDIUM/LOW by enforcement impact.
           2. Rule shadowing — new or changed security rules that an earlier
              rule fully covers (they can never match), or that themselves
-             shadow existing rules. Conservative literal-value check: group/
-             EDL membership is not resolved, so flagged shadows are real.
+             shadow existing rules. Pre-rulebase and post-rulebase are checked
+             together in Panorama's pre-then-post evaluation order, so a
+             pre-rule shadowing a later post-rule is caught too. Source/
+             destination use real CIDR containment with address-group
+             membership resolved recursively; FQDN/wildcard addresses,
+             dynamic groups, and EDLs fall back to a conservative
+             literal-value check rather than risk a false claim.
           3. Best-practice delta — BPA findings this change introduces or
              resolves, by running the check engine against both states.
 
@@ -2174,14 +2187,33 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
 
             diffs = check_drift(baseline, candidate)
 
-            # Shadow analysis focused on the rules this commit touches
-            focus: set[str] = set()
+            # Shadow analysis focused on the rules this commit touches. Pre-rulebase
+            # and post-rulebase are checked together, pre before post, matching
+            # Panorama's evaluation order — a pre-rule can shadow a later post-rule,
+            # which checking each rulebase separately would miss.
+            #
+            # Focus entries are (rulebase, name) tuples, not bare names: a rule
+            # name isn't guaranteed unique across the pre- and post-rulebase, so
+            # a bare-name focus set could pull in an unrelated, pre-existing
+            # shadow between two untouched same-named rules in the *other*
+            # rulebase just because a touched rule elsewhere happens to share
+            # that name — defeating the point of focusing at all.
+            _position_by_field = {
+                "security_rules_pre": "pre",
+                "security_rules_post": "post",
+            }
+            focus: set[str | tuple[str, str]] = set()
             for d in diffs:
-                if d.fieldname in ("security_rules_pre", "security_rules_post"):
-                    focus |= set(d.added) | set(d.changed)
+                pos = _position_by_field.get(d.fieldname)
+                if pos is not None:
+                    focus |= {(pos, n) for n in (set(d.added) | set(d.changed))}
             shadows = (
-                find_shadowed_rules(candidate.security_rules_pre, focus)
-                + find_shadowed_rules(candidate.security_rules_post, focus)
+                find_shadowed_rules(
+                    candidate.security_rules_pre + candidate.security_rules_post,
+                    focus,
+                    addresses=candidate.addresses,
+                    address_groups=candidate.address_groups,
+                )
                 if focus
                 else []
             )
@@ -2209,6 +2241,88 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
             return report
         except Exception as exc:
             return f"Error: {handle_scm_exception(exc, tool='scm_commit_preview')}"
+
+    # ── Rule Shadow Audit (standalone, whole rulebase) ─────────────────────────
+
+    @mcp.tool()
+    def scm_rule_shadow_audit(folder: str = "Prisma Access", tenant_id: str = "") -> str:
+        """Audit the entire live rulebase for shadowed security rules — no
+        baseline or pending commit required (unlike scm_commit_preview, which
+        only checks rules the pending change touches).
+
+        Tufin/Skybox-style rule-order analysis: for every enabled security rule,
+        checks whether an earlier-evaluated rule already fully covers its
+        source/destination/zones/application/service, meaning the later rule
+        can never match any traffic. Source/destination are compared by real
+        CIDR containment (not literal string equality) with address-group
+        membership resolved recursively — "10.0.0.0/8 in rule 3" correctly
+        shadows "10.1.2.0/24 in rule 47" even though the values differ.
+
+        Pre-rulebase and post-rulebase are checked together in Panorama's
+        pre-then-post evaluation order, so a pre-rule shadowing a later
+        post-rule is caught too, not just shadows within the same rulebase.
+
+        Args:
+            folder: SCM folder to audit (also pulls in Remote Networks and
+                Mobile Users rules, matching how the rulebase is actually
+                evaluated — same multi-folder merge scm_commit_preview uses).
+            tenant_id: SCM tenant ID (MSSP mode).
+
+        Returns:
+            Markdown report: shadowed-rule list with rulebase position, top
+            offending rules ranked by how many others they shadow, and a
+            caveats section disclosing any addresses that couldn't be
+            resolved to concrete IP ranges (~1-2 min: one full extraction).
+        """
+        try:
+            client = get_client(tenant_id)
+            tsg = tenant_id or "default"
+            snap = extract_snapshot(client, folder, tsg)
+
+            all_rules = snap.security_rules_pre + snap.security_rules_post
+            enabled = [r for r in all_rules if not r.get("disabled")]
+            # Keyed by rule_identity(), not bare name — a name can legitimately
+            # repeat across the pre- and post-rulebase (or across the folders
+            # merged into `all_rules`), and a bare-name key would let a later
+            # rule's metadata silently overwrite an earlier same-named rule's,
+            # misattributing folder/position/action in the rendered report.
+            rule_meta = {
+                rule_identity(r): {
+                    "folder": str(r.get("_folder", "?")),
+                    "position": str(r.get("_position", "?")),
+                    "action": str(r.get("action", "?")),
+                }
+                for r in all_rules
+            }
+
+            # Build the address/group resolution index once and reuse it for
+            # both the shadow scan and the unresolved-names disclosure below —
+            # find_shadowed_rules would otherwise redo the same recursive
+            # resolution internally, doubling the cost of the slowest part of
+            # this tool for no benefit.
+            index = build_address_index(snap.addresses, snap.address_groups)
+            shadows = find_shadowed_rules(all_rules, index=index)
+            unresolved = unresolved_address_names(index)
+
+            report = render_shadow_audit(
+                shadows,
+                rule_meta,
+                total_rules=len(enabled),
+                unresolved=unresolved,
+                tenant_label=tsg,
+                folder=folder,
+                generated_at=datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
+            )
+            logger.info(
+                "rule_shadow_audit_complete",
+                tenant_id=tsg,
+                folder=folder,
+                total_rules=len(enabled),
+                shadows=len(shadows),
+            )
+            return report
+        except Exception as exc:
+            return f"Error: {handle_scm_exception(exc, tool='scm_rule_shadow_audit')}"
 
     # ── Incident Root-Cause Correlation ───────────────────────────────────────
 

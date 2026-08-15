@@ -2,7 +2,7 @@
 
 A copy/paste library of natural-language requests you can drop straight into Claude Desktop (or Cursor, or any MCP client connected to this server) to drive **scm-mcp-mssp**. No tool names or JSON required — just ask.
 
-**252 examples** across 33 categories, mirroring [`TOOL_REFERENCE.md`](TOOL_REFERENCE.md).
+**255 examples** across 34 categories, mirroring [`TOOL_REFERENCE.md`](TOOL_REFERENCE.md).
 
 ## Before you start
 
@@ -49,6 +49,7 @@ A copy/paste library of natural-language requests you can drop straight into Cla
 31. [Service Status](#31-service-status) (3)
 32. [SSR (Simple Service Requests)](#32-ssr-simple-service-requests) (6)
 33. [Cross-Tool Workflows](#33-cross-tool-workflows) (20)
+34. [Rule Optimization & Cleanup](#34-rule-optimization--cleanup) (3)
 
 ---
 
@@ -468,6 +469,14 @@ _Multi-step requests that chain several tools together — the kind of thing an 
 250. "Build a one-page exec summary combining the NOC dashboard, incident summary, and any tenants currently breaching their contracted tier."
 251. "Cross-check PAB posture compliance against SSPM findings for Customer-A — are the same risky devices showing up in both?"
 252. "Kick off AS-BUILT generation for every tenant that doesn't have one on file yet, one at a time, and let me know as each finishes."
+
+## 34. Rule Optimization & Cleanup
+
+_Zero-hit rule detection and CIDR-aware rule-shadow auditing._
+
+253. "Show me every zero-hit security and NAT rule for Acme Corp's Prisma Access folder, worst offenders first — I want a cleanup list before the next change window."
+254. "Run a full rule-shadow audit across Contoso Ltd's entire rulebase — I don't have a pending commit, I just want to know if any existing rule is silently dead because an earlier rule already covers it."
+255. "Before I let the engineer commit Customer-A's pending changes, run scm_commit_preview for the blast radius, then scm_zerohit_rules to see if any of the rules being touched were already zero-hit — I want the full picture in one pass."
 
 ---
 

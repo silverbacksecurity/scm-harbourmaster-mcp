@@ -7,6 +7,84 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`scm_zerohit_rules`** (`tools/config_cleanup.py`, new file) — wraps
+  pan.dev's brand-new Config Cleanup API (`GET /config-cleanup/v1/zerohit-rules`,
+  first seen on pan.dev 2026-08-14, not present in pan-scm-sdk 0.15.1) at
+  `api.strata.paloaltonetworks.com/posture` — a different host than the usual
+  `api.sase.paloaltonetworks.com` — reusing the shared `_bearer_session_for`
+  helper (`audit/extractor.py`) the same way `tools/mt_interconnect.py` does.
+  Renders a markdown table of zero-hit security/NAT rules sorted by
+  `days_with_zero_hits` descending, discloses the API's async-analysis
+  status (`in_progress`/`failed`) so results aren't mistaken for live, and
+  degrades gracefully on 401/403/404/500. Hand-written rather than
+  scaffolded — a single endpoint wasn't worth running the generic scaffolder
+  against the full 1,236-path `scm/config` family. 9 tests
+- **`scm_rule_shadow_audit`** (`tools/audit.py`) — standalone whole-rulebase
+  shadow audit, no drift baseline or pending commit required (unlike
+  `scm_commit_preview`, which only checks rules a pending change touches).
+  Extracts the live rulebase and checks every enabled security rule against
+  every rule that evaluates before it, combining `security_rules_pre` +
+  `security_rules_post` into one ordered list before calling
+  `find_shadowed_rules`, matching Panorama/SCM's actual pre-then-post
+  rulebase evaluation order. Rendered via the new `render_shadow_audit()`
+  (`audit/commit_preview.py`), with an honest coverage-caveat section
+  listing any addresses that couldn't be resolved to concrete IP ranges.
+- **CIDR-aware rule-shadow detection** (`audit/commit_preview.py`) —
+  `find_shadowed_rules` previously compared security-rule source/destination
+  fields by literal string-set containment only (`"10.0.0.0/8"` didn't shadow
+  `"10.1.2.0/24"` — different strings, same subnet, so real shadowing went
+  undetected). Now resolves real CIDR containment via stdlib `ipaddress`
+  (`_addr_covers`, `_is_subnet_of`, `_parse_ip_literal` — the latter also
+  parses hyphenated ranges like `"10.0.0.1-10.0.0.4"` via
+  `ipaddress.summarize_address_range`), plus recursive address-group
+  membership resolution (`build_address_index`, handling nested groups and
+  detecting membership cycles). FQDN addresses, `ip_wildcard` addresses
+  (non-contiguous bit masks), dynamic (tag-filter) groups, and any other
+  unresolvable name fall back to the old literal-string comparison for that
+  pair rather than risk a false "shadowed" claim. Rule pairs where either
+  rule negates source or destination are now skipped entirely from shadow
+  analysis, since the containment math doesn't model inverted matching — a
+  false claim there would tell an operator a rule is dead when it isn't. New
+  keyword-only `addresses`/`address_groups`/`index` params on
+  `find_shadowed_rules` default to `None`; omitting them disables
+  address-*group* resolution only — a bare CIDR/IP literal in source/
+  destination still gets real containment treatment either way, since
+  parsing a literal needs no index. Also fixes a real gap in the pre-existing
+  `scm_commit_preview`: it used to call `find_shadowed_rules` twice — once on
+  `security_rules_pre` alone, once on `security_rules_post` alone — so a
+  pre-rulebase rule shadowing a later post-rulebase rule was never caught,
+  since the two separate calls never compared a pre-rule against a post-rule
+  at all. Fixed to one call over the combined list, matching
+  `scm_rule_shadow_audit`'s approach.
+- **Remote Networks / Mobile Users scope-exclusion in shadow detection**
+  (`audit/commit_preview.py`) — Remote Networks and Mobile Users are
+  mutually exclusive Prisma Access enforcement pipelines (neither ever
+  evaluates the other's traffic), but the rulebase extractor merges rules
+  from both into one flat list for pre/post ordering. Before this fix,
+  `find_shadowed_rules` compared rules purely by list position, so a
+  Remote-Networks-only rule could be flagged as "shadowing" (making
+  permanently dead) an unrelated Mobile-Users-only rule it can never
+  actually affect — a false claim that `scm_rule_shadow_audit`/
+  `scm_commit_preview` would have presented as "safe to remove", and that
+  would additionally force `scm_commit_preview`'s verdict to 🔴 HIGH RISK.
+  Found by an adversarial security-audit pass on this session's own CIDR
+  upgrade (see below) and fixed the same day: rules whose folder is
+  exclusively Remote Networks or Mobile Users are no longer compared across
+  that boundary; a rule from the queried base folder (inherited by every
+  child scope) still can. Also fixed: `scm_rule_shadow_audit`'s `rule_meta`
+  and offender-ranking were keyed by bare rule name, so a name repeated
+  across the pre-/post-rulebase (or across merged folders) could silently
+  misattribute a shadow finding's folder/position/action to the wrong rule
+  instance — now keyed by `rule_identity()` (SCM object id, falling back to
+  a folder+rulebase+name composite), with the bare-name behaviour preserved
+  as a fallback. And `scm_commit_preview`'s `focus_names` matched by bare
+  name only, which could leak an unrelated, pre-existing shadow between two
+  untouched same-named rules in the *other* rulebase into a commit-preview
+  report just because a touched rule elsewhere happened to share that name
+  — `focus` entries are now `(rulebase, name)` tuples. 32 new tests
+  (18 → 41 in `test_commit_preview.py`, 9 new in `test_config_cleanup_tools.py`)
+
 ## [0.13.0] - 2026-07-31
 
 ### Added
