@@ -42,6 +42,13 @@ repos:
     hooks:
       - id: pip-audit
         args: [--skip-editable]
+        # pip-audit scans its own isolated hook venv, so the pip that
+        # pre-commit seeds there shows up as a finding. Patch it rather than
+        # suppress it: pip < 26.2 mishandles doubly-encoded package URLs from
+        # an index and can write files to arbitrary paths (CVE-2026-13346 /
+        # PYSEC-2026-3721). Not a project dependency — pip is not in
+        # pyproject.toml or uv.lock.
+        additional_dependencies: ["pip>=26.2"]
 
   # Block pushes to the public mirror (`pub` remote) that contain
   # tenant-identifying content — gitleaks catches secrets, not customer
