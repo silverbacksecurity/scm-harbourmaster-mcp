@@ -1454,6 +1454,7 @@ NCSC compliance mapping:
 
 Args:
     folder: Target SCM folder (e.g. "Shared" or a tenant folder name).
+    tenant_id: SCM tenant ID. Defaults to the active tenant.
     dry_run: If True (default) show what WOULD be created without writing.
     syslog_profile: Optional syslog server profile name to add to log forwarding.
     overwrite_existing: If True, skip objects that already exist silently.
@@ -1563,6 +1564,7 @@ Rules from folder='All' are read-only predefined rules that cannot be changed.
 
 Args:
     folder: SCM folder to search for rules (e.g. 'Prisma Access').
+    tenant_id: SCM tenant ID. Defaults to the active tenant.
     dry_run: If True (default) show what WOULD be changed without writing.
     profile_group_name: Name of the profile group to create/use.
     skip_already_profiled: If True (default), skip rules that already have
@@ -1593,6 +1595,7 @@ Maps gaps to: CAF v4.0, CE v3.2, NCSC 10 Steps, NSF controls.
 
 Args:
     folder: SCM folder to inspect.
+    tenant_id: SCM tenant ID. Defaults to the active tenant.
     position: Security rule position — "pre", "post", or "both".
 ```
 
@@ -1623,6 +1626,7 @@ Maps gaps to: NIST CSF v2.0 (GV/ID/PR/DE/RS), SP 800-53 Rev 5, SP 800-171.
 
 Args:
     folder: SCM folder to inspect.
+    tenant_id: SCM tenant ID. Defaults to the active tenant.
     position: Security rule position — "pre", "post", or "both".
 ```
 
@@ -3354,7 +3358,6 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
-| `tenant_id` | `str` | `''` |
 | `severity` | `str` | `''` |
 | `status` | `str` | `''` |
 | `product` | `str` | `''` |
@@ -3362,6 +3365,7 @@ Args:
 | `days` | `int` | `30` |
 | `limit` | `int` | `100` |
 | `all_tenants` | `bool` | `False` |
+| `tenant_id` | `str` | `''` |
 
 ### `scm_incident_summary`
 
@@ -3382,9 +3386,9 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
-| `tenant_id` | `str` | `''` |
 | `days` | `int` | `7` |
 | `all_tenants` | `bool` | `True` |
+| `tenant_id` | `str` | `''` |
 
 ### `scm_posture_report`
 
@@ -4457,8 +4461,8 @@ Returns:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
-| `tenant_id` | `str` | `''` |
 | `resource` | `str` | `''` |
+| `tenant_id` | `str` | `''` |
 | `body` | `str` | `''` |
 | `action` | `str` | `'schedule'` |
 | `download_id` | `str` | `''` |

@@ -21,6 +21,7 @@ tests keep it from coming back.
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 
 import pytest
@@ -71,6 +72,33 @@ def test_conditional_client_tools_are_not_scm_tool_decorated(fpath: Path) -> Non
             "The decorator resolves get_client(tenant_id) eagerly, which breaks the path "
             "where that client is not needed (e.g. an all_tenants sweep must survive one "
             "tenant's credentials failing). Resolve the client inside the function instead."
+        )
+
+
+@pytest.mark.parametrize(
+    "fpath",
+    sorted(p for p in TOOLS_DIR.glob("*.py") if p.name != "__init__.py"),
+    ids=lambda p: p.name,
+)
+def test_tool_docstrings_document_tenant_id(fpath: Path) -> None:
+    """Every tool exposing `tenant_id` must document it.
+
+    Docstrings are the tool's public contract — gen_docs.py copies them
+    verbatim into TOOL_REFERENCE.md, and the MCP client reads them to decide
+    how to call the tool. An undocumented `tenant_id` reads as "this tool has
+    no tenant selector", which is wrong for every tool here.
+    """
+    for node in _tool_functions(fpath):
+        doc = ast.get_docstring(node) or ""
+        if "Args:" not in doc:
+            continue  # no parameter block at all — nothing to be inconsistent with
+        params = {a.arg for a in node.args.args}
+        exposes_tenant_id = _uses_scm_tool(node) or "tenant_id" in params
+        if not exposes_tenant_id:
+            continue
+        assert re.search(r"^\s*tenant_id\s*:", doc, re.M), (
+            f"{fpath.name}:{node.name} exposes a `tenant_id` parameter but its "
+            "docstring's Args: block does not document it."
         )
 
 

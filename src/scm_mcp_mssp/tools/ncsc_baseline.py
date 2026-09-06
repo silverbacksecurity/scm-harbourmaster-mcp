@@ -70,6 +70,7 @@ def register_ncsc_tools(mcp: FastMCP, get_client: Callable[..., Any]) -> None:
 
         Args:
             folder: Target SCM folder (e.g. "Shared" or a tenant folder name).
+            tenant_id: SCM tenant ID. Defaults to the active tenant.
             dry_run: If True (default) show what WOULD be created without writing.
             syslog_profile: Optional syslog server profile name to add to log forwarding.
             overwrite_existing: If True, skip objects that already exist silently.
@@ -432,6 +433,7 @@ def register_ncsc_tools(mcp: FastMCP, get_client: Callable[..., Any]) -> None:
 
         Args:
             folder: SCM folder to search for rules (e.g. 'Prisma Access').
+            tenant_id: SCM tenant ID. Defaults to the active tenant.
             dry_run: If True (default) show what WOULD be changed without writing.
             profile_group_name: Name of the profile group to create/use.
             skip_already_profiled: If True (default), skip rules that already have
@@ -615,6 +617,7 @@ def register_ncsc_tools(mcp: FastMCP, get_client: Callable[..., Any]) -> None:
 
         Args:
             folder: SCM folder to inspect.
+            tenant_id: SCM tenant ID. Defaults to the active tenant.
             position: Security rule position — "pre", "post", or "both".
         """
         gaps: list[GapItem] = []
@@ -737,6 +740,7 @@ def register_ncsc_tools(mcp: FastMCP, get_client: Callable[..., Any]) -> None:
 
         Args:
             folder: SCM folder to inspect.
+            tenant_id: SCM tenant ID. Defaults to the active tenant.
             position: Security rule position — "pre", "post", or "both".
         """
         gaps: list[GapItem] = []
