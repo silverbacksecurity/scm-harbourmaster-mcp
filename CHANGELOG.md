@@ -8,6 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`scm_policy_optimizer_rules` / `scm_policy_optimizer_rule`**
+  (`tools/policy_optimizer.py`, new file) — wraps the new Policy Optimizer API
+  (`GET /policy-optimizer/v1/security-rules[/{id}]`, announced in the SCM API
+  release notes for 2026-08 and split into its own pan.dev spec on 2026-08-18;
+  not present in pan-scm-sdk 0.15.1). Same host and `_bearer_session_for`
+  pattern as `tools/config_cleanup.py`. The list tool ranks analysed rules by
+  recommendation count then traffic; the by-ID tool renders the original rule
+  alongside the narrowed, application-specific replacements the optimizer
+  suggests in its place — the API side of App-ID cleanup. Read-only: accepting
+  or disabling a recommendation isn't exposed by this API family.
+  Live-verified against three lab tenants, which surfaced three quirks now
+  handled and documented: this API's manager sentinel is `"cloud_managed"`
+  where the sibling Config Cleanup API wants `"SCM"` (the wrong one 404s
+  "Manager not found"); `recommendation_count` under-reports in the list
+  response (a rule listed as 0 returned 2 from the by-ID endpoint), so the
+  renderer emits an explicit caveat rather than implying a clean rule; and
+  `name`/`action`/`location` arrive as `""` rather than absent, so a
+  placeholder helper keeps table cells from rendering blank. 20 tests
 - **`scm_zerohit_rules`** (`tools/config_cleanup.py`, new file) — wraps
   pan.dev's brand-new Config Cleanup API (`GET /config-cleanup/v1/zerohit-rules`,
   first seen on pan.dev 2026-08-14, not present in pan-scm-sdk 0.15.1) at

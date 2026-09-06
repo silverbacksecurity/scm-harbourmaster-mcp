@@ -729,6 +729,29 @@ scm_planner_status:
   scope: cross_tenant
   idempotent: true
   retry_policy: retry
+scm_policy_optimizer_rule:
+  access: read
+  domain: posture_compliance
+  idempotent: true
+  known_failure_modes: Returns 404 when the rule UUID is unknown to the optimizer or has
+    no analysis yet, which is not distinguishable from a wrong manager_hostname. New API
+    (2026-08); may 401/403 on accounts without the entitlement yet.
+  retry_policy: retry
+  scope: tenant
+scm_policy_optimizer_rules:
+  access: read
+  domain: posture_compliance
+  idempotent: true
+  known_failure_modes: An empty result is also the expected response when the optimizer
+    has not yet analysed the manager, so it does not imply a clean rulebase. The
+    recommendation_count field under-reports here (a rule listed as 0 returned 2 from
+    scm_policy_optimizer_rule), so confirm per-rule before concluding there is no advice.
+    Rule name/action/location are often "" rather than absent. Uses manager_hostname
+    "cloud_managed", unlike the sibling scm_zerohit_rules which uses "SCM" — the wrong
+    sentinel 404s with "Manager not found". New API (2026-08); may 401/403 on accounts
+    without the entitlement yet.
+  retry_policy: retry
+  scope: tenant
 scm_posture_report:
   access: read
   domain: posture_compliance

@@ -47,6 +47,7 @@ from .tools.ops import register_ops_tools
 from .tools.pab import register_pab_tools
 from .tools.pab_msp import register_pab_msp_tools
 from .tools.planner_tools import register_planner_tools
+from .tools.policy_optimizer import register_policy_optimizer_tools
 from .tools.posture import register_posture_tools
 from .tools.reload import register_reload_tool
 from .tools.sdwan import register_sdwan_tools
@@ -166,6 +167,7 @@ def register_all_tools(
     register_cdl_logforwarding_tools(mcp, get_client)
     register_compliance_tools(mcp, get_client)
     register_config_cleanup_tools(mcp, get_client)
+    register_policy_optimizer_tools(mcp, get_client)
     register_config_orch_tools(mcp, get_client)
     register_site_management_tools(mcp, get_client)
     register_mssp_tools(mcp, get_client, get_settings)

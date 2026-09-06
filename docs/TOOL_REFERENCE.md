@@ -4,7 +4,7 @@
 
 All tools authenticate via Bearer-token OAuth (SASE client credentials) configured in `settings.toml` / `.secrets.toml`.
 
-**165 tools** across 34 modules.
+**167 tools** across 35 modules.
 
 ## Table of Contents
 
@@ -39,6 +39,7 @@ All tools authenticate via Bearer-token OAuth (SASE client credentials) configur
 - [Mt Monitor](#mt-monitor)
 - [Pab](#pab)
 - [Planner Tools](#planner-tools)
+- [Policy Optimizer](#policy-optimizer)
 - [Service Status](#service-status)
 - [Site Management](#site-management)
 - [Ssr](#ssr)
@@ -4842,6 +4843,85 @@ Returns:
 |-----------|------|---------|
 | `tenants` | `str` | `''` |
 | `concurrency` | `int` | `3` |
+
+---
+
+## Policy Optimizer
+
+_Policy Optimizer — read-only least-privilege rule recommendations._
+
+### `scm_policy_optimizer_rules`
+
+Security rules that have least-privilege optimization recommendations.
+
+```
+New SCM Policy Optimizer API (2026-08). Lists overly permissive rules the
+optimizer has analysed, ranked by how many replacement rules it suggests
+(biggest cleanup win first). Read-only — use `scm_policy_optimizer_rule`
+to see the suggested replacements for one rule.
+
+The `recommendation_count` in this response under-reports (live-verified:
+a rule listed as 0 returned 2 from the by-ID endpoint), so do not report a
+rule as having no recommendations on the strength of this list alone.
+
+Args:
+    tenant_id: SCM tenant ID (MSSP mode).
+    manager_hostname: "cloud_managed" for Strata Cloud Manager (default), or a
+        Panorama hostname for Panorama-managed rules. Note this differs from
+        the sibling `scm_zerohit_rules` tool, which uses "SCM".
+    location: Filter by folder (cloud_managed) or device group/template (Panorama).
+    min_traffic: Only rules with at least this many bytes over the lookback
+        period. Omit for no lower bound (0 is a valid bound, not "unset").
+    max_traffic: Only rules with at most this many bytes over the lookback period.
+    min_sessions: Only rules with at least this many sessions.
+    max_sessions: Only rules with at most this many sessions.
+    limit: Max rules to return (default 200).
+    offset: Pagination offset.
+
+Returns:
+    Markdown table of rules ranked by recommendation count, or an actionable
+    message on 4xx/5xx.
+```
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `tenant_id` | `str` | `''` |
+| `manager_hostname` | `str` | `'cloud_managed'` |
+| `location` | `str` | `''` |
+| `min_traffic` | `int` | `-1` |
+| `max_traffic` | `int` | `-1` |
+| `min_sessions` | `int` | `-1` |
+| `max_sessions` | `int` | `-1` |
+| `limit` | `int` | `200` |
+| `offset` | `int` | `0` |
+
+### `scm_policy_optimizer_rule`
+
+Recommended least-privilege replacement rules for one security rule.
+
+```
+New SCM Policy Optimizer API (2026-08). Returns the original rule plus the
+narrowed, application-specific rules the optimizer suggests in its place —
+together they cover the applications actually seen in that rule's traffic.
+Read-only; accepting a recommendation is not exposed by this API.
+
+Args:
+    tenant_id: SCM tenant ID (MSSP mode).
+    rule_id: UUID of the security rule (the Rule ID column from
+        `scm_policy_optimizer_rules`).
+    manager_hostname: "cloud_managed" for Strata Cloud Manager (default), or the
+        Panorama hostname that owns this rule.
+
+Returns:
+    Markdown summary of the original rule and its recommended replacements,
+    or an actionable message on 4xx/5xx.
+```
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `tenant_id` | `str` | `''` |
+| `rule_id` | `str` | `—` |
+| `manager_hostname` | `str` | `'cloud_managed'` |
 
 ---
 

@@ -472,11 +472,13 @@ _Multi-step requests that chain several tools together — the kind of thing an 
 
 ## 34. Rule Optimization & Cleanup
 
-_Zero-hit rule detection and CIDR-aware rule-shadow auditing._
+_Zero-hit rule detection, least-privilege App-ID recommendations, and CIDR-aware rule-shadow auditing._
 
 253. "Show me every zero-hit security and NAT rule for Acme Corp's Prisma Access folder, worst offenders first — I want a cleanup list before the next change window."
 254. "Run a full rule-shadow audit across Contoso Ltd's entire rulebase — I don't have a pending commit, I just want to know if any existing rule is silently dead because an earlier rule already covers it."
 255. "Before I let the engineer commit Customer-A's pending changes, run scm_commit_preview for the blast radius, then scm_zerohit_rules to see if any of the rules being touched were already zero-hit — I want the full picture in one pass."
+256. "Which of Acme Corp's security rules does the Policy Optimizer have App-ID recommendations for? Rank them by cleanup value, then pull the suggested replacement rules for the top one so I can see exactly what it wants to narrow `application: any` down to."
+257. "For Contoso Ltd, list the optimizer's analysed rules that pushed more than a gigabyte of traffic, and for each one show me the recommended least-privilege replacements — I want to know how much of that traffic is unknown-tcp/unknown-udp before I commit to narrowing anything."
 
 ---
 
