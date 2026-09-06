@@ -32,7 +32,6 @@ from mcp.server.fastmcp import FastMCP
 from ..config.settings import load_all_tenant_configs
 from ..utils.errors import handle_scm_exception
 from ..utils.logging import get_logger
-from ..utils.tool_decorator import scm_tool
 
 logger = get_logger(__name__)
 
@@ -481,16 +480,13 @@ def _append_note(current: str, note: str) -> str:
 
 def register_ssr_tools(mcp: FastMCP, get_client: Any) -> None:
     """Register the SSR tool — ``scm_ssr_execute``."""
-    tool = scm_tool(get_client)
 
     @mcp.tool()
-    @tool
-    def scm_ssr_execute(
-        client: Any,
-        tenant_id: str,
+    def scm_ssr_execute(  # noqa: C901
         operation: str,
         target: str,
         ticket_ref: str,
+        tenant_id: str = "",
         folder: str = "",
         action: str = "add",
         dry_run: bool = True,
@@ -582,6 +578,19 @@ def register_ssr_tools(mcp: FastMCP, get_client: Any) -> None:
                 ticket_ref,
                 "error",
                 error="No SSR configuration found. Add `ssr_objects` to the tenant config in settings.toml.",
+            )
+
+        # --- Resolve folder ---
+        try:
+            client = get_client(tenant_id)
+        except Exception as exc:
+            return _response(
+                operation,
+                target,
+                dry_run,
+                ticket_ref,
+                "error",
+                error=f"Failed to resolve SCM client: {exc}",
             )
 
         folder = folder.strip() or _resolve_default_folder(tenant_id)

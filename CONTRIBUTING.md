@@ -88,7 +88,10 @@ All four must pass — the CI gate blocks merges if they don't.
 - **Never** commit `.secrets.toml`, `.env`, report files (`*.md`/`*.docx` named after a tenant or customer, e.g. `tenant-*`), or backup JSON.
 - The `.gitignore` blocks most of these; if you hit a false negative, fix `.gitignore` in the same PR.
 - Rotate any credential that is accidentally committed immediately.
-- This repo mirrors to a **public** repo (`pub` remote). Gitignore only stops whole tenant-named files — it does not catch a real tenant name written into the *content* of an otherwise-normal file (e.g. prose in `ROADMAP.md`), which is how a customer name leaked into public history on 2026-07-13. Run `uv run pre-commit install --hook-type pre-push` once (see README Development section) so `scripts/check_public_leak.py` blocks any push to `pub` containing a known tenant identifier from `settings.toml`. To audit a commit manually before a squash-publish: `uv run python scripts/check_public_leak.py --commit HEAD`.
+- This repo mirrors to a **public** repo (`pub` remote). Gitignore only stops whole tenant-named files — it does not catch a real tenant name written into the *content* of an otherwise-normal file (e.g. prose in `ROADMAP.md`), which is how a customer name leaked into public history on 2026-07-13. Run `uv run pre-commit install --hook-type pre-push` once (see README Development section) so `scripts/check_public_leak.py` blocks any push to `pub` containing a known tenant identifier from `settings.toml`.
+  - It scans **every commit in the pushed range**, not just the tip: a name added in one commit and removed in the next is still published permanently, so redacting before pushing is not enough — the offending commit itself must be rewritten.
+  - It **fails closed**. If it cannot read `settings.toml`, or cannot work out which commits are being pushed, it refuses the push rather than reporting a clean result. A guard that passes without checking is worse than no guard.
+  - To audit manually before a squash-publish: `uv run python scripts/check_public_leak.py --range pub/master..HEAD` (or `--commit HEAD` for one commit).
 
 ## Release process
 

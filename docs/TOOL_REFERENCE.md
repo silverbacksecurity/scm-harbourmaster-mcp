@@ -5040,10 +5040,10 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
-| `tenant_id` | `str` | `''` |
 | `operation` | `str` | `—` |
 | `target` | `str` | `—` |
 | `ticket_ref` | `str` | `—` |
+| `tenant_id` | `str` | `''` |
 | `folder` | `str` | `''` |
 | `action` | `str` | `'add'` |
 | `dry_run` | `bool` | `True` |
