@@ -21,6 +21,7 @@ from mcp.server.fastmcp import FastMCP
 
 from ..audit.extractor import _bearer_session_for
 from ..utils.logging import get_logger
+from ..utils.tool_decorator import scm_tool
 
 logger = get_logger(__name__)
 
@@ -91,13 +92,11 @@ def _render(title: str, url: str, status: int, data: Any) -> str:
 
 def register_pab_msp_tools(mcp: FastMCP, get_client: Any) -> None:
     """Register Prisma Access Browser for MSP reporting tools."""
+    tool = scm_tool(get_client)
 
     @mcp.tool()
-    def scm_pab_msp_summary(
-        scope: str = "tenants",
-        region: str = "europe",
-        tenant_id: str = "",
-    ) -> str:
+    @tool
+    def scm_pab_msp_summary(client: Any, scope: str = "tenants", region: str = "europe") -> str:
         """Prisma Access Browser MSP summary — users, tenants, or CIE.
 
         Region-level roll-ups from the PAB for MSP API (multitenant; the
@@ -118,16 +117,14 @@ def register_pab_msp_tools(mcp: FastMCP, get_client: Any) -> None:
         url = _SUMMARY_SCOPES.get(scope)
         if url is None:
             return f"Unknown scope {scope!r}. Valid scopes: {', '.join(sorted(_SUMMARY_SCOPES))}"
-        client = get_client(tenant_id)
         status, data = _post_json(client, url, {"region": region})
         logger.info("pab_msp_summary", scope=scope, status=status)
         return _render(f"PAB MSP summary — {scope}", url, status, data)
 
     @mcp.tool()
+    @tool
     def scm_pab_msp_report(
-        report: str = "count",
-        tsg_id: str = "",
-        tenant_id: str = "",
+        client: Any, tenant_id: str, report: str = "count", tsg_id: str = ""
     ) -> str:
         """Prisma Access Browser MSP security-event report for one tenant.
 
@@ -150,14 +147,14 @@ def register_pab_msp_tools(mcp: FastMCP, get_client: Any) -> None:
         target = tsg_id or tenant_id
         if not target:
             return "A tsg_id (or tenant_id) is required to scope the report."
-        client = get_client(tenant_id)
         url = f"{_BASE}/report/{report}"
         status, data = _post_json(client, url, {"tsg_id": target})
         logger.info("pab_msp_report", report=report, status=status)
         return _render(f"PAB MSP report — {report} ({target})", url, status, data)
 
     @mcp.tool()
-    def scm_pab_msp_auth_profile(tenant_id: str = "") -> str:
+    @tool
+    def scm_pab_msp_auth_profile(client: Any) -> str:
         """Prisma Access Browser MSP tenant authentication profile.
 
         The one path in the already-tooled PAB-for-MSP family with no
@@ -169,7 +166,6 @@ def register_pab_msp_tools(mcp: FastMCP, get_client: Any) -> None:
         Returns:
             Markdown with a JSON payload, or an actionable message on 4xx.
         """
-        client = get_client(tenant_id)
         url = f"{_BASE}/tenant/auth_profile"
         status, data = _get_json(client, url)
         logger.info("pab_msp_auth_profile", status=status)

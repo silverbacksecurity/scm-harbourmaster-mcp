@@ -32,22 +32,24 @@ from ..audit.ncsc_templates import (
     check_log_forwarding,
     check_security_rules,
 )
-from ..utils.errors import handle_scm_exception
 from ..utils.logging import get_logger
+from ..utils.tool_decorator import scm_tool
 
 logger = get_logger(__name__)
 
 
 def register_ncsc_tools(mcp: FastMCP, get_client: Callable[..., Any]) -> None:
     """Register NCSC baseline tools with the MCP server."""
+    tool = scm_tool(get_client)
 
     @mcp.tool()
+    @tool
     def scm_apply_ncsc_baseline(
+        client: Any,
         folder: str,
         dry_run: bool = True,
         syslog_profile: str = "",
         overwrite_existing: bool = False,
-        tenant_id: str = "",
     ) -> str:
         """
         Create NCSC-compliant security profiles and deny-all rule in a SCM folder.
@@ -72,10 +74,6 @@ def register_ncsc_tools(mcp: FastMCP, get_client: Callable[..., Any]) -> None:
             syslog_profile: Optional syslog server profile name to add to log forwarding.
             overwrite_existing: If True, skip objects that already exist silently.
         """
-        try:
-            client = get_client(tenant_id)
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc)}"
         templates = build_templates(folder, syslog_profile=syslog_profile or None)
 
         results: list[str] = []
@@ -145,12 +143,13 @@ def register_ncsc_tools(mcp: FastMCP, get_client: Callable[..., Any]) -> None:
     # ── Create NCSC snippet ───────────────────────────────────────────────────
 
     @mcp.tool()
+    @tool
     def scm_create_ncsc_snippet(
+        client: Any,
         snippet_name: str = "NCSC-Compliance",
         dry_run: bool = True,
         syslog_profile: str = "",
         description: str = "NCSC CAF v4.0 / CE v3.2 compliance baseline — managed by scm-mcp-mssp",
-        tenant_id: str = "",
     ) -> str:
         """
         Create an SCM snippet containing NCSC-compliant security profiles.
@@ -179,7 +178,6 @@ def register_ncsc_tools(mcp: FastMCP, get_client: Callable[..., Any]) -> None:
             description: Description for the snippet container.
             tenant_id: Tenant to target (default: first loaded tenant).
         """
-        client = get_client(tenant_id=tenant_id) if tenant_id else get_client()
         templates = build_snippet_templates(snippet_name, syslog_profile=syslog_profile or None)
 
         results: list[str] = []
@@ -275,12 +273,13 @@ def register_ncsc_tools(mcp: FastMCP, get_client: Callable[..., Any]) -> None:
     # ── Create NIST snippet ───────────────────────────────────────────────────
 
     @mcp.tool()
+    @tool
     def scm_create_nist_snippet(
+        client: Any,
         snippet_name: str = "NIST-Compliance",
         dry_run: bool = True,
         syslog_profile: str = "",
         description: str = "NIST CSF v2.0 / SP 800-53 Rev 5 compliance baseline — managed by scm-mcp-mssp",
-        tenant_id: str = "",
     ) -> str:
         """
         Create an SCM snippet containing NIST-compliant security profiles.
@@ -310,7 +309,6 @@ def register_ncsc_tools(mcp: FastMCP, get_client: Callable[..., Any]) -> None:
             description: Description for the snippet container.
             tenant_id: Tenant to target (default: first loaded tenant).
         """
-        client = get_client(tenant_id=tenant_id) if tenant_id else get_client()
         templates = _nist.build_nist_snippet_templates(
             snippet_name, syslog_profile=syslog_profile or None
         )
@@ -408,12 +406,13 @@ def register_ncsc_tools(mcp: FastMCP, get_client: Callable[..., Any]) -> None:
     # ── Attach profiles to rules ───────────────────────────────────────────────
 
     @mcp.tool()
+    @tool
     def scm_attach_ncsc_profiles(
+        client: Any,
         folder: str,
         dry_run: bool = True,
         profile_group_name: str = "NCSC-Baseline",
         skip_already_profiled: bool = True,
-        tenant_id: str = "",
     ) -> str:
         """
         Create the NCSC-Baseline security profile group and attach it to all
@@ -440,10 +439,6 @@ def register_ncsc_tools(mcp: FastMCP, get_client: Callable[..., Any]) -> None:
         """
         from scm.models.security.security_rules import SecurityRuleUpdateModel
 
-        try:
-            client = get_client(tenant_id)
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc)}"
         results: list[str] = []
         mode = "DRY-RUN" if dry_run else "APPLY"
         results.append(f"## NCSC Profile Attach — {mode} folder '{folder}'\n")
@@ -604,11 +599,8 @@ def register_ncsc_tools(mcp: FastMCP, get_client: Callable[..., Any]) -> None:
     # ── Gap report ─────────────────────────────────────────────────────────────
 
     @mcp.tool()
-    def scm_ncsc_gap(
-        folder: str,
-        position: str = "pre",
-        tenant_id: str = "",
-    ) -> str:
+    @tool
+    def scm_ncsc_gap(client: Any, folder: str, position: str = "pre") -> str:
         """
         Compare live SCM config against the NCSC baseline and report compliance gaps.
 
@@ -625,10 +617,6 @@ def register_ncsc_tools(mcp: FastMCP, get_client: Callable[..., Any]) -> None:
             folder: SCM folder to inspect.
             position: Security rule position — "pre", "post", or "both".
         """
-        try:
-            client = get_client(tenant_id)
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc)}"
         gaps: list[GapItem] = []
         warnings: list[str] = []
 
@@ -728,11 +716,8 @@ def register_ncsc_tools(mcp: FastMCP, get_client: Callable[..., Any]) -> None:
         return "\n".join(lines)
 
     @mcp.tool()
-    def scm_nist_gap(
-        folder: str,
-        position: str = "pre",
-        tenant_id: str = "",
-    ) -> str:
+    @tool
+    def scm_nist_gap(client: Any, folder: str, position: str = "pre") -> str:
         """
         Compare live SCM config against the NIST baseline and report compliance gaps.
 
@@ -754,10 +739,6 @@ def register_ncsc_tools(mcp: FastMCP, get_client: Callable[..., Any]) -> None:
             folder: SCM folder to inspect.
             position: Security rule position — "pre", "post", or "both".
         """
-        try:
-            client = get_client(tenant_id)
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc)}"
         gaps: list[GapItem] = []
         warnings: list[str] = []
 

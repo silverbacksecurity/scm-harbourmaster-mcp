@@ -83,6 +83,7 @@ from ..auth.oauth import fetch_licenses, get_scm_client, get_tenant_meta
 from ..config.settings import load_all_tenant_configs
 from ..utils.errors import handle_scm_exception
 from ..utils.logging import get_logger
+from ..utils.tool_decorator import scm_tool
 from .ops import _CERT_FOLDERS, _fetch_certs, _licence_rows
 
 logger = get_logger(__name__)
@@ -298,15 +299,14 @@ def _md_to_docx(md: str, out_path: Path) -> str:
 
 def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
     """Register all audit, BPA, and NCSC compliance tools."""
+    tool = scm_tool(get_client)
+    tool = scm_tool(get_client)
 
     # ── Config Backup ─────────────────────────────────────────────────────────
 
     @mcp.tool()
-    def scm_config_backup(
-        folder: str,
-        tenant_id: str = "",
-        output_dir: str = "",
-    ) -> str:
+    @tool
+    def scm_config_backup(client: Any, tenant_id: str, folder: str, output_dir: str = "") -> str:
         """Export a complete SCM configuration snapshot to a JSON backup file.
 
         Pulls all resource types for the folder (addresses, security rules,
@@ -322,79 +322,77 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
         Returns:
             Path to the written backup file and a resource count summary.
         """
-        try:
-            client = get_client(tenant_id)
-            snap = extract_snapshot(client, folder=folder, tenant_id=tenant_id or "default")
+        snap = extract_snapshot(client, folder=folder, tenant_id=tenant_id or "default")
 
-            backup_dir = Path(output_dir) if output_dir else _DEFAULT_BACKUP_DIR
-            backup_dir.mkdir(parents=True, exist_ok=True)
+        backup_dir = Path(output_dir) if output_dir else _DEFAULT_BACKUP_DIR
+        backup_dir.mkdir(parents=True, exist_ok=True)
 
-            ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-            safe_folder = folder.replace("/", "_").replace(" ", "-")
-            filename = backup_dir / f"scm_backup_{safe_folder}_{ts}.json"
+        ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        safe_folder = folder.replace("/", "_").replace(" ", "-")
+        filename = backup_dir / f"scm_backup_{safe_folder}_{ts}.json"
 
-            data: dict[str, Any] = {
-                "backup_version": "1",
-                "generated_at": datetime.now(UTC).isoformat(),
-                "folder": folder,
-                "tenant_id": snap.tenant_id,
-                "resources": {
-                    "addresses": snap.addresses,
-                    "address_groups": snap.address_groups,
-                    "services": snap.services,
-                    "service_groups": snap.service_groups,
-                    "tags": snap.tags,
-                    "edls": snap.edls,
-                    "applications": snap.applications,
-                    "application_groups": snap.application_groups,
-                    "hip_objects": snap.hip_objects,
-                    "hip_profiles": snap.hip_profiles,
-                    "anti_spyware_profiles": snap.anti_spyware_profiles,
-                    "vulnerability_profiles": snap.vulnerability_profiles,
-                    "url_categories": snap.url_categories,
-                    "wildfire_profiles": snap.wildfire_profiles,
-                    "dns_security_profiles": snap.dns_security_profiles,
-                    "decryption_profiles": snap.decryption_profiles,
-                    "file_blocking_profiles": snap.file_blocking_profiles,
-                    "log_forwarding_profiles": snap.log_forwarding_profiles,
-                    "syslog_profiles": snap.syslog_profiles,
-                    "security_rules_pre": snap.security_rules_pre,
-                    "security_rules_post": snap.security_rules_post,
-                    "nat_rules": snap.nat_rules,
-                    "decryption_rules": snap.decryption_rules,
-                    "app_override_rules": snap.app_override_rules,
-                    "zones": snap.zones,
-                    "ike_gateways": snap.ike_gateways,
-                    "ipsec_tunnels": snap.ipsec_tunnels,
-                    "zone_protection_profiles": snap.zone_protection_profiles,
-                    "remote_networks": snap.remote_networks,
-                    "service_connections": snap.service_connections,
-                },
-                "extraction_errors": snap.extraction_errors,
-            }
+        data: dict[str, Any] = {
+            "backup_version": "1",
+            "generated_at": datetime.now(UTC).isoformat(),
+            "folder": folder,
+            "tenant_id": snap.tenant_id,
+            "resources": {
+                "addresses": snap.addresses,
+                "address_groups": snap.address_groups,
+                "services": snap.services,
+                "service_groups": snap.service_groups,
+                "tags": snap.tags,
+                "edls": snap.edls,
+                "applications": snap.applications,
+                "application_groups": snap.application_groups,
+                "hip_objects": snap.hip_objects,
+                "hip_profiles": snap.hip_profiles,
+                "anti_spyware_profiles": snap.anti_spyware_profiles,
+                "vulnerability_profiles": snap.vulnerability_profiles,
+                "url_categories": snap.url_categories,
+                "wildfire_profiles": snap.wildfire_profiles,
+                "dns_security_profiles": snap.dns_security_profiles,
+                "decryption_profiles": snap.decryption_profiles,
+                "file_blocking_profiles": snap.file_blocking_profiles,
+                "log_forwarding_profiles": snap.log_forwarding_profiles,
+                "syslog_profiles": snap.syslog_profiles,
+                "security_rules_pre": snap.security_rules_pre,
+                "security_rules_post": snap.security_rules_post,
+                "nat_rules": snap.nat_rules,
+                "decryption_rules": snap.decryption_rules,
+                "app_override_rules": snap.app_override_rules,
+                "zones": snap.zones,
+                "ike_gateways": snap.ike_gateways,
+                "ipsec_tunnels": snap.ipsec_tunnels,
+                "zone_protection_profiles": snap.zone_protection_profiles,
+                "remote_networks": snap.remote_networks,
+                "service_connections": snap.service_connections,
+            },
+            "extraction_errors": snap.extraction_errors,
+        }
 
-            filename.write_text(json.dumps(data, indent=2, default=str))
-            logger.info("config_backup_written", path=str(filename), folder=folder)
+        filename.write_text(json.dumps(data, indent=2, default=str))
+        logger.info("config_backup_written", path=str(filename), folder=folder)
 
-            counts = {k: len(v) for k, v in data["resources"].items() if v}
-            summary = "\n".join(f"  {k}: {v}" for k, v in sorted(counts.items()))
-            error_note = (
-                f"\n\nExtraction errors ({len(snap.extraction_errors)}):\n"
-                + "\n".join(f"  - {e}" for e in snap.extraction_errors)
-                if snap.extraction_errors
-                else ""
-            )
+        counts = {k: len(v) for k, v in data["resources"].items() if v}
+        summary = "\n".join(f"  {k}: {v}" for k, v in sorted(counts.items()))
+        error_note = (
+            f"\n\nExtraction errors ({len(snap.extraction_errors)}):\n"
+            + "\n".join(f"  - {e}" for e in snap.extraction_errors)
+            if snap.extraction_errors
+            else ""
+        )
 
-            return f"Backup written to: {filename}\n\nResource counts:\n{summary}{error_note}"
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc)}"
+        return f"Backup written to: {filename}\n\nResource counts:\n{summary}{error_note}"
 
     # ── BPA Assessment ────────────────────────────────────────────────────────
 
     @mcp.tool()
+    @tool
     def scm_bpa_assess(
+        client: Any,
+        tenant_id: str,
         folder: str,
-        tenant_id: str = "",
         severity_filter: str = "",
         failed_only: bool = False,
     ) -> str:
@@ -420,42 +418,35 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
         Returns:
             JSON-formatted BPA findings.
         """
-        try:
-            client = get_client(tenant_id)
-            snap = extract_snapshot(client, folder=folder, tenant_id=tenant_id or "default")
-            findings = run_all_checks(snap)
+        snap = extract_snapshot(client, folder=folder, tenant_id=tenant_id or "default")
+        findings = run_all_checks(snap)
 
-            if severity_filter:
-                findings = [f for f in findings if f.severity.value == severity_filter.lower()]
-            if failed_only:
-                findings = [f for f in findings if f.status in (Status.FAIL, Status.WARN)]
+        if severity_filter:
+            findings = [f for f in findings if f.severity.value == severity_filter.lower()]
+        if failed_only:
+            findings = [f for f in findings if f.status in (Status.FAIL, Status.WARN)]
 
-            from collections import Counter
+        from collections import Counter
 
-            status_counts = Counter(f.status.value for f in findings)
+        status_counts = Counter(f.status.value for f in findings)
 
-            result = {
-                "folder": folder,
-                "total": len(findings),
-                "passed": status_counts.get("pass", 0),
-                "failed": status_counts.get("fail", 0),
-                "warnings": status_counts.get("warn", 0),
-                "skipped": status_counts.get("skip", 0),
-                "extraction_errors": len(snap.extraction_errors),
-                "findings": [f.to_dict() for f in findings],
-            }
-            return json.dumps(result, indent=2)
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc)}"
+        result = {
+            "folder": folder,
+            "total": len(findings),
+            "passed": status_counts.get("pass", 0),
+            "failed": status_counts.get("fail", 0),
+            "warnings": status_counts.get("warn", 0),
+            "skipped": status_counts.get("skip", 0),
+            "extraction_errors": len(snap.extraction_errors),
+            "findings": [f.to_dict() for f in findings],
+        }
+        return json.dumps(result, indent=2)
 
     # ── NCSC Assessment ───────────────────────────────────────────────────────
 
     @mcp.tool()
-    def scm_ncsc_assess(
-        folder: str,
-        tenant_id: str = "",
-        framework: str = "all",
-    ) -> str:
+    @tool
+    def scm_ncsc_assess(client: Any, tenant_id: str, folder: str, framework: str = "all") -> str:
         """Assess SCM configuration against UK NCSC compliance frameworks.
 
         Evaluates the live SCM configuration against:
@@ -474,80 +465,74 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
         Returns:
             JSON NCSC compliance view with per-control status.
         """
-        try:
-            client = get_client(tenant_id)
-            snap = extract_snapshot(client, folder=folder, tenant_id=tenant_id or "default")
-            findings = run_all_checks(snap)
+        snap = extract_snapshot(client, folder=folder, tenant_id=tenant_id or "default")
+        findings = run_all_checks(snap)
 
-            # Build control → findings map
-            ctrl_status: dict[str, list[dict[str, Any]]] = {k: [] for k in NCSC_CONTROLS}
-            for f in findings:
-                for ref in f.ncsc_refs:
-                    if ref in ctrl_status:
-                        ctrl_status[ref].append(f.to_dict())
+        # Build control → findings map
+        ctrl_status: dict[str, list[dict[str, Any]]] = {k: [] for k in NCSC_CONTROLS}
+        for f in findings:
+            for ref in f.ncsc_refs:
+                if ref in ctrl_status:
+                    ctrl_status[ref].append(f.to_dict())
 
-            framework_filter = {
-                "caf": "CAF v4.0",
-                "ce": "CE v3.2",
-                "10steps": "10 Steps",
-                "nsf": "NSF",
-            }.get(framework.lower(), "")
+        framework_filter = {
+            "caf": "CAF v4.0",
+            "ce": "CE v3.2",
+            "10steps": "10 Steps",
+            "nsf": "NSF",
+        }.get(framework.lower(), "")
 
-            controls_output = []
-            for ctrl_id, ctrl in NCSC_CONTROLS.items():
-                if framework_filter and ctrl.source != framework_filter:
-                    continue
-                related = ctrl_status[ctrl_id]
-                has_fail = any(f["status"] in ("fail", "warn") for f in related)
-                has_pass = any(f["status"] == "pass" for f in related)
-                compliance = (
-                    "non-compliant" if has_fail else ("compliant" if has_pass else "not-assessed")
-                )
-                controls_output.append(
-                    {
-                        "control_id": ctrl_id,
-                        "title": ctrl.title,
-                        "source": ctrl.source,
-                        "objective": ctrl.objective,
-                        "compliance_status": compliance,
-                        "related_findings": [
-                            {"check_id": f["check_id"], "status": f["status"], "title": f["title"]}
-                            for f in related
-                        ],
-                    }
-                )
-
-            compliant = sum(1 for c in controls_output if c["compliance_status"] == "compliant")
-            non_compliant = sum(
-                1 for c in controls_output if c["compliance_status"] == "non-compliant"
+        controls_output = []
+        for ctrl_id, ctrl in NCSC_CONTROLS.items():
+            if framework_filter and ctrl.source != framework_filter:
+                continue
+            related = ctrl_status[ctrl_id]
+            has_fail = any(f["status"] in ("fail", "warn") for f in related)
+            has_pass = any(f["status"] == "pass" for f in related)
+            compliance = (
+                "non-compliant" if has_fail else ("compliant" if has_pass else "not-assessed")
             )
-            not_assessed = sum(
-                1 for c in controls_output if c["compliance_status"] == "not-assessed"
-            )
-
-            return json.dumps(
+            controls_output.append(
                 {
-                    "folder": folder,
-                    "framework_filter": framework,
-                    "summary": {
-                        "total_controls": len(controls_output),
-                        "compliant": compliant,
-                        "non_compliant": non_compliant,
-                        "not_assessed": not_assessed,
-                    },
-                    "controls": controls_output,
-                },
-                indent=2,
+                    "control_id": ctrl_id,
+                    "title": ctrl.title,
+                    "source": ctrl.source,
+                    "objective": ctrl.objective,
+                    "compliance_status": compliance,
+                    "related_findings": [
+                        {"check_id": f["check_id"], "status": f["status"], "title": f["title"]}
+                        for f in related
+                    ],
+                }
             )
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc)}"
+
+        compliant = sum(1 for c in controls_output if c["compliance_status"] == "compliant")
+        non_compliant = sum(1 for c in controls_output if c["compliance_status"] == "non-compliant")
+        not_assessed = sum(1 for c in controls_output if c["compliance_status"] == "not-assessed")
+
+        return json.dumps(
+            {
+                "folder": folder,
+                "framework_filter": framework,
+                "summary": {
+                    "total_controls": len(controls_output),
+                    "compliant": compliant,
+                    "non_compliant": non_compliant,
+                    "not_assessed": not_assessed,
+                },
+                "controls": controls_output,
+            },
+            indent=2,
+        )
 
     # ── DSPT Assessment ────────────────────────────────────────────────────────
 
     @mcp.tool()
+    @tool
     def scm_dspt_assess(
+        client: Any,
+        tenant_id: str,
         folder: str,
-        tenant_id: str = "",
         standard: str = "all",
         output_format: str = "markdown",
         save_to: str = "",
@@ -579,228 +564,214 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
             output_format: 'markdown' (default) or 'json'.
             save_to: Optional file path to save the report (e.g. 'reports/dspt.md').
         """
-        try:
-            client = get_client(tenant_id)
-            snap = extract_snapshot(client, folder=folder, tenant_id=tenant_id or "default")
-            findings = run_all_checks(snap)
+        snap = extract_snapshot(client, folder=folder, tenant_id=tenant_id or "default")
+        findings = run_all_checks(snap)
 
-            # Build: assertion_id → list of findings that evidence it
-            assertion_findings: dict[str, list[dict[str, Any]]] = {k: [] for k in DSPT_ASSERTIONS}
-            for f in findings:
-                for assertion_id in BPA_TO_DSPT.get(f.check_id, []):
-                    if assertion_id in assertion_findings:
-                        assertion_findings[assertion_id].append(f.to_dict())
+        # Build: assertion_id → list of findings that evidence it
+        assertion_findings: dict[str, list[dict[str, Any]]] = {k: [] for k in DSPT_ASSERTIONS}
+        for f in findings:
+            for assertion_id in BPA_TO_DSPT.get(f.check_id, []):
+                if assertion_id in assertion_findings:
+                    assertion_findings[assertion_id].append(f.to_dict())
 
-            # Filter by standard if requested
-            std_filter = standard.strip() if standard.strip() != "all" else ""
-            assessed = []
-            for aid, assertion in DSPT_ASSERTIONS.items():
-                if std_filter and str(assertion.standard_number) != std_filter:
-                    continue
-                related = assertion_findings[aid]
-                has_fail = any(f["status"] in ("fail", "warn") for f in related)
-                has_pass = any(f["status"] == "pass" for f in related)
-                compliance = (
-                    "non-compliant" if has_fail else ("compliant" if has_pass else "not-assessed")
-                )
-                assessed.append(
-                    {
-                        "assertion_id": aid,
-                        "assertion_ref": assertion.assertion_ref,
-                        "title": assertion.title,
-                        "standard": assertion.standard,
-                        "standard_number": assertion.standard_number,
-                        "dspt_level": assertion.dspt_level,
-                        "compliance_status": compliance,
-                        "description": assertion.description,
-                        "evidence_guidance": assertion.evidence_guidance,
-                        "related_findings": [
-                            {
-                                "check_id": f["check_id"],
-                                "status": f["status"],
-                                "title": f["title"],
-                                "severity": f["severity"],
-                                "affected_objects": f.get("affected_objects", []),
-                            }
-                            for f in related
-                        ],
-                    }
-                )
-
-            compliant = sum(1 for a in assessed if a["compliance_status"] == "compliant")
-            non_compliant = sum(1 for a in assessed if a["compliance_status"] == "non-compliant")
-            not_assessed_count = sum(
-                1 for a in assessed if a["compliance_status"] == "not-assessed"
+        # Filter by standard if requested
+        std_filter = standard.strip() if standard.strip() != "all" else ""
+        assessed = []
+        for aid, assertion in DSPT_ASSERTIONS.items():
+            if std_filter and str(assertion.standard_number) != std_filter:
+                continue
+            related = assertion_findings[aid]
+            has_fail = any(f["status"] in ("fail", "warn") for f in related)
+            has_pass = any(f["status"] == "pass" for f in related)
+            compliance = (
+                "non-compliant" if has_fail else ("compliant" if has_pass else "not-assessed")
+            )
+            assessed.append(
+                {
+                    "assertion_id": aid,
+                    "assertion_ref": assertion.assertion_ref,
+                    "title": assertion.title,
+                    "standard": assertion.standard,
+                    "standard_number": assertion.standard_number,
+                    "dspt_level": assertion.dspt_level,
+                    "compliance_status": compliance,
+                    "description": assertion.description,
+                    "evidence_guidance": assertion.evidence_guidance,
+                    "related_findings": [
+                        {
+                            "check_id": f["check_id"],
+                            "status": f["status"],
+                            "title": f["title"],
+                            "severity": f["severity"],
+                            "affected_objects": f.get("affected_objects", []),
+                        }
+                        for f in related
+                    ],
+                }
             )
 
-            if output_format.lower() == "json":
-                result = json.dumps(
-                    {
-                        "folder": folder,
-                        "tenant_id": tenant_id or "default",
-                        "standard_filter": standard,
-                        "framework": "NHS DSPT 2024-25 v5.1",
-                        "summary": {
-                            "total_assertions": len(assessed),
-                            "compliant": compliant,
-                            "non_compliant": non_compliant,
-                            "not_assessed": not_assessed_count,
-                        },
-                        "assertions": assessed,
+        compliant = sum(1 for a in assessed if a["compliance_status"] == "compliant")
+        non_compliant = sum(1 for a in assessed if a["compliance_status"] == "non-compliant")
+        not_assessed_count = sum(1 for a in assessed if a["compliance_status"] == "not-assessed")
+
+        if output_format.lower() == "json":
+            result = json.dumps(
+                {
+                    "folder": folder,
+                    "tenant_id": tenant_id or "default",
+                    "standard_filter": standard,
+                    "framework": "NHS DSPT 2024-25 v5.1",
+                    "summary": {
+                        "total_assertions": len(assessed),
+                        "compliant": compliant,
+                        "non_compliant": non_compliant,
+                        "not_assessed": not_assessed_count,
                     },
-                    indent=2,
-                )
-                if save_to:
-                    Path(save_to).write_text(result)
-                    return f"DSPT assessment saved to `{save_to}` ({len(assessed)} assertions)."
-                return result
+                    "assertions": assessed,
+                },
+                indent=2,
+            )
+            if save_to:
+                Path(save_to).write_text(result)
+                return f"DSPT assessment saved to `{save_to}` ({len(assessed)} assertions)."
+            return result
 
-            # ── Markdown output ───────────────────────────────────────────────
-            ts = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
-            sev_icon = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🔵", "info": "⚪"}
-            comp_icon = {"compliant": "✅", "non-compliant": "❌", "not-assessed": "⚠️"}
-            level_label = {
-                "approaching": "Approaching Standards",
-                "meeting": "Meeting Standards",
-                "exceeding": "Exceeding Standards",
-            }
+        # ── Markdown output ───────────────────────────────────────────────
+        ts = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
+        sev_icon = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🔵", "info": "⚪"}
+        comp_icon = {"compliant": "✅", "non-compliant": "❌", "not-assessed": "⚠️"}
+        level_label = {
+            "approaching": "Approaching Standards",
+            "meeting": "Meeting Standards",
+            "exceeding": "Exceeding Standards",
+        }
 
-            lines = [
-                f"# NHS DSPT 2024-25 Assessment — {folder}",
-                "",
-                f"**Tenant:** {tenant_id or 'default'}  |  "
-                f"**Assessed:** {ts}  |  "
-                f"**Framework:** NHS DSPT 2024-25 v5.1",
-                "",
-                "## Summary",
-                "",
-                "| ✅ Compliant | ❌ Non-Compliant | ⚠️ Not Assessed | Total |",
-                "|---|---|---|---|",
-                f"| {compliant} | {non_compliant} | {not_assessed_count} | {len(assessed)} |",
-                "",
+        lines = [
+            f"# NHS DSPT 2024-25 Assessment — {folder}",
+            "",
+            f"**Tenant:** {tenant_id or 'default'}  |  "
+            f"**Assessed:** {ts}  |  "
+            f"**Framework:** NHS DSPT 2024-25 v5.1",
+            "",
+            "## Summary",
+            "",
+            "| ✅ Compliant | ❌ Non-Compliant | ⚠️ Not Assessed | Total |",
+            "|---|---|---|---|",
+            f"| {compliant} | {non_compliant} | {not_assessed_count} | {len(assessed)} |",
+            "",
+        ]
+
+        # Overall DSPT level determination
+        if non_compliant == 0 and compliant > 0:
+            exc_assertions = [
+                a
+                for a in assessed
+                if a["dspt_level"] == "exceeding" and a["compliance_status"] == "compliant"
             ]
+            overall = "**Exceeding Standards** 🏆" if exc_assertions else "**Meeting Standards** ✅"
+        elif non_compliant <= 2:
+            overall = "**Approaching Standards** ⚠️ — address non-compliant items below"
+        else:
+            overall = (
+                f"**Not Meeting Standards** ❌ — {non_compliant} assertion(s) require remediation"
+            )
 
-            # Overall DSPT level determination
-            if non_compliant == 0 and compliant > 0:
-                exc_assertions = [
-                    a
-                    for a in assessed
-                    if a["dspt_level"] == "exceeding" and a["compliance_status"] == "compliant"
-                ]
-                if exc_assertions:
-                    overall = "**Exceeding Standards** 🏆"
-                else:
-                    overall = "**Meeting Standards** ✅"
-            elif non_compliant <= 2:
-                overall = "**Approaching Standards** ⚠️ — address non-compliant items below"
-            else:
-                overall = f"**Not Meeting Standards** ❌ — {non_compliant} assertion(s) require remediation"
+        lines += [
+            f"**Overall DSPT Assessment Level:** {overall}",
+            "",
+            "> Standards 1–6 (People and Process) require human self-assessment in the "
+            "DSPT portal and are not included here.",
+            "",
+        ]
+
+        # Group by standard
+        by_standard: dict[int, list[dict[str, Any]]] = {}
+        for a in assessed:
+            std_key: int = a["standard_number"]  # type: ignore[assignment]
+            by_standard.setdefault(std_key, []).append(a)
+
+        for std_num in sorted(by_standard):
+            std_assertions = by_standard[std_num]
+            std_name = str(std_assertions[0]["standard"])
+            std_compliant = sum(1 for a in std_assertions if a["compliance_status"] == "compliant")
+            std_fail = sum(1 for a in std_assertions if a["compliance_status"] == "non-compliant")
+            std_icon = (
+                "✅" if std_fail == 0 and std_compliant > 0 else ("❌" if std_fail > 0 else "⚠️")
+            )
 
             lines += [
-                f"**Overall DSPT Assessment Level:** {overall}",
-                "",
-                "> Standards 1–6 (People and Process) require human self-assessment in the "
-                "DSPT portal and are not included here.",
+                f"## {std_icon} {std_name}",
                 "",
             ]
 
-            # Group by standard
-            by_standard: dict[int, list[dict[str, Any]]] = {}
-            for a in assessed:
-                std_key: int = a["standard_number"]  # type: ignore[assignment]
-                by_standard.setdefault(std_key, []).append(a)
-
-            for std_num in sorted(by_standard):
-                std_assertions = by_standard[std_num]
-                std_name = str(std_assertions[0]["standard"])
-                std_compliant = sum(
-                    1 for a in std_assertions if a["compliance_status"] == "compliant"
-                )
-                std_fail = sum(
-                    1 for a in std_assertions if a["compliance_status"] == "non-compliant"
-                )
-                std_icon = (
-                    "✅" if std_fail == 0 and std_compliant > 0 else ("❌" if std_fail > 0 else "⚠️")
-                )
-
+            for a in std_assertions:
+                comp_status = str(a["compliance_status"])
+                dspt_level = str(a["dspt_level"])
+                icon = comp_icon.get(comp_status, "⚠️")
+                lvl = level_label.get(dspt_level, dspt_level)
                 lines += [
-                    f"## {std_icon} {std_name}",
+                    f"### {icon} {a['assertion_ref']} — {a['title']}",
+                    "",
+                    f"**DSPT Level:** {lvl}  |  "
+                    f"**Status:** {comp_status.replace('-', ' ').title()}",
+                    "",
+                    f"**Requirement:** {a['description']}",
                     "",
                 ]
 
-                for a in std_assertions:
-                    comp_status = str(a["compliance_status"])
-                    dspt_level = str(a["dspt_level"])
-                    icon = comp_icon.get(comp_status, "⚠️")
-                    lvl = level_label.get(dspt_level, dspt_level)
+                a_findings: Any = a["related_findings"]
+                if a_findings:
+                    lines += ["**Evidence from SCM Configuration:**", ""]
+                    for rf in a_findings:
+                        rf_status = str(rf["status"])
+                        ficon = (
+                            "✅" if rf_status == "pass" else ("❌" if rf_status == "fail" else "⚠️")
+                        )
+                        sev = sev_icon.get(str(rf["severity"]), "⚪")
+                        raw_objs: Any = rf.get("affected_objects") or []
+                        objs: list[str] = [str(o) for o in raw_objs]
+                        obj_str = f" — affected: {', '.join(objs[:5])}" if objs else ""
+                        lines.append(f"- {ficon} {sev} `{rf['check_id']}` {rf['title']}{obj_str}")
+                    lines.append("")
+
+                if comp_status == "non-compliant":
                     lines += [
-                        f"### {icon} {a['assertion_ref']} — {a['title']}",
-                        "",
-                        f"**DSPT Level:** {lvl}  |  "
-                        f"**Status:** {comp_status.replace('-', ' ').title()}",
-                        "",
-                        f"**Requirement:** {a['description']}",
+                        "**Remediation required to meet this assertion.**",
                         "",
                     ]
 
-                    a_findings: Any = a["related_findings"]
-                    if a_findings:
-                        lines += ["**Evidence from SCM Configuration:**", ""]
-                        for rf in a_findings:
-                            rf_status = str(rf["status"])
-                            ficon = (
-                                "✅"
-                                if rf_status == "pass"
-                                else ("❌" if rf_status == "fail" else "⚠️")
-                            )
-                            sev = sev_icon.get(str(rf["severity"]), "⚪")
-                            raw_objs: Any = rf.get("affected_objects") or []
-                            objs: list[str] = [str(o) for o in raw_objs]
-                            obj_str = f" — affected: {', '.join(objs[:5])}" if objs else ""
-                            lines.append(
-                                f"- {ficon} {sev} `{rf['check_id']}` {rf['title']}{obj_str}"
-                            )
-                        lines.append("")
+                lines += [
+                    "<details>",
+                    "<summary>Evidence guidance for DSPT portal</summary>",
+                    "",
+                    str(a["evidence_guidance"]),
+                    "",
+                    "</details>",
+                    "",
+                    "---",
+                    "",
+                ]
 
-                    if comp_status == "non-compliant":
-                        lines += [
-                            "**Remediation required to meet this assertion.**",
-                            "",
-                        ]
+        result_md = "\n".join(lines)
 
-                    lines += [
-                        "<details>",
-                        "<summary>Evidence guidance for DSPT portal</summary>",
-                        "",
-                        str(a["evidence_guidance"]),
-                        "",
-                        "</details>",
-                        "",
-                        "---",
-                        "",
-                    ]
-
-            result_md = "\n".join(lines)
-
-            if save_to:
-                Path(save_to).write_text(result_md)
-                return (
-                    f"DSPT assessment saved to `{save_to}`.\n\n"
-                    f"Summary: {compliant} compliant / {non_compliant} non-compliant / "
-                    f"{not_assessed_count} not assessed\n\n"
-                    f"Overall: {overall}"
-                )
-            return result_md
-
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc)}"
+        if save_to:
+            Path(save_to).write_text(result_md)
+            return (
+                f"DSPT assessment saved to `{save_to}`.\n\n"
+                f"Summary: {compliant} compliant / {non_compliant} non-compliant / "
+                f"{not_assessed_count} not assessed\n\n"
+                f"Overall: {overall}"
+            )
+        return result_md
 
     # ── ISO 27001:2022 Assessment ─────────────────────────────────────────────
 
     @mcp.tool()
+    @tool
     def scm_iso27001_assess(
+        client: Any,
+        tenant_id: str,
         folder: str,
-        tenant_id: str = "",
         clause_filter: str = "all",
         output_format: str = "markdown",
         save_to: str = "",
@@ -842,215 +813,200 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
         from ..audit.bpa_checks import run_all_checks
         from ..audit.iso27001_controls import BPA_TO_ISO27001, ISO27001_CONTROLS
 
-        try:
-            client = get_client(tenant_id)
-            snap = extract_snapshot(client, folder, tenant_id)
-            findings = run_all_checks(snap)
+        snap = extract_snapshot(client, folder, tenant_id)
+        findings = run_all_checks(snap)
 
-            # Map findings to controls
-            control_findings: dict[str, list[dict[str, Any]]] = {
-                cid: [] for cid in ISO27001_CONTROLS
-            }
-            for f in findings:
-                for cid in BPA_TO_ISO27001.get(f.check_id, []):
-                    if cid in control_findings:
-                        control_findings[cid].append(f.to_dict())
+        # Map findings to controls
+        control_findings: dict[str, list[dict[str, Any]]] = {cid: [] for cid in ISO27001_CONTROLS}
+        for f in findings:
+            for cid in BPA_TO_ISO27001.get(f.check_id, []):
+                if cid in control_findings:
+                    control_findings[cid].append(f.to_dict())
 
-            # Filter controls
-            def _include(cid: str) -> bool:
-                if clause_filter == "all":
-                    return True
-                if clause_filter == "5":
-                    return cid.startswith("A.5.")
-                if clause_filter == "8":
-                    return cid.startswith("A.8.")
-                return cid == clause_filter
+        # Filter controls
+        def _include(cid: str) -> bool:
+            if clause_filter == "all":
+                return True
+            if clause_filter == "5":
+                return cid.startswith("A.5.")
+            if clause_filter == "8":
+                return cid.startswith("A.8.")
+            return cid == clause_filter
 
-            assessed: list[dict[str, Any]] = []
-            for cid, control in ISO27001_CONTROLS.items():
-                if not _include(cid):
-                    continue
-                related = control_findings[cid]
-                has_fail = any(f["status"] in ("fail", "warn") for f in related)
-                has_pass = any(f["status"] == "pass" for f in related)
-                compliance = (
-                    "non-compliant" if has_fail else ("compliant" if has_pass else "not-assessed")
-                )
-                assessed.append(
-                    {
-                        "control_id": cid,
-                        "title": control.title,
-                        "clause": control.clause,
-                        "category": control.category,
-                        "implementation_level": control.implementation_level,
-                        "compliance_status": compliance,
-                        "finding_count": len(related),
-                        "evidence_guidance": control.evidence_guidance,
-                    }
-                )
-
-            compliant = sum(1 for a in assessed if a["compliance_status"] == "compliant")
-            non_compliant = sum(1 for a in assessed if a["compliance_status"] == "non-compliant")
-            not_assessed_count = sum(
-                1 for a in assessed if a["compliance_status"] == "not-assessed"
+        assessed: list[dict[str, Any]] = []
+        for cid, control in ISO27001_CONTROLS.items():
+            if not _include(cid):
+                continue
+            related = control_findings[cid]
+            has_fail = any(f["status"] in ("fail", "warn") for f in related)
+            has_pass = any(f["status"] == "pass" for f in related)
+            compliance = (
+                "non-compliant" if has_fail else ("compliant" if has_pass else "not-assessed")
             )
-            total = len(assessed)
-            pct = round(compliant / total * 100) if total else 0
-
-            if non_compliant == 0 and compliant >= total * 0.8:
-                overall = "CONFORMING"
-            elif non_compliant <= 2:
-                overall = "MINOR NONCONFORMITY"
-            else:
-                overall = "MAJOR NONCONFORMITY"
-
-            if output_format.lower() == "json":
-                result: dict[str, Any] = {
-                    "folder": folder,
-                    "tenant_id": tenant_id,
-                    "standard": "ISO/IEC 27001:2022",
-                    "clause_filter": clause_filter,
-                    "overall": overall,
-                    "summary": {
-                        "total": total,
-                        "compliant": compliant,
-                        "non_compliant": non_compliant,
-                        "not_assessed": not_assessed_count,
-                        "compliance_pct": pct,
-                    },
-                    "controls": assessed,
+            assessed.append(
+                {
+                    "control_id": cid,
+                    "title": control.title,
+                    "clause": control.clause,
+                    "category": control.category,
+                    "implementation_level": control.implementation_level,
+                    "compliance_status": compliance,
+                    "finding_count": len(related),
+                    "evidence_guidance": control.evidence_guidance,
                 }
-                out_str = _json.dumps(result, indent=2)
-                if save_to:
-                    Path(save_to).write_text(out_str)
-                    return f"ISO 27001 assessment saved to `{save_to}`. Overall: {overall} ({pct}%)"
-                return out_str
+            )
 
-            # Markdown output
-            _status_icon = {
-                "compliant": "✅",
-                "non-compliant": "❌",
-                "not-assessed": "⚪",
+        compliant = sum(1 for a in assessed if a["compliance_status"] == "compliant")
+        non_compliant = sum(1 for a in assessed if a["compliance_status"] == "non-compliant")
+        not_assessed_count = sum(1 for a in assessed if a["compliance_status"] == "not-assessed")
+        total = len(assessed)
+        pct = round(compliant / total * 100) if total else 0
+
+        if non_compliant == 0 and compliant >= total * 0.8:
+            overall = "CONFORMING"
+        elif non_compliant <= 2:
+            overall = "MINOR NONCONFORMITY"
+        else:
+            overall = "MAJOR NONCONFORMITY"
+
+        if output_format.lower() == "json":
+            result: dict[str, Any] = {
+                "folder": folder,
+                "tenant_id": tenant_id,
+                "standard": "ISO/IEC 27001:2022",
+                "clause_filter": clause_filter,
+                "overall": overall,
+                "summary": {
+                    "total": total,
+                    "compliant": compliant,
+                    "non_compliant": non_compliant,
+                    "not_assessed": not_assessed_count,
+                    "compliance_pct": pct,
+                },
+                "controls": assessed,
             }
-            _overall_style = {
-                "CONFORMING": "🟢 **CONFORMING**",
-                "MINOR NONCONFORMITY": "🟡 **MINOR NONCONFORMITY**",
-                "MAJOR NONCONFORMITY": "🔴 **MAJOR NONCONFORMITY**",
-            }
-            status_order = {"non-compliant": 0, "compliant": 1, "not-assessed": 2}
-
-            lines: list[str] = []
-            lines.append(f"# ISO/IEC 27001:2022 Annex A Assessment — {folder}")
-            lines.append("")
-            lines.append(f"**Overall:** {_overall_style.get(overall, overall)}")
-            lines.append(
-                f"**Controls assessed:** {total}  |  "
-                f"**Compliant:** {compliant}  |  "
-                f"**Non-compliant:** {non_compliant}  |  "
-                f"**Not assessed:** {not_assessed_count}  |  "
-                f"**Score:** {pct}%"
-            )
-            lines.append("")
-            lines.append(
-                "> **Scope note:** This assessment covers the 12 Annex A controls "
-                "observable from firewall and SCM configuration. Controls in Clauses 5 "
-                "(Governance), 6 (People), and 7 (Physical) require ISMS documentation "
-                "and are out of scope for automated assessment."
-            )
-            lines.append("")
-
-            lines.append("## Control Assessment")
-            lines.append("")
-            lines.append("| Control | Title | Level | Status | Findings |")
-            lines.append("|---|---|---|---|---|")
-
-            for a in sorted(
-                assessed,
-                key=lambda x: (
-                    status_order.get(str(x["compliance_status"]), 9),
-                    str(x["control_id"]),
-                ),
-            ):
-                icon = _status_icon.get(str(a["compliance_status"]), "⚪")
-                level_badge = "🔵 Advanced" if a["implementation_level"] == "advanced" else "Basic"
-                lines.append(
-                    f"| `{a['control_id']}` | {a['title']} | {level_badge} "
-                    f"| {icon} {str(a['compliance_status']).upper()} | {a['finding_count']} BPA checks |"
-                )
-            lines.append("")
-
-            # Non-compliant detail
-            non_compliant_controls = [
-                a for a in assessed if a["compliance_status"] == "non-compliant"
-            ]
-            if non_compliant_controls:
-                lines.append("## Non-Compliant Controls — Evidence & Remediation")
-                lines.append("")
-                for a in sorted(non_compliant_controls, key=lambda x: str(x["control_id"])):
-                    lines.append(f"### ❌ `{a['control_id']}` — {a['title']}")
-                    lines.append(f"**Clause:** {a['clause']}")
-                    lines.append(f"**Evidence required:** {a['evidence_guidance']}")
-                    lines.append("")
-                    # Show failing BPA check names
-                    ctrl_findings = control_findings[str(a["control_id"])]
-                    failing = [f for f in ctrl_findings if f["status"] in ("fail", "warn")]
-                    if failing:
-                        lines.append(f"**Failing BPA checks ({len(failing)}):**")
-                        for ff in failing[:5]:
-                            lines.append(f"- `{ff['check_id']}` — {ff['title']}")
-                        if len(failing) > 5:
-                            lines.append(f"- *…and {len(failing) - 5} more*")
-                    lines.append("")
-
-            lines.append("## Out-of-Scope Controls (require ISMS documentation)")
-            lines.append("")
-            lines.append(
-                "The following Annex A controls cannot be assessed from firewall config "
-                "and must be evidenced through ISMS policies, procedures, and records:"
-            )
-            lines.append("")
-            lines.append("| Clause | Controls |")
-            lines.append("|---|---|")
-            lines.append("| 5 — Organisational | A.5.1–A.5.13, A.5.15–A.5.27, A.5.29–A.5.37 |")
-            lines.append("| 6 — People | A.6.1–A.6.8 |")
-            lines.append("| 7 — Physical | A.7.1–A.7.14 |")
-            lines.append(
-                "| 8 — Technological (non-FW) | A.8.1–A.8.6, A.8.8–A.8.14, A.8.16–A.8.19, A.8.25–A.8.26, A.8.30–A.8.34 |"
-            )
-            lines.append("")
-
-            lines.append("## References")
-            lines.append("")
-            lines.append("- ISO/IEC 27001:2022 — Information security management systems")
-            lines.append("- ISO/IEC 27002:2022 — Controls guidance (implementation detail)")
-            lines.append(
-                "- NCSC Cyber Essentials: <https://www.ncsc.gov.uk/cyberessentials/overview>"
-            )
-            lines.append(
-                "- PAN security profile best practices: <https://docs.paloaltonetworks.com/best-practices>"
-            )
-            lines.append("")
-
-            result_md = "\n".join(lines)
+            out_str = _json.dumps(result, indent=2)
             if save_to:
-                Path(save_to).write_text(result_md)
-                return (
-                    f"ISO 27001 assessment saved to `{save_to}`.\n\n"
-                    f"Overall: {overall} | {compliant}/{total} compliant ({pct}%)"
-                )
-            return result_md
+                Path(save_to).write_text(out_str)
+                return f"ISO 27001 assessment saved to `{save_to}`. Overall: {overall} ({pct}%)"
+            return out_str
 
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc)}"
+        # Markdown output
+        _status_icon = {
+            "compliant": "✅",
+            "non-compliant": "❌",
+            "not-assessed": "⚪",
+        }
+        _overall_style = {
+            "CONFORMING": "🟢 **CONFORMING**",
+            "MINOR NONCONFORMITY": "🟡 **MINOR NONCONFORMITY**",
+            "MAJOR NONCONFORMITY": "🔴 **MAJOR NONCONFORMITY**",
+        }
+        status_order = {"non-compliant": 0, "compliant": 1, "not-assessed": 2}
+
+        lines: list[str] = []
+        lines.append(f"# ISO/IEC 27001:2022 Annex A Assessment — {folder}")
+        lines.append("")
+        lines.append(f"**Overall:** {_overall_style.get(overall, overall)}")
+        lines.append(
+            f"**Controls assessed:** {total}  |  "
+            f"**Compliant:** {compliant}  |  "
+            f"**Non-compliant:** {non_compliant}  |  "
+            f"**Not assessed:** {not_assessed_count}  |  "
+            f"**Score:** {pct}%"
+        )
+        lines.append("")
+        lines.append(
+            "> **Scope note:** This assessment covers the 12 Annex A controls "
+            "observable from firewall and SCM configuration. Controls in Clauses 5 "
+            "(Governance), 6 (People), and 7 (Physical) require ISMS documentation "
+            "and are out of scope for automated assessment."
+        )
+        lines.append("")
+
+        lines.append("## Control Assessment")
+        lines.append("")
+        lines.append("| Control | Title | Level | Status | Findings |")
+        lines.append("|---|---|---|---|---|")
+
+        for a in sorted(
+            assessed,
+            key=lambda x: (
+                status_order.get(str(x["compliance_status"]), 9),
+                str(x["control_id"]),
+            ),
+        ):
+            icon = _status_icon.get(str(a["compliance_status"]), "⚪")
+            level_badge = "🔵 Advanced" if a["implementation_level"] == "advanced" else "Basic"
+            lines.append(
+                f"| `{a['control_id']}` | {a['title']} | {level_badge} "
+                f"| {icon} {str(a['compliance_status']).upper()} | {a['finding_count']} BPA checks |"
+            )
+        lines.append("")
+
+        # Non-compliant detail
+        non_compliant_controls = [a for a in assessed if a["compliance_status"] == "non-compliant"]
+        if non_compliant_controls:
+            lines.append("## Non-Compliant Controls — Evidence & Remediation")
+            lines.append("")
+            for a in sorted(non_compliant_controls, key=lambda x: str(x["control_id"])):
+                lines.append(f"### ❌ `{a['control_id']}` — {a['title']}")
+                lines.append(f"**Clause:** {a['clause']}")
+                lines.append(f"**Evidence required:** {a['evidence_guidance']}")
+                lines.append("")
+                # Show failing BPA check names
+                ctrl_findings = control_findings[str(a["control_id"])]
+                failing = [f for f in ctrl_findings if f["status"] in ("fail", "warn")]
+                if failing:
+                    lines.append(f"**Failing BPA checks ({len(failing)}):**")
+                    for ff in failing[:5]:
+                        lines.append(f"- `{ff['check_id']}` — {ff['title']}")
+                    if len(failing) > 5:
+                        lines.append(f"- *…and {len(failing) - 5} more*")
+                lines.append("")
+
+        lines.append("## Out-of-Scope Controls (require ISMS documentation)")
+        lines.append("")
+        lines.append(
+            "The following Annex A controls cannot be assessed from firewall config "
+            "and must be evidenced through ISMS policies, procedures, and records:"
+        )
+        lines.append("")
+        lines.append("| Clause | Controls |")
+        lines.append("|---|---|")
+        lines.append("| 5 — Organisational | A.5.1–A.5.13, A.5.15–A.5.27, A.5.29–A.5.37 |")
+        lines.append("| 6 — People | A.6.1–A.6.8 |")
+        lines.append("| 7 — Physical | A.7.1–A.7.14 |")
+        lines.append(
+            "| 8 — Technological (non-FW) | A.8.1–A.8.6, A.8.8–A.8.14, A.8.16–A.8.19, A.8.25–A.8.26, A.8.30–A.8.34 |"
+        )
+        lines.append("")
+
+        lines.append("## References")
+        lines.append("")
+        lines.append("- ISO/IEC 27001:2022 — Information security management systems")
+        lines.append("- ISO/IEC 27002:2022 — Controls guidance (implementation detail)")
+        lines.append("- NCSC Cyber Essentials: <https://www.ncsc.gov.uk/cyberessentials/overview>")
+        lines.append(
+            "- PAN security profile best practices: <https://docs.paloaltonetworks.com/best-practices>"
+        )
+        lines.append("")
+
+        result_md = "\n".join(lines)
+        if save_to:
+            Path(save_to).write_text(result_md)
+            return (
+                f"ISO 27001 assessment saved to `{save_to}`.\n\n"
+                f"Overall: {overall} | {compliant}/{total} compliant ({pct}%)"
+            )
+        return result_md
 
     # ── Decryption Policy Audit ───────────────────────────────────────────────
 
     @mcp.tool()
+    @tool
     def scm_decrypt_policy_audit(
-        folder: str,
-        tenant_id: str = "",
-        output_format: str = "markdown",
-        save_to: str = "",
+        client: Any, tenant_id: str, folder: str, output_format: str = "markdown", save_to: str = ""
     ) -> str:
         """Deep-dive SSL/TLS decryption policy audit for a SCM folder.
 
@@ -1078,396 +1034,383 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
         """
         import json as _json
 
-        try:
-            client = get_client(tenant_id)
-            snap = extract_snapshot(client, folder, tenant_id)
+        snap = extract_snapshot(client, folder, tenant_id)
 
-            profiles = snap.decryption_profiles
-            rules = snap.decryption_rules
+        profiles = snap.decryption_profiles
+        rules = snap.decryption_rules
 
-            # ── Profile quality analysis ──────────────────────────────────────
-            _WEAK_TLS = {"sslv3", "tls1-0", "tls1-1"}
-            _WEAK_ALGOS = {
-                "enc_algo_3des": "3DES",
-                "enc_algo_rc4": "RC4",
-                "auth_algo_md5": "MD5",
-                "auth_algo_sha1": "SHA-1",
-                "keyxchg_algo_rsa": "Static RSA (no PFS)",
-            }
-            _BLOCK_SETTINGS = {
-                "block_expired_certificate": "Block expired certs",
-                "block_untrusted_issuer": "Block untrusted issuer",
-                "block_unknown_cert": "Block unknown cert",
-                "block_unsupported_version": "Block unsupported version",
-            }
+        # ── Profile quality analysis ──────────────────────────────────────
+        _WEAK_TLS = {"sslv3", "tls1-0", "tls1-1"}
+        _WEAK_ALGOS = {
+            "enc_algo_3des": "3DES",
+            "enc_algo_rc4": "RC4",
+            "auth_algo_md5": "MD5",
+            "auth_algo_sha1": "SHA-1",
+            "keyxchg_algo_rsa": "Static RSA (no PFS)",
+        }
+        _BLOCK_SETTINGS = {
+            "block_expired_certificate": "Block expired certs",
+            "block_untrusted_issuer": "Block untrusted issuer",
+            "block_unknown_cert": "Block unknown cert",
+            "block_unsupported_version": "Block unsupported version",
+        }
 
-            profile_findings: list[dict[str, Any]] = []
-            for p in profiles:
-                pname = p.get("name", "<unnamed>")
-                issues: list[str] = []
-                good: list[str] = []
+        profile_findings: list[dict[str, Any]] = []
+        for p in profiles:
+            pname = p.get("name", "<unnamed>")
+            issues: list[str] = []
+            good: list[str] = []
 
-                proto = p.get("ssl_protocol_settings") or {}
-                min_ver = str(proto.get("min_version") or "").lower()
-                if min_ver in _WEAK_TLS or min_ver == "":
-                    issues.append(f"min TLS version is '{min_ver or 'unset'}' — should be tls1-2+")
-                else:
-                    good.append(f"min TLS {min_ver}")
+            proto = p.get("ssl_protocol_settings") or {}
+            min_ver = str(proto.get("min_version") or "").lower()
+            if min_ver in _WEAK_TLS or min_ver == "":
+                issues.append(f"min TLS version is '{min_ver or 'unset'}' — should be tls1-2+")
+            else:
+                good.append(f"min TLS {min_ver}")
 
-                for field_name, label in _WEAK_ALGOS.items():
-                    val = proto.get(field_name)
-                    if val is True:
-                        issues.append(f"{label} enabled")
-                    elif val is False:
-                        good.append(f"{label} disabled")
+            for field_name, label in _WEAK_ALGOS.items():
+                val = proto.get(field_name)
+                if val is True:
+                    issues.append(f"{label} enabled")
+                elif val is False:
+                    good.append(f"{label} disabled")
 
-                fp = p.get("ssl_forward_proxy") or {}
-                for field_name, label in _BLOCK_SETTINGS.items():
-                    val = fp.get(field_name)
-                    if val is False:
-                        issues.append(f"Forward proxy: {label} is OFF")
-                    elif val is True:
-                        good.append(f"{label} ON")
+            fp = p.get("ssl_forward_proxy") or {}
+            for field_name, label in _BLOCK_SETTINGS.items():
+                val = fp.get(field_name)
+                if val is False:
+                    issues.append(f"Forward proxy: {label} is OFF")
+                elif val is True:
+                    good.append(f"{label} ON")
 
-                profile_findings.append(
-                    {
-                        "name": pname,
-                        "has_forward_proxy": bool(p.get("ssl_forward_proxy")),
-                        "has_inbound_proxy": bool(p.get("ssl_inbound_proxy")),
-                        "has_no_proxy": bool(p.get("ssl_no_proxy")),
-                        "min_tls": min_ver or "unset",
-                        "issues": issues,
-                        "good": good,
-                        "quality": "PASS"
-                        if not issues
-                        else ("WARN" if len(issues) <= 2 else "FAIL"),
-                    }
-                )
-
-            # ── Rule coverage analysis ────────────────────────────────────────
-            total_rules = len(rules)
-            decrypt_rules = [
-                r
-                for r in rules
-                if str(r.get("action", "")).lower() == "decrypt" and not r.get("disabled")
-            ]
-            no_decrypt_rules = [
-                r
-                for r in rules
-                if str(r.get("action", "")).lower() in ("no-decrypt", "no_decrypt")
-                and not r.get("disabled")
-            ]
-            disabled_rules = [r for r in rules if r.get("disabled")]
-            no_profile_rules = [
-                r for r in decrypt_rules if not r.get("profile") and not r.get("profile_setting")
-            ]
-
-            def _is_any(val: Any) -> bool:
-                if val is None:
-                    return True
-                if isinstance(val, str):
-                    return val.lower() in ("any", "")
-                if isinstance(val, list):
-                    return len(val) == 0 or val == ["any"]
-                return False
-
-            catchall_rules = [
-                r
-                for r in decrypt_rules
-                if _is_any(r.get("source"))
-                and _is_any(r.get("destination"))
-                and _is_any(r.get("category"))
-            ]
-
-            def _rule_from(r: dict[str, Any]) -> list[Any]:
-                return r.get("from_") or r.get("from") or []  # SDK uses from_ (keyword escape)
-
-            def _rule_to(r: dict[str, Any]) -> list[Any]:
-                return r.get("to_") or r.get("to") or []
-
-            inbound_decrypt_count = sum(
-                1
-                for r in decrypt_rules
-                if str(r.get("type", "")).lower() in ("ssl-inbound-inspection", "inbound", "")
-                and any(
-                    str(z).lower() in ("untrust", "external", "outside", "internet", "wan")
-                    for z in _rule_from(r)
-                )
+            profile_findings.append(
+                {
+                    "name": pname,
+                    "has_forward_proxy": bool(p.get("ssl_forward_proxy")),
+                    "has_inbound_proxy": bool(p.get("ssl_inbound_proxy")),
+                    "has_no_proxy": bool(p.get("ssl_no_proxy")),
+                    "min_tls": min_ver or "unset",
+                    "issues": issues,
+                    "good": good,
+                    "quality": "PASS" if not issues else ("WARN" if len(issues) <= 2 else "FAIL"),
+                }
             )
 
-            exclusion_categories: set[str] = set()
-            for r in no_decrypt_rules:
-                for cat in r.get("category") or []:
-                    exclusion_categories.add(str(cat))
+        # ── Rule coverage analysis ────────────────────────────────────────
+        total_rules = len(rules)
+        decrypt_rules = [
+            r
+            for r in rules
+            if str(r.get("action", "")).lower() == "decrypt" and not r.get("disabled")
+        ]
+        no_decrypt_rules = [
+            r
+            for r in rules
+            if str(r.get("action", "")).lower() in ("no-decrypt", "no_decrypt")
+            and not r.get("disabled")
+        ]
+        disabled_rules = [r for r in rules if r.get("disabled")]
+        no_profile_rules = [
+            r for r in decrypt_rules if not r.get("profile") and not r.get("profile_setting")
+        ]
 
-            # ── Gap findings ──────────────────────────────────────────────────
-            gaps: list[dict[str, Any]] = []
+        def _is_any(val: Any) -> bool:
+            if val is None:
+                return True
+            if isinstance(val, str):
+                return val.lower() in ("any", "")
+            if isinstance(val, list):
+                return len(val) == 0 or val == ["any"]
+            return False
 
-            if not profiles:
-                gaps.append(
-                    {
-                        "severity": "CRITICAL",
-                        "id": "DEC-G001",
-                        "title": "No decryption profiles configured",
-                        "detail": "SSL/TLS traffic cannot be inspected without at least one decryption profile.",
-                        "fix": "Create a decryption profile (Policies → Decryption Profiles) with TLS 1.2+ minimum.",
-                        "ncsc": "D3.b",
-                        "dspt": "DSPT-9.2.1",
-                    }
-                )
-            elif not decrypt_rules:
-                gaps.append(
-                    {
-                        "severity": "CRITICAL",
-                        "id": "DEC-G002",
-                        "title": "No active decrypt rules",
-                        "detail": f"{total_rules} rule(s) exist but none have action=decrypt and are enabled.",
-                        "fix": "Add a decrypt rule referencing your decryption profile to enforce SSL inspection.",
-                        "ncsc": "D3.b",
-                        "dspt": "DSPT-9.2.1",
-                    }
-                )
-            else:
-                if not catchall_rules:
-                    gaps.append(
-                        {
-                            "severity": "HIGH",
-                            "id": "DEC-G003",
-                            "title": "No any-any catch-all decrypt rule",
-                            "detail": (
-                                f"{len(decrypt_rules)} decrypt rule(s) found but none cover "
-                                "source=any / destination=any / category=any. Specific traffic "
-                                "not matched by a rule will bypass SSL inspection."
-                            ),
-                            "fix": "Add a low-priority decrypt rule (any/any/any) as a catch-all after your no-decrypt exclusions.",
-                            "ncsc": "D3.b",
-                            "dspt": "DSPT-9.2.1",
-                        }
-                    )
+        catchall_rules = [
+            r
+            for r in decrypt_rules
+            if _is_any(r.get("source"))
+            and _is_any(r.get("destination"))
+            and _is_any(r.get("category"))
+        ]
 
-            for pf in profile_findings:
-                for issue in pf["issues"]:
-                    sev = (
-                        "HIGH"
-                        if any(
-                            k in issue
-                            for k in (
-                                "3DES",
-                                "RC4",
-                                "MD5",
-                                "SHA-1",
-                                "Static RSA",
-                                "tls1-0",
-                                "tls1-1",
-                                "sslv3",
-                            )
-                        )
-                        else "MEDIUM"
-                    )
-                    gaps.append(
-                        {
-                            "severity": sev,
-                            "id": "DEC-G004",
-                            "title": f"Profile '{pf['name']}': {issue}",
-                            "detail": f"Decryption profile '{pf['name']}' has a weak configuration: {issue}.",
-                            "fix": "Update the decryption profile SSL protocol settings to remediate.",
-                            "ncsc": "D3.b",
-                            "dspt": "DSPT-9.2.2",
-                        }
-                    )
+        def _rule_from(r: dict[str, Any]) -> list[Any]:
+            return r.get("from_") or r.get("from") or []  # SDK uses from_ (keyword escape)
 
-            if disabled_rules:
-                gaps.append(
-                    {
-                        "severity": "LOW",
-                        "id": "DEC-G005",
-                        "title": f"{len(disabled_rules)} disabled decryption rule(s)",
-                        "detail": f"Rules: {', '.join(r.get('name', '?') for r in disabled_rules[:5])}",
-                        "fix": "Review disabled rules — enable those needed or remove stale entries.",
-                        "ncsc": "D3.b",
-                        "dspt": "DSPT-9.6.1",
-                    }
-                )
+        def _rule_to(r: dict[str, Any]) -> list[Any]:
+            return r.get("to_") or r.get("to") or []
 
-            if no_profile_rules:
+        inbound_decrypt_count = sum(
+            1
+            for r in decrypt_rules
+            if str(r.get("type", "")).lower() in ("ssl-inbound-inspection", "inbound", "")
+            and any(
+                str(z).lower() in ("untrust", "external", "outside", "internet", "wan")
+                for z in _rule_from(r)
+            )
+        )
+
+        exclusion_categories: set[str] = set()
+        for r in no_decrypt_rules:
+            for cat in r.get("category") or []:
+                exclusion_categories.add(str(cat))
+
+        # ── Gap findings ──────────────────────────────────────────────────
+        gaps: list[dict[str, Any]] = []
+
+        if not profiles:
+            gaps.append(
+                {
+                    "severity": "CRITICAL",
+                    "id": "DEC-G001",
+                    "title": "No decryption profiles configured",
+                    "detail": "SSL/TLS traffic cannot be inspected without at least one decryption profile.",
+                    "fix": "Create a decryption profile (Policies → Decryption Profiles) with TLS 1.2+ minimum.",
+                    "ncsc": "D3.b",
+                    "dspt": "DSPT-9.2.1",
+                }
+            )
+        elif not decrypt_rules:
+            gaps.append(
+                {
+                    "severity": "CRITICAL",
+                    "id": "DEC-G002",
+                    "title": "No active decrypt rules",
+                    "detail": f"{total_rules} rule(s) exist but none have action=decrypt and are enabled.",
+                    "fix": "Add a decrypt rule referencing your decryption profile to enforce SSL inspection.",
+                    "ncsc": "D3.b",
+                    "dspt": "DSPT-9.2.1",
+                }
+            )
+        else:
+            if not catchall_rules:
                 gaps.append(
                     {
                         "severity": "HIGH",
-                        "id": "DEC-G006",
-                        "title": f"{len(no_profile_rules)} decrypt rule(s) without a decryption profile",
-                        "detail": f"Rules: {', '.join(r.get('name', '?') for r in no_profile_rules[:5])}",
-                        "fix": "Assign a decryption profile to every decrypt rule to enforce TLS controls.",
+                        "id": "DEC-G003",
+                        "title": "No any-any catch-all decrypt rule",
+                        "detail": (
+                            f"{len(decrypt_rules)} decrypt rule(s) found but none cover "
+                            "source=any / destination=any / category=any. Specific traffic "
+                            "not matched by a rule will bypass SSL inspection."
+                        ),
+                        "fix": "Add a low-priority decrypt rule (any/any/any) as a catch-all after your no-decrypt exclusions.",
+                        "ncsc": "D3.b",
+                        "dspt": "DSPT-9.2.1",
+                    }
+                )
+
+        for pf in profile_findings:
+            for issue in pf["issues"]:
+                sev = (
+                    "HIGH"
+                    if any(
+                        k in issue
+                        for k in (
+                            "3DES",
+                            "RC4",
+                            "MD5",
+                            "SHA-1",
+                            "Static RSA",
+                            "tls1-0",
+                            "tls1-1",
+                            "sslv3",
+                        )
+                    )
+                    else "MEDIUM"
+                )
+                gaps.append(
+                    {
+                        "severity": sev,
+                        "id": "DEC-G004",
+                        "title": f"Profile '{pf['name']}': {issue}",
+                        "detail": f"Decryption profile '{pf['name']}' has a weak configuration: {issue}.",
+                        "fix": "Update the decryption profile SSL protocol settings to remediate.",
                         "ncsc": "D3.b",
                         "dspt": "DSPT-9.2.2",
                     }
                 )
 
-            # ── Overall verdict ───────────────────────────────────────────────
-            critical_gaps = [g for g in gaps if g["severity"] == "CRITICAL"]
-            high_gaps = [g for g in gaps if g["severity"] == "HIGH"]
-            if critical_gaps:
-                verdict = "INSUFFICIENT"
-                verdict_md = "🔴 **INSUFFICIENT** — Critical gaps prevent SSL inspection"
-            elif high_gaps:
-                verdict = "PARTIAL"
-                verdict_md = (
-                    "🟡 **PARTIAL** — SSL inspection is configured but has significant weaknesses"
-                )
-            elif gaps:
-                verdict = "ADEQUATE"
-                verdict_md = (
-                    "🟢 **ADEQUATE** — SSL inspection is in place; minor improvements recommended"
-                )
-            else:
-                verdict = "ADEQUATE"
-                verdict_md = "🟢 **ADEQUATE** — SSL decryption policy meets best practice baseline"
-
-            # ── Render ────────────────────────────────────────────────────────
-            if output_format.lower() == "json":
-                result: dict[str, Any] = {
-                    "folder": folder,
-                    "tenant_id": tenant_id,
-                    "verdict": verdict,
-                    "summary": {
-                        "total_profiles": len(profiles),
-                        "total_rules": total_rules,
-                        "decrypt_rules": len(decrypt_rules),
-                        "no_decrypt_rules": len(no_decrypt_rules),
-                        "disabled_rules": len(disabled_rules),
-                        "catchall_rules": len(catchall_rules),
-                        "inbound_decrypt_rules": inbound_decrypt_count,
-                        "exclusion_categories": sorted(exclusion_categories),
-                    },
-                    "profiles": profile_findings,
-                    "gaps": gaps,
+        if disabled_rules:
+            gaps.append(
+                {
+                    "severity": "LOW",
+                    "id": "DEC-G005",
+                    "title": f"{len(disabled_rules)} disabled decryption rule(s)",
+                    "detail": f"Rules: {', '.join(r.get('name', '?') for r in disabled_rules[:5])}",
+                    "fix": "Review disabled rules — enable those needed or remove stale entries.",
+                    "ncsc": "D3.b",
+                    "dspt": "DSPT-9.6.1",
                 }
-                out_str = _json.dumps(result, indent=2)
-                if save_to:
-                    Path(save_to).write_text(out_str)
-                    return f"Decryption audit saved to `{save_to}`. Verdict: {verdict}"
-                return out_str
-
-            # Markdown output
-            lines: list[str] = []
-            lines.append(f"# SSL/TLS Decryption Policy Audit — {folder}")
-            lines.append("")
-            lines.append(f"**Verdict:** {verdict_md}")
-            lines.append(
-                f"**Profiles:** {len(profiles)}  |  "
-                f"**Rules:** {total_rules} total / "
-                f"{len(decrypt_rules)} decrypt / "
-                f"{len(no_decrypt_rules)} no-decrypt / "
-                f"{len(disabled_rules)} disabled"
             )
-            lines.append(
-                f"**Catch-all decrypt rule:** {'✅ Yes' if catchall_rules else '❌ None'}  |  "
-                f"**Inbound inspection rules:** {inbound_decrypt_count}"
+
+        if no_profile_rules:
+            gaps.append(
+                {
+                    "severity": "HIGH",
+                    "id": "DEC-G006",
+                    "title": f"{len(no_profile_rules)} decrypt rule(s) without a decryption profile",
+                    "detail": f"Rules: {', '.join(r.get('name', '?') for r in no_profile_rules[:5])}",
+                    "fix": "Assign a decryption profile to every decrypt rule to enforce TLS controls.",
+                    "ncsc": "D3.b",
+                    "dspt": "DSPT-9.2.2",
+                }
             )
-            if exclusion_categories:
-                lines.append(
-                    f"**Excluded categories ({len(exclusion_categories)}):** "
-                    + ", ".join(sorted(exclusion_categories)[:10])
-                    + ("…" if len(exclusion_categories) > 10 else "")
-                )
-            lines.append("")
 
-            # Profile quality table
-            lines.append("## Decryption Profile Quality")
-            lines.append("")
-            if not profiles:
-                lines.append("> ⚠️ No decryption profiles found.")
-            else:
-                lines.append("| Profile | Type | Min TLS | Quality | Issues |")
-                lines.append("|---|---|---|---|---|")
-                _q_icon = {"PASS": "✅", "WARN": "⚠️", "FAIL": "❌"}
-                for pf in profile_findings:
-                    ptype = (
-                        (
-                            "Fwd+Inbound"
-                            if pf["has_forward_proxy"] and pf["has_inbound_proxy"]
-                            else ""
-                        )
-                        or ("Forward" if pf["has_forward_proxy"] else "")
-                        or ("Inbound" if pf["has_inbound_proxy"] else "")
-                        or ("No-decrypt" if pf["has_no_proxy"] else "Unknown")
-                    )
-                    icon = _q_icon.get(pf["quality"], "?")
-                    issue_summary = "; ".join(pf["issues"][:3]) or "None"
-                    lines.append(
-                        f"| {pf['name']} | {ptype} | {pf['min_tls']} | {icon} {pf['quality']} | {issue_summary} |"
-                    )
-            lines.append("")
-
-            # Rule coverage table
-            lines.append("## Decryption Rule Coverage")
-            lines.append("")
-            if not rules:
-                lines.append("> ⚠️ No decryption rules found.")
-            else:
-                lines.append("| Rule | Action | From | To | Categories | Profile | Status |")
-                lines.append("|---|---|---|---|---|---|---|")
-                _action_icon = {"decrypt": "🔍", "no-decrypt": "🚫", "no_decrypt": "🚫"}
-                for r in rules[:30]:
-                    action = str(r.get("action", "—")).lower()
-                    icon = _action_icon.get(action, "❓")
-                    from_zones = ", ".join(_rule_from(r) or ["any"])[:30]
-                    to_zones = ", ".join(_rule_to(r) or ["any"])[:30]
-                    cats = ", ".join((r.get("category") or [])[:3]) or "any"
-                    profile = str(r.get("profile") or r.get("profile_setting") or "—")[:20]
-                    status = "🚫 Disabled" if r.get("disabled") else "✅ Active"
-                    lines.append(
-                        f"| {r.get('name', '?')[:30]} | {icon} {action} | {from_zones} | {to_zones} | {cats} | {profile} | {status} |"
-                    )
-                if len(rules) > 30:
-                    lines.append(f"| *…{len(rules) - 30} more rules not shown* | | | | | | |")
-            lines.append("")
-
-            # Gap findings
-            lines.append("## Gap Analysis")
-            lines.append("")
-            if not gaps:
-                lines.append("✅ No gaps found. Decryption policy meets best-practice baseline.")
-            else:
-                _sev_icon = {"CRITICAL": "🔴", "HIGH": "🟠", "MEDIUM": "🟡", "LOW": "🔵"}
-                sev_order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
-                for g in sorted(gaps, key=lambda x: sev_order.get(str(x["severity"]), 9)):
-                    sicon = _sev_icon.get(str(g["severity"]), "⚪")
-                    lines.append(f"### {sicon} [{g['severity']}] {g['id']} — {g['title']}")
-                    lines.append(f"**Detail:** {g['detail']}")
-                    lines.append(f"**Fix:** {g['fix']}")
-                    lines.append(f"**NCSC:** {g['ncsc']}  |  **DSPT:** {g['dspt']}")
-                    lines.append("")
-
-            # References
-            lines.append("## References")
-            lines.append("")
-            lines.append("- NCSC CAF D3.b — Protecting data in transit (TLS inspection)")
-            lines.append("- DSPT Standard 9 — IT Protection (assertions 9.2.1, 9.2.2)")
-            lines.append(
-                "- NCSC TLS guidance: <https://www.ncsc.gov.uk/guidance/tls-external-facing-services>"
+        # ── Overall verdict ───────────────────────────────────────────────
+        critical_gaps = [g for g in gaps if g["severity"] == "CRITICAL"]
+        high_gaps = [g for g in gaps if g["severity"] == "HIGH"]
+        if critical_gaps:
+            verdict = "INSUFFICIENT"
+            verdict_md = "🔴 **INSUFFICIENT** — Critical gaps prevent SSL inspection"
+        elif high_gaps:
+            verdict = "PARTIAL"
+            verdict_md = (
+                "🟡 **PARTIAL** — SSL inspection is configured but has significant weaknesses"
             )
-            lines.append(
-                "- PAN SSL decryption best practices: <https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-admin/decryption>"
+        elif gaps:
+            verdict = "ADEQUATE"
+            verdict_md = (
+                "🟢 **ADEQUATE** — SSL inspection is in place; minor improvements recommended"
             )
-            lines.append("")
+        else:
+            verdict = "ADEQUATE"
+            verdict_md = "🟢 **ADEQUATE** — SSL decryption policy meets best practice baseline"
 
-            result_md = "\n".join(lines)
+        # ── Render ────────────────────────────────────────────────────────
+        if output_format.lower() == "json":
+            result: dict[str, Any] = {
+                "folder": folder,
+                "tenant_id": tenant_id,
+                "verdict": verdict,
+                "summary": {
+                    "total_profiles": len(profiles),
+                    "total_rules": total_rules,
+                    "decrypt_rules": len(decrypt_rules),
+                    "no_decrypt_rules": len(no_decrypt_rules),
+                    "disabled_rules": len(disabled_rules),
+                    "catchall_rules": len(catchall_rules),
+                    "inbound_decrypt_rules": inbound_decrypt_count,
+                    "exclusion_categories": sorted(exclusion_categories),
+                },
+                "profiles": profile_findings,
+                "gaps": gaps,
+            }
+            out_str = _json.dumps(result, indent=2)
             if save_to:
-                Path(save_to).write_text(result_md)
+                Path(save_to).write_text(out_str)
                 return f"Decryption audit saved to `{save_to}`. Verdict: {verdict}"
-            return result_md
+            return out_str
 
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc)}"
+        # Markdown output
+        lines: list[str] = []
+        lines.append(f"# SSL/TLS Decryption Policy Audit — {folder}")
+        lines.append("")
+        lines.append(f"**Verdict:** {verdict_md}")
+        lines.append(
+            f"**Profiles:** {len(profiles)}  |  "
+            f"**Rules:** {total_rules} total / "
+            f"{len(decrypt_rules)} decrypt / "
+            f"{len(no_decrypt_rules)} no-decrypt / "
+            f"{len(disabled_rules)} disabled"
+        )
+        lines.append(
+            f"**Catch-all decrypt rule:** {'✅ Yes' if catchall_rules else '❌ None'}  |  "
+            f"**Inbound inspection rules:** {inbound_decrypt_count}"
+        )
+        if exclusion_categories:
+            lines.append(
+                f"**Excluded categories ({len(exclusion_categories)}):** "
+                + ", ".join(sorted(exclusion_categories)[:10])
+                + ("…" if len(exclusion_categories) > 10 else "")
+            )
+        lines.append("")
+
+        # Profile quality table
+        lines.append("## Decryption Profile Quality")
+        lines.append("")
+        if not profiles:
+            lines.append("> ⚠️ No decryption profiles found.")
+        else:
+            lines.append("| Profile | Type | Min TLS | Quality | Issues |")
+            lines.append("|---|---|---|---|---|")
+            _q_icon = {"PASS": "✅", "WARN": "⚠️", "FAIL": "❌"}
+            for pf in profile_findings:
+                ptype = (
+                    ("Fwd+Inbound" if pf["has_forward_proxy"] and pf["has_inbound_proxy"] else "")
+                    or ("Forward" if pf["has_forward_proxy"] else "")
+                    or ("Inbound" if pf["has_inbound_proxy"] else "")
+                    or ("No-decrypt" if pf["has_no_proxy"] else "Unknown")
+                )
+                icon = _q_icon.get(pf["quality"], "?")
+                issue_summary = "; ".join(pf["issues"][:3]) or "None"
+                lines.append(
+                    f"| {pf['name']} | {ptype} | {pf['min_tls']} | {icon} {pf['quality']} | {issue_summary} |"
+                )
+        lines.append("")
+
+        # Rule coverage table
+        lines.append("## Decryption Rule Coverage")
+        lines.append("")
+        if not rules:
+            lines.append("> ⚠️ No decryption rules found.")
+        else:
+            lines.append("| Rule | Action | From | To | Categories | Profile | Status |")
+            lines.append("|---|---|---|---|---|---|---|")
+            _action_icon = {"decrypt": "🔍", "no-decrypt": "🚫", "no_decrypt": "🚫"}
+            for r in rules[:30]:
+                action = str(r.get("action", "—")).lower()
+                icon = _action_icon.get(action, "❓")
+                from_zones = ", ".join(_rule_from(r) or ["any"])[:30]
+                to_zones = ", ".join(_rule_to(r) or ["any"])[:30]
+                cats = ", ".join((r.get("category") or [])[:3]) or "any"
+                profile = str(r.get("profile") or r.get("profile_setting") or "—")[:20]
+                status = "🚫 Disabled" if r.get("disabled") else "✅ Active"
+                lines.append(
+                    f"| {r.get('name', '?')[:30]} | {icon} {action} | {from_zones} | {to_zones} | {cats} | {profile} | {status} |"
+                )
+            if len(rules) > 30:
+                lines.append(f"| *…{len(rules) - 30} more rules not shown* | | | | | | |")
+        lines.append("")
+
+        # Gap findings
+        lines.append("## Gap Analysis")
+        lines.append("")
+        if not gaps:
+            lines.append("✅ No gaps found. Decryption policy meets best-practice baseline.")
+        else:
+            _sev_icon = {"CRITICAL": "🔴", "HIGH": "🟠", "MEDIUM": "🟡", "LOW": "🔵"}
+            sev_order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+            for g in sorted(gaps, key=lambda x: sev_order.get(str(x["severity"]), 9)):
+                sicon = _sev_icon.get(str(g["severity"]), "⚪")
+                lines.append(f"### {sicon} [{g['severity']}] {g['id']} — {g['title']}")
+                lines.append(f"**Detail:** {g['detail']}")
+                lines.append(f"**Fix:** {g['fix']}")
+                lines.append(f"**NCSC:** {g['ncsc']}  |  **DSPT:** {g['dspt']}")
+                lines.append("")
+
+        # References
+        lines.append("## References")
+        lines.append("")
+        lines.append("- NCSC CAF D3.b — Protecting data in transit (TLS inspection)")
+        lines.append("- DSPT Standard 9 — IT Protection (assertions 9.2.1, 9.2.2)")
+        lines.append(
+            "- NCSC TLS guidance: <https://www.ncsc.gov.uk/guidance/tls-external-facing-services>"
+        )
+        lines.append(
+            "- PAN SSL decryption best practices: <https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-admin/decryption>"
+        )
+        lines.append("")
+
+        result_md = "\n".join(lines)
+        if save_to:
+            Path(save_to).write_text(result_md)
+            return f"Decryption audit saved to `{save_to}`. Verdict: {verdict}"
+        return result_md
 
     # ── Combined Audit Report ─────────────────────────────────────────────────
 
     @mcp.tool()
+    @tool
     def scm_audit_report(
-        folder: str,
-        tenant_id: str = "",
-        output_format: str = "markdown",
-        save_to: str = "",
+        client: Any, tenant_id: str, folder: str, output_format: str = "markdown", save_to: str = ""
     ) -> str:
         """Generate a combined BPA + NCSC compliance report for a SCM folder.
 
@@ -1486,30 +1429,28 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
         Returns:
             The full report as a string (Markdown or JSON).
         """
-        try:
-            client = get_client(tenant_id)
-            snap = extract_snapshot(client, folder=folder, tenant_id=tenant_id or "default")
-            findings = run_all_checks(snap)
-            builder = ReportBuilder(snap, findings)
+        snap = extract_snapshot(client, folder=folder, tenant_id=tenant_id or "default")
+        findings = run_all_checks(snap)
+        builder = ReportBuilder(snap, findings)
 
-            report = builder.to_json() if output_format.lower() == "json" else builder.to_markdown()
+        report = builder.to_json() if output_format.lower() == "json" else builder.to_markdown()
 
-            if save_to:
-                Path(save_to).write_text(report)
-                logger.info("audit_report_saved", path=save_to, folder=folder)
-                return f"Report saved to: {save_to}\n\n{report}"
+        if save_to:
+            Path(save_to).write_text(report)
+            logger.info("audit_report_saved", path=save_to, folder=folder)
+            return f"Report saved to: {save_to}\n\n{report}"
 
-            return report
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc)}"
+        return report
 
     # ── Prisma SASE AS-BUILT AS-IS Report ─────────────────────────────────────────
 
     @mcp.tool()
+    @tool
     def scm_asbuilt_report(
+        client: Any,
+        tenant_id: str,
         deployment_type: str = "Prisma Access",
         folder: str = "",
-        tenant_id: str = "",
         customer_name: str = "",
         mssp_name: str = "MSSP",
         doc_version: str = "1.0",
@@ -1618,7 +1559,6 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
 
         def _run() -> None:
             try:
-                client = get_client(tenant_id)
                 _tc_meta = get_tenant_meta(tenant_id) if tenant_id else None
 
                 _inc_sdwan = include_sdwan
@@ -2133,7 +2073,8 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
     # ── Commit Preview (blast-radius gate) ───────────────────────────────────
 
     @mcp.tool()
-    def scm_commit_preview(folder: str = "Prisma Access", tenant_id: str = "") -> str:
+    @tool
+    def scm_commit_preview(client: Any, tenant_id: str, folder: str = "Prisma Access") -> str:
         """Analyse the blast radius of pending changes BEFORE committing.
 
         Run this instead of going straight to scm_commit. It extracts the
@@ -2171,81 +2112,78 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
             Markdown blast-radius report with verdict and next steps
             (~2 min: one fresh candidate extraction).
         """
-        try:
-            client = get_client(tenant_id)
-            tsg = tenant_id or "default"
-            loaded = load_baseline(tsg, folder, _DEFAULT_BASELINE_DIR)
-            if loaded is None:
-                return (
-                    f"No drift baseline for tenant `{tsg}`, folder `{folder}` — the preview "
-                    "needs a last-known-good reference. Run "
-                    f'`scm_drift_baseline(folder="{folder}", tenant_id="{tenant_id}")` '
-                    "at a point where config is approved, then retry."
-                )
-            baseline, saved_at = loaded
-            candidate = extract_snapshot(client, folder, tsg, fresh=True)
-
-            diffs = check_drift(baseline, candidate)
-
-            # Shadow analysis focused on the rules this commit touches. Pre-rulebase
-            # and post-rulebase are checked together, pre before post, matching
-            # Panorama's evaluation order — a pre-rule can shadow a later post-rule,
-            # which checking each rulebase separately would miss.
-            #
-            # Focus entries are (rulebase, name) tuples, not bare names: a rule
-            # name isn't guaranteed unique across the pre- and post-rulebase, so
-            # a bare-name focus set could pull in an unrelated, pre-existing
-            # shadow between two untouched same-named rules in the *other*
-            # rulebase just because a touched rule elsewhere happens to share
-            # that name — defeating the point of focusing at all.
-            _position_by_field = {
-                "security_rules_pre": "pre",
-                "security_rules_post": "post",
-            }
-            focus: set[str | tuple[str, str]] = set()
-            for d in diffs:
-                pos = _position_by_field.get(d.fieldname)
-                if pos is not None:
-                    focus |= {(pos, n) for n in (set(d.added) | set(d.changed))}
-            shadows = (
-                find_shadowed_rules(
-                    candidate.security_rules_pre + candidate.security_rules_post,
-                    focus,
-                    addresses=candidate.addresses,
-                    address_groups=candidate.address_groups,
-                )
-                if focus
-                else []
+        tsg = tenant_id or "default"
+        loaded = load_baseline(tsg, folder, _DEFAULT_BASELINE_DIR)
+        if loaded is None:
+            return (
+                f"No drift baseline for tenant `{tsg}`, folder `{folder}` — the preview "
+                "needs a last-known-good reference. Run "
+                f'`scm_drift_baseline(folder="{folder}", tenant_id="{tenant_id}")` '
+                "at a point where config is approved, then retry."
             )
+        baseline, saved_at = loaded
+        candidate = extract_snapshot(client, folder, tsg, fresh=True)
 
-            introduced, resolved = bpa_delta(run_all_checks(baseline), run_all_checks(candidate))
+        diffs = check_drift(baseline, candidate)
 
-            report = render_commit_preview(
-                diffs,
-                shadows,
-                introduced,
-                resolved,
-                tenant_label=tsg,
-                folder=folder,
-                baseline_saved_at=saved_at,
-                generated_at=datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
+        # Shadow analysis focused on the rules this commit touches. Pre-rulebase
+        # and post-rulebase are checked together, pre before post, matching
+        # Panorama's evaluation order — a pre-rule can shadow a later post-rule,
+        # which checking each rulebase separately would miss.
+        #
+        # Focus entries are (rulebase, name) tuples, not bare names: a rule
+        # name isn't guaranteed unique across the pre- and post-rulebase, so
+        # a bare-name focus set could pull in an unrelated, pre-existing
+        # shadow between two untouched same-named rules in the *other*
+        # rulebase just because a touched rule elsewhere happens to share
+        # that name — defeating the point of focusing at all.
+        _position_by_field = {
+            "security_rules_pre": "pre",
+            "security_rules_post": "post",
+        }
+        focus: set[str | tuple[str, str]] = set()
+        for d in diffs:
+            pos = _position_by_field.get(d.fieldname)
+            if pos is not None:
+                focus |= {(pos, n) for n in (set(d.added) | set(d.changed))}
+        shadows = (
+            find_shadowed_rules(
+                candidate.security_rules_pre + candidate.security_rules_post,
+                focus,
+                addresses=candidate.addresses,
+                address_groups=candidate.address_groups,
             )
-            logger.info(
-                "commit_preview_complete",
-                tenant_id=tsg,
-                folder=folder,
-                drifted=len(diffs),
-                shadows=len(shadows),
-                introduced=len(introduced),
-            )
-            return report
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc, tool='scm_commit_preview')}"
+            if focus
+            else []
+        )
+
+        introduced, resolved = bpa_delta(run_all_checks(baseline), run_all_checks(candidate))
+
+        report = render_commit_preview(
+            diffs,
+            shadows,
+            introduced,
+            resolved,
+            tenant_label=tsg,
+            folder=folder,
+            baseline_saved_at=saved_at,
+            generated_at=datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
+        )
+        logger.info(
+            "commit_preview_complete",
+            tenant_id=tsg,
+            folder=folder,
+            drifted=len(diffs),
+            shadows=len(shadows),
+            introduced=len(introduced),
+        )
+        return report
 
     # ── Rule Shadow Audit (standalone, whole rulebase) ─────────────────────────
 
     @mcp.tool()
-    def scm_rule_shadow_audit(folder: str = "Prisma Access", tenant_id: str = "") -> str:
+    @tool
+    def scm_rule_shadow_audit(client: Any, tenant_id: str, folder: str = "Prisma Access") -> str:
         """Audit the entire live rulebase for shadowed security rules — no
         baseline or pending commit required (unlike scm_commit_preview, which
         only checks rules the pending change touches).
@@ -2274,65 +2212,63 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
             caveats section disclosing any addresses that couldn't be
             resolved to concrete IP ranges (~1-2 min: one full extraction).
         """
-        try:
-            client = get_client(tenant_id)
-            tsg = tenant_id or "default"
-            snap = extract_snapshot(client, folder, tsg)
+        tsg = tenant_id or "default"
+        snap = extract_snapshot(client, folder, tsg)
 
-            all_rules = snap.security_rules_pre + snap.security_rules_post
-            enabled = [r for r in all_rules if not r.get("disabled")]
-            # Keyed by rule_identity(), not bare name — a name can legitimately
-            # repeat across the pre- and post-rulebase (or across the folders
-            # merged into `all_rules`), and a bare-name key would let a later
-            # rule's metadata silently overwrite an earlier same-named rule's,
-            # misattributing folder/position/action in the rendered report.
-            rule_meta = {
-                rule_identity(r): {
-                    "folder": str(r.get("_folder", "?")),
-                    "position": str(r.get("_position", "?")),
-                    "action": str(r.get("action", "?")),
-                }
-                for r in all_rules
+        all_rules = snap.security_rules_pre + snap.security_rules_post
+        enabled = [r for r in all_rules if not r.get("disabled")]
+        # Keyed by rule_identity(), not bare name — a name can legitimately
+        # repeat across the pre- and post-rulebase (or across the folders
+        # merged into `all_rules`), and a bare-name key would let a later
+        # rule's metadata silently overwrite an earlier same-named rule's,
+        # misattributing folder/position/action in the rendered report.
+        rule_meta = {
+            rule_identity(r): {
+                "folder": str(r.get("_folder", "?")),
+                "position": str(r.get("_position", "?")),
+                "action": str(r.get("action", "?")),
             }
+            for r in all_rules
+        }
 
-            # Build the address/group resolution index once and reuse it for
-            # both the shadow scan and the unresolved-names disclosure below —
-            # find_shadowed_rules would otherwise redo the same recursive
-            # resolution internally, doubling the cost of the slowest part of
-            # this tool for no benefit.
-            index = build_address_index(snap.addresses, snap.address_groups)
-            shadows = find_shadowed_rules(all_rules, index=index)
-            unresolved = unresolved_address_names(index)
+        # Build the address/group resolution index once and reuse it for
+        # both the shadow scan and the unresolved-names disclosure below —
+        # find_shadowed_rules would otherwise redo the same recursive
+        # resolution internally, doubling the cost of the slowest part of
+        # this tool for no benefit.
+        index = build_address_index(snap.addresses, snap.address_groups)
+        shadows = find_shadowed_rules(all_rules, index=index)
+        unresolved = unresolved_address_names(index)
 
-            report = render_shadow_audit(
-                shadows,
-                rule_meta,
-                total_rules=len(enabled),
-                unresolved=unresolved,
-                tenant_label=tsg,
-                folder=folder,
-                generated_at=datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
-            )
-            logger.info(
-                "rule_shadow_audit_complete",
-                tenant_id=tsg,
-                folder=folder,
-                total_rules=len(enabled),
-                shadows=len(shadows),
-            )
-            return report
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc, tool='scm_rule_shadow_audit')}"
+        report = render_shadow_audit(
+            shadows,
+            rule_meta,
+            total_rules=len(enabled),
+            unresolved=unresolved,
+            tenant_label=tsg,
+            folder=folder,
+            generated_at=datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
+        )
+        logger.info(
+            "rule_shadow_audit_complete",
+            tenant_id=tsg,
+            folder=folder,
+            total_rules=len(enabled),
+            shadows=len(shadows),
+        )
+        return report
 
     # ── Incident Root-Cause Correlation ───────────────────────────────────────
 
     @mcp.tool()
+    @tool
     def scm_incident_rca(
+        client: Any,
+        tenant_id: str,
         incident_time: str = "",
         symptom: str = "",
         lookback_hours: int = 24,
         folder: str = "Prisma Access",
-        tenant_id: str = "",
         include_drift: bool = True,
     ) -> str:
         """Correlate an incident with config pushes, expiries, and drift.
@@ -2366,94 +2302,88 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
             Markdown RCA report: ranked candidate table, drift state
             evidence, RFO draft, and caveats.
         """
+        tsg = tenant_id or "default"
+        incident_dt = parse_any_ts(incident_time) or datetime.now(UTC)
+        unchecked: list[str] = [
+            "SD-WAN element/servicelink status (use scm_sdwan tools to correlate manually "
+            "on SD-WAN tenants)",
+            "Prisma Access Insights alerts (RBAC 403 on current service accounts)",
+        ]
+
+        jobs: list[dict[str, Any]] = []
         try:
-            client = get_client(tenant_id)
-            tsg = tenant_id or "default"
-            incident_dt = parse_any_ts(incident_time) or datetime.now(UTC)
-            unchecked: list[str] = [
-                "SD-WAN element/servicelink status (use scm_sdwan tools to correlate manually "
-                "on SD-WAN tenants)",
-                "Prisma Access Insights alerts (RBAC 403 on current service accounts)",
-            ]
-
-            jobs: list[dict[str, Any]] = []
-            try:
-                resp = client.list_jobs(limit=200, offset=0)
-                for j in resp.data if hasattr(resp, "data") else []:
-                    parent = str(getattr(j, "parent_id", "") or "")
-                    if parent not in ("0", "", "None"):
-                        continue  # child jobs duplicate their parent push
-                    jobs.append(
-                        {
-                            "job_id": str(getattr(j, "id", "")),
-                            "type": str(getattr(j, "type_str", getattr(j, "job_type", ""))),
-                            "result": str(getattr(j, "result_str", "")),
-                            "user": str(getattr(j, "uname", "")),
-                            "description": str(getattr(j, "description", "") or ""),
-                            "start_ts": str(getattr(j, "start_ts", "")),
-                            "end_ts": str(getattr(j, "end_ts", "")),
-                        }
-                    )
-            except Exception as exc:
-                unchecked.append(f"config job history (list_jobs failed: {exc})")
-
-            certs: list[dict[str, Any]] = []
-            session = getattr(client, "session", None)
-            if session is not None:
-                seen: set[str] = set()
-                for f in dict.fromkeys([folder, *_CERT_FOLDERS]):
-                    for c in _fetch_certs(session, f):
-                        cid = str(c.get("id", c.get("name", "")))
-                        if cid not in seen:
-                            seen.add(cid)
-                            certs.append(c)
-            else:
-                unchecked.append("certificate expiries (no HTTP session)")
-
-            try:
-                lic_rows = _licence_rows(fetch_licenses(client))
-            except Exception as exc:
-                lic_rows = []
-                unchecked.append(f"licence expiries (fetch failed: {exc})")
-
-            candidates = collect_candidates(incident_dt, lookback_hours, jobs, certs, lic_rows)
-
-            drifted: list[Any] = []
-            baseline_saved_at: str | None = None
-            if include_drift:
-                loaded = load_baseline(tsg, folder, _DEFAULT_BASELINE_DIR)
-                if loaded is None:
-                    unchecked.append(
-                        "config drift (no baseline — run scm_drift_baseline to enable)"
-                    )
-                else:
-                    baseline, baseline_saved_at = loaded
-                    live = extract_snapshot(client, folder, tsg, fresh=True)
-                    drifted = check_drift(baseline, live)
-            else:
-                unchecked.append("config drift (include_drift=False)")
-
-            report = render_rca_report(
-                incident_dt,
-                symptom,
-                lookback_hours,
-                candidates,
-                drifted,
-                baseline_saved_at,
-                unchecked,
-                tenant_label=tsg,
-                folder=folder,
-                generated_at=datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
-            )
-            logger.info(
-                "incident_rca_complete",
-                tenant_id=tsg,
-                candidates=len(candidates),
-                drifted=len(drifted),
-            )
-            return report
+            resp = client.list_jobs(limit=200, offset=0)
+            for j in resp.data if hasattr(resp, "data") else []:
+                parent = str(getattr(j, "parent_id", "") or "")
+                if parent not in ("0", "", "None"):
+                    continue  # child jobs duplicate their parent push
+                jobs.append(
+                    {
+                        "job_id": str(getattr(j, "id", "")),
+                        "type": str(getattr(j, "type_str", getattr(j, "job_type", ""))),
+                        "result": str(getattr(j, "result_str", "")),
+                        "user": str(getattr(j, "uname", "")),
+                        "description": str(getattr(j, "description", "") or ""),
+                        "start_ts": str(getattr(j, "start_ts", "")),
+                        "end_ts": str(getattr(j, "end_ts", "")),
+                    }
+                )
         except Exception as exc:
-            return f"Error: {handle_scm_exception(exc, tool='scm_incident_rca')}"
+            unchecked.append(f"config job history (list_jobs failed: {exc})")
+
+        certs: list[dict[str, Any]] = []
+        session = getattr(client, "session", None)
+        if session is not None:
+            seen: set[str] = set()
+            for f in dict.fromkeys([folder, *_CERT_FOLDERS]):
+                for c in _fetch_certs(session, f):
+                    cid = str(c.get("id", c.get("name", "")))
+                    if cid not in seen:
+                        seen.add(cid)
+                        certs.append(c)
+        else:
+            unchecked.append("certificate expiries (no HTTP session)")
+
+        try:
+            lic_rows = _licence_rows(fetch_licenses(client))
+        except Exception as exc:
+            lic_rows = []
+            unchecked.append(f"licence expiries (fetch failed: {exc})")
+
+        candidates = collect_candidates(incident_dt, lookback_hours, jobs, certs, lic_rows)
+
+        drifted: list[Any] = []
+        baseline_saved_at: str | None = None
+        if include_drift:
+            loaded = load_baseline(tsg, folder, _DEFAULT_BASELINE_DIR)
+            if loaded is None:
+                unchecked.append("config drift (no baseline — run scm_drift_baseline to enable)")
+            else:
+                baseline, baseline_saved_at = loaded
+                live = extract_snapshot(client, folder, tsg, fresh=True)
+                drifted = check_drift(baseline, live)
+        else:
+            unchecked.append("config drift (include_drift=False)")
+
+        report = render_rca_report(
+            incident_dt,
+            symptom,
+            lookback_hours,
+            candidates,
+            drifted,
+            baseline_saved_at,
+            unchecked,
+            tenant_label=tsg,
+            folder=folder,
+            generated_at=datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
+        )
+        logger.info(
+            "incident_rca_complete",
+            tenant_id=tsg,
+            candidates=len(candidates),
+            drifted=len(drifted),
+        )
+        return report
 
     # ── Config Diff ───────────────────────────────────────────────────────────
 

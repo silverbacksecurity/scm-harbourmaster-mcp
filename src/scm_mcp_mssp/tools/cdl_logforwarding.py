@@ -17,6 +17,7 @@ from mcp.server.fastmcp import FastMCP
 
 from ..utils.formatting import format_result as _fmt
 from ..utils.logging import get_logger
+from ..utils.tool_decorator import scm_tool
 
 logger = get_logger(__name__)
 
@@ -80,12 +81,12 @@ def _rest_get(session: Any, url: str, params: dict | None = None) -> dict | list
 
 def register_cdl_logforwarding_tools(mcp: FastMCP, get_client: Any) -> None:
     """Register CDL Log Forwarding MCP tools onto the MCP server."""
+    tool = scm_tool(get_client)
 
     @mcp.tool()
+    @tool
     def scm_cdl_logforwarding(
-        tenant_id: str = "",
-        profile_type: str = "email",
-        profile_id: str = "",
+        client: Any, profile_type: str = "email", profile_id: str = ""
     ) -> str:
         """List CDL log-forwarding profiles (email, HTTPS, syslog).
 
@@ -115,7 +116,6 @@ def register_cdl_logforwarding_tools(mcp: FastMCP, get_client: Any) -> None:
             )
 
         try:
-            client = get_client(tenant_id)
             session = _bearer_session(client)
         except Exception as exc:
             return _fmt({"error": "auth_failed", "detail": str(exc)})

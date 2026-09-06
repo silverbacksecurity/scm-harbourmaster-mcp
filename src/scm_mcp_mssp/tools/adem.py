@@ -32,6 +32,7 @@ from mcp.server.fastmcp import FastMCP
 
 from ..audit.extractor import _bearer_session_for
 from ..utils.logging import get_logger
+from ..utils.tool_decorator import scm_tool
 
 logger = get_logger(__name__)
 
@@ -172,11 +173,14 @@ def _render(title: str, url: str, status: int, body: Any) -> str:
 
 def register_adem_tools(mcp: FastMCP, get_client: Any) -> None:
     """Register the ADEM general-purpose query tool."""
+    tool = scm_tool(get_client)
 
     @mcp.tool()
+    @tool
     def scm_adem_query(
+        client: Any,
+        tenant_id: str,
         view: str,
-        tenant_id: str = "",
         endpoint_type: str = "",
         response_type: str = "",
         timerange: str = "last_3_day",
@@ -261,7 +265,6 @@ def register_adem_tools(mcp: FastMCP, get_client: Any) -> None:
         if group:
             params["group"] = group
 
-        client = get_client(tenant_id)
         session = _bearer_session_for(client)
         url = f"{_BASE}{spec['path']}"
         headers = {"prisma-tenant": tenant_id} if tenant_id else {}

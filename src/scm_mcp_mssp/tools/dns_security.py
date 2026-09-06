@@ -16,6 +16,7 @@ from mcp.server.fastmcp import FastMCP
 
 from ..utils.formatting import format_result as _fmt
 from ..utils.logging import get_logger
+from ..utils.tool_decorator import scm_tool
 
 logger = get_logger(__name__)
 
@@ -77,10 +78,12 @@ def _rest_post(
 
 def register_dns_security_tools(mcp: FastMCP, get_client: Any) -> None:
     """Register Advanced DNS Security MCP tools onto the MCP server."""
+    tool = scm_tool(get_client)
 
     @mcp.tool()
+    @tool
     def scm_dns_security_lookup(
-        tenant_id: str = "",
+        client: Any,
         domain: str = "",
         action: str = "info",
         change_action: str = "",
@@ -112,7 +115,6 @@ def register_dns_security_tools(mcp: FastMCP, get_client: Any) -> None:
             return _fmt({"error": "domain is required"})
 
         try:
-            client = get_client(tenant_id)
             session = _bearer_session(client)
         except Exception as exc:
             return _fmt({"error": "auth_failed", "detail": str(exc)})

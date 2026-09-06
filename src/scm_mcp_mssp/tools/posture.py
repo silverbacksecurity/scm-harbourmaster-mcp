@@ -22,6 +22,7 @@ from ..auth.oauth import get_scm_client
 from ..config.settings import TenantConfig
 from ..utils.errors import handle_scm_exception
 from ..utils.logging import get_logger
+from ..utils.tool_decorator import scm_tool
 
 logger = get_logger(__name__)
 
@@ -229,9 +230,14 @@ def _render_saas_posture(data: dict[str, Any], source: str, include_catalog: boo
 
 def register_posture_tools(mcp: FastMCP, get_client: Any) -> None:
     """Register Posture Management and Incidents tools."""
+    tool = scm_tool(get_client)
+    tool = scm_tool(get_client)
 
     @mcp.tool()
+    @tool
     def scm_incident_search(
+        client: Any,
+        tenant_id: str,
         severity: str = "",
         status: str = "",
         product: str = "",
@@ -239,7 +245,6 @@ def register_posture_tools(mcp: FastMCP, get_client: Any) -> None:
         days: int = 30,
         limit: int = 100,
         all_tenants: bool = False,
-        tenant_id: str = "",
     ) -> str:
         """Search SCM security incidents via the Incidents API (March 2026).
 
@@ -288,7 +293,6 @@ def register_posture_tools(mcp: FastMCP, get_client: Any) -> None:
                         # abort the whole cross-tenant sweep.
                         tenant_errors.append(f"{label}: {exc}")
             else:
-                client = get_client(tenant_id)
                 targets = [(tenant_id or "default", tenant_id or "default", client)]
 
             for _key, label, c in targets:
@@ -371,10 +375,9 @@ def register_posture_tools(mcp: FastMCP, get_client: Any) -> None:
             return f"Error: {handle_scm_exception(exc, tool='scm_incident_search', tenant_id=tenant_id)}"
 
     @mcp.tool()
+    @tool
     def scm_incident_summary(
-        days: int = 7,
-        all_tenants: bool = True,
-        tenant_id: str = "",
+        client: Any, tenant_id: str, days: int = 7, all_tenants: bool = True
     ) -> str:
         """Cross-tenant SCM incident NOC dashboard.
 
@@ -407,7 +410,6 @@ def register_posture_tools(mcp: FastMCP, get_client: Any) -> None:
                         )
                         targets.append((k, label, None))
             else:
-                client = get_client(tenant_id)
                 targets = [(tenant_id or "default", tenant_id or "default", client)]
 
             ts = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
@@ -451,10 +453,8 @@ def register_posture_tools(mcp: FastMCP, get_client: Any) -> None:
             return f"Error: {handle_scm_exception(exc, tool='scm_incident_summary', tenant_id=tenant_id)}"
 
     @mcp.tool()
-    def scm_posture_report(
-        folder: str = "Shared",
-        tenant_id: str = "",
-    ) -> str:
+    @tool
+    def scm_posture_report(client: Any, folder: str = "Shared") -> str:
         """Retrieve SCM Posture Management best-practice report findings.
 
         Queries the Posture Management API (`/posture/v1/reports`) introduced
@@ -471,70 +471,67 @@ def register_posture_tools(mcp: FastMCP, get_client: Any) -> None:
             folder: SCM folder scope (default "Shared").
             tenant_id: SCM tenant ID. Defaults to active tenant.
         """
-        try:
-            client = get_client(tenant_id)
-            session = getattr(client, "session", None)
-            if not session:
-                return "Error: no HTTP session available on SCM client."
+        session = getattr(client, "session", None)
+        if not session:
+            return "Error: no HTTP session available on SCM client."
 
-            url = f"{_INC_BASE}{_POSTURE_BASE}"
-            params: dict[str, str] = {}
-            if folder:
-                params["folder"] = folder
+        url = f"{_INC_BASE}{_POSTURE_BASE}"
+        params: dict[str, str] = {}
+        if folder:
+            params["folder"] = folder
 
-            resp = session.get(url, params=params, timeout=(10, 30))
+        resp = session.get(url, params=params, timeout=(10, 30))
 
-            if resp.status_code == 403:
-                from contextlib import suppress
+        if resp.status_code == 403:
+            from contextlib import suppress
 
-                body: dict[str, Any] = {}
-                with suppress(Exception):
-                    body = resp.json()
-                msg = body.get("msg") or body.get("message") or "Access denied"
-                return f"**Posture Management API — {msg}**\n{_LICENSE_HINT}"
+            body: dict[str, Any] = {}
+            with suppress(Exception):
+                body = resp.json()
+            msg = body.get("msg") or body.get("message") or "Access denied"
+            return f"**Posture Management API — {msg}**\n{_LICENSE_HINT}"
 
-            resp.raise_for_status()
-            data = resp.json()
+        resp.raise_for_status()
+        data = resp.json()
 
-            ts = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
-            lines = [
-                f"## SCM Posture Report — {folder}",
-                "",
-                f"*Retrieved: {ts}*",
-                "",
-            ]
+        ts = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
+        lines = [
+            f"## SCM Posture Report — {folder}",
+            "",
+            f"*Retrieved: {ts}*",
+            "",
+        ]
 
-            reports = data if isinstance(data, list) else data.get("data", [data])
-            if not reports:
-                lines.append("No posture report data available for this folder.")
-                return "\n".join(lines)
-
-            for report in reports[:5]:
-                if isinstance(report, dict):
-                    name = report.get("name") or report.get("id") or "Report"
-                    status = report.get("status") or report.get("state") or "—"
-                    score = report.get("score") or report.get("overall_score") or "—"
-                    lines += [
-                        f"### {name}",
-                        "",
-                        f"**Status:** {status}  |  **Score:** {score}",
-                        "",
-                        "```json",
-                        json.dumps(report, indent=2, default=str)[:1000],
-                        "```",
-                        "",
-                    ]
-                else:
-                    lines += ["```json", json.dumps(report, default=str)[:500], "```", ""]
-
+        reports = data if isinstance(data, list) else data.get("data", [data])
+        if not reports:
+            lines.append("No posture report data available for this folder.")
             return "\n".join(lines)
 
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc, tool='scm_posture_report', tenant_id=tenant_id)}"
+        for report in reports[:5]:
+            if isinstance(report, dict):
+                name = report.get("name") or report.get("id") or "Report"
+                status = report.get("status") or report.get("state") or "—"
+                score = report.get("score") or report.get("overall_score") or "—"
+                lines += [
+                    f"### {name}",
+                    "",
+                    f"**Status:** {status}  |  **Score:** {score}",
+                    "",
+                    "```json",
+                    json.dumps(report, indent=2, default=str)[:1000],
+                    "```",
+                    "",
+                ]
+            else:
+                lines += ["```json", json.dumps(report, default=str)[:500], "```", ""]
+
+        return "\n".join(lines)
 
     @mcp.tool()
+    @tool
     def scm_saas_posture(
-        tenant_id: str = "",
+        client: Any,
+        tenant_id: str,
         include_catalog: bool = False,
         save_to: str = "",
         load_from: str = "",
@@ -579,7 +576,6 @@ def register_posture_tools(mcp: FastMCP, get_client: Any) -> None:
                 from ..audit.extractor import extract_identity_sspm, extract_sspm
                 from ..audit.models import AuditSnapshot
 
-                client = get_client(tenant_id)
                 snap = AuditSnapshot(folder="", tenant_id=tenant_id or "default")
                 extract_sspm(client, snap)
                 extract_identity_sspm(client, snap)

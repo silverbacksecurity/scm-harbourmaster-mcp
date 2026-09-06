@@ -17,8 +17,8 @@ from typing import Any
 import requests as _requests
 from mcp.server.fastmcp import FastMCP
 
-from ..utils.errors import handle_scm_exception
 from ..utils.logging import get_logger
+from ..utils.tool_decorator import scm_tool
 
 logger = get_logger(__name__)
 
@@ -64,7 +64,7 @@ def _parse_bpa_report(report: Any, device_name: str) -> str:
     score = report.get("score") or report.get("overall_score") or report.get("summary", {})
     if isinstance(score, dict):
         overall = score.get("overall") or score.get("score") or score.get("total_score") or "—"
-    elif isinstance(score, (int, float)):
+    elif isinstance(score, int | float):
         overall = score
     else:
         overall = "—"
@@ -86,7 +86,7 @@ def _parse_bpa_report(report: Any, device_name: str) -> str:
     if isinstance(cat_scores, dict):
         lines += ["### Category Scores", "", "| Category | Score |", "|---|---|"]
         for cat, val in cat_scores.items():
-            pct = f"{val}%" if isinstance(val, (int, float)) else str(val)
+            pct = f"{val}%" if isinstance(val, int | float) else str(val)
             lines.append(f"| {cat} | {pct} |")
         lines.append("")
 
@@ -162,9 +162,13 @@ def _parse_bpa_report(report: Any, device_name: str) -> str:
 
 def register_aiops_tools(mcp: FastMCP, get_client: Any) -> None:
     """Register AIOps tools onto the MCP server."""
+    tool = scm_tool(get_client)
 
     @mcp.tool()
+    @tool
     def scm_aiops_bpa(
+        client: Any,
+        tenant_id: str,
         config_xml: str,
         requester_email: str,
         requester_name: str = "",
@@ -174,7 +178,6 @@ def register_aiops_tools(mcp: FastMCP, get_client: Any) -> None:
         device_version: str = "10.2.0",
         device_name: str = "",
         timeout: int = 120,
-        tenant_id: str = "",
     ) -> str:
         """Submit a PAN-OS device config XML to the PAN AIOps BPA API for analysis.
 
@@ -210,119 +213,114 @@ def register_aiops_tools(mcp: FastMCP, get_client: Any) -> None:
             timeout: Max seconds to wait for the BPA job to complete (default 120).
             tenant_id: SCM tenant ID for authentication. Defaults to active tenant.
         """
+        session = getattr(client, "session", None)
+        if session is None:
+            return "Error: no HTTP session available on SCM client."
+
+        if not config_xml or not config_xml.strip():
+            return "Error: config_xml is required. Provide the PAN-OS running config XML."
+
+        if not requester_email or "@" not in requester_email:
+            return "Error: requester_email is required and must be a valid email address."
+
+        xml_bytes = config_xml.strip().encode("utf-8")
+        label = device_name or device_serial or "Device"
+        name = requester_name or requester_email.split("@")[0]
+
+        # ── Step 1: POST /requests — initiate BPA job ─────────────────────
+        logger.info(
+            "aiops_bpa_start",
+            device=label,
+            xml_size=len(xml_bytes),
+            tenant_id=tenant_id,
+            requester=requester_email,
+        )
+        request_body = {
+            "serial": device_serial,
+            "family": device_family,
+            "model": device_model,
+            "version": device_version,
+            "requesterName": name,
+            "requesterEmail": requester_email,
+        }
         try:
-            client = get_client(tenant_id)
-            session = getattr(client, "session", None)
-            if session is None:
-                return "Error: no HTTP session available on SCM client."
+            init = _bpa_request(session, "POST", "/requests", json=request_body)
+        except _requests.HTTPError as exc:
+            if exc.response is not None and exc.response.status_code == 400:
+                body = exc.response.json() if exc.response.content else {}
+                msg = body.get("message", body.get("description", str(body)))
+                if "requesterName" in msg or "requesterEmail" in msg:
+                    return (
+                        f"BPA API rejected the requester identity.\n"
+                        f"API message: {msg}{_ERR_CSP_HINT}"
+                    )
+            raise
 
-            if not config_xml or not config_xml.strip():
-                return "Error: config_xml is required. Provide the PAN-OS running config XML."
+        job_id = init.get("id") or init.get("job_id")
+        upload_url = init.get("upload-url") or init.get("upload_url")
 
-            if not requester_email or "@" not in requester_email:
-                return "Error: requester_email is required and must be a valid email address."
-
-            xml_bytes = config_xml.strip().encode("utf-8")
-            label = device_name or device_serial or "Device"
-            name = requester_name or requester_email.split("@")[0]
-
-            # ── Step 1: POST /requests — initiate BPA job ─────────────────────
-            logger.info(
-                "aiops_bpa_start",
-                device=label,
-                xml_size=len(xml_bytes),
-                tenant_id=tenant_id,
-                requester=requester_email,
+        if not job_id or not upload_url:
+            return (
+                f"Error: unexpected response from BPA API — missing job ID or upload URL.\n"
+                f"Response: {json.dumps(init, default=str)}"
             )
-            request_body = {
-                "serial": device_serial,
-                "family": device_family,
-                "model": device_model,
-                "version": device_version,
-                "requesterName": name,
-                "requesterEmail": requester_email,
-            }
-            try:
-                init = _bpa_request(session, "POST", "/requests", json=request_body)
-            except _requests.HTTPError as exc:
-                if exc.response is not None and exc.response.status_code == 400:
-                    body = exc.response.json() if exc.response.content else {}
-                    msg = body.get("message", body.get("description", str(body)))
-                    if "requesterName" in msg or "requesterEmail" in msg:
-                        return (
-                            f"BPA API rejected the requester identity.\n"
-                            f"API message: {msg}{_ERR_CSP_HINT}"
-                        )
-                raise
 
-            job_id = init.get("id") or init.get("job_id")
-            upload_url = init.get("upload-url") or init.get("upload_url")
+        logger.info("aiops_bpa_job_created", job_id=job_id, device=label)
 
-            if not job_id or not upload_url:
-                return (
-                    f"Error: unexpected response from BPA API — missing job ID or upload URL.\n"
-                    f"Response: {json.dumps(init, default=str)}"
-                )
+        # ── Step 2: PUT config XML to signed URL (no auth header) ─────────
+        upload_resp = _requests.put(
+            upload_url,
+            data=xml_bytes,
+            headers={"Content-Type": "text/xml"},
+            timeout=(10, 60),
+        )
+        upload_resp.raise_for_status()
+        logger.info("aiops_bpa_config_uploaded", job_id=job_id, status=upload_resp.status_code)
 
-            logger.info("aiops_bpa_job_created", job_id=job_id, device=label)
-
-            # ── Step 2: PUT config XML to signed URL (no auth header) ─────────
-            upload_resp = _requests.put(
-                upload_url,
-                data=xml_bytes,
-                headers={"Content-Type": "text/xml"},
-                timeout=(10, 60),
+        # ── Step 3: Poll job status until complete or timeout ─────────────
+        start = time.monotonic()
+        status_str = "PENDING"
+        while time.monotonic() - start < timeout:
+            status_resp = _bpa_request(session, "GET", f"/jobs/{job_id}")
+            status_str = (
+                status_resp.get("status")
+                or status_resp.get("state")
+                or status_resp.get("job_status")
+                or "UNKNOWN"
             )
-            upload_resp.raise_for_status()
-            logger.info("aiops_bpa_config_uploaded", job_id=job_id, status=upload_resp.status_code)
+            logger.info("aiops_bpa_poll", job_id=job_id, status=status_str)
+            if status_str in _DONE_STATES:
+                break
+            time.sleep(_POLL_INTERVAL)
 
-            # ── Step 3: Poll job status until complete or timeout ─────────────
-            start = time.monotonic()
-            status_str = "PENDING"
-            while time.monotonic() - start < timeout:
-                status_resp = _bpa_request(session, "GET", f"/jobs/{job_id}")
-                status_str = (
-                    status_resp.get("status")
-                    or status_resp.get("state")
-                    or status_resp.get("job_status")
-                    or "UNKNOWN"
-                )
-                logger.info("aiops_bpa_poll", job_id=job_id, status=status_str)
-                if status_str in _DONE_STATES:
-                    break
-                time.sleep(_POLL_INTERVAL)
+        if status_str not in _DONE_STATES:
+            return (
+                f"BPA job `{job_id}` still in state `{status_str}` after {timeout}s.\n"
+                "The report may still be generating — check back later.\n"
+                f"Fetch manually: `GET {_AIOPS_BPA_BASE}/reports/{job_id}`"
+            )
 
-            if status_str not in _DONE_STATES:
-                return (
-                    f"BPA job `{job_id}` still in state `{status_str}` after {timeout}s.\n"
-                    "The report may still be generating — check back later.\n"
-                    f"Fetch manually: `GET {_AIOPS_BPA_BASE}/reports/{job_id}`"
-                )
+        if status_str not in _SUCCESS_STATES:
+            return (
+                f"BPA job `{job_id}` completed with status `{status_str}`.\n"
+                "The config may have been invalid or the BPA engine encountered an error.\n"
+                "Verify the XML is a valid PAN-OS running config and retry."
+            )
 
-            if status_str not in _SUCCESS_STATES:
-                return (
-                    f"BPA job `{job_id}` completed with status `{status_str}`.\n"
-                    "The config may have been invalid or the BPA engine encountered an error.\n"
-                    "Verify the XML is a valid PAN-OS running config and retry."
-                )
+        # ── Step 4: GET /reports/{id} → signed download URL ───────────────
+        report_meta = _bpa_request(session, "GET", f"/reports/{job_id}")
+        download_url = report_meta.get("download-url") or report_meta.get("download_url")
 
-            # ── Step 4: GET /reports/{id} → signed download URL ───────────────
-            report_meta = _bpa_request(session, "GET", f"/reports/{job_id}")
-            download_url = report_meta.get("download-url") or report_meta.get("download_url")
+        if not download_url:
+            return (
+                f"BPA job `{job_id}` succeeded but no download URL was returned.\n"
+                f"Response: {json.dumps(report_meta, default=str)}"
+            )
 
-            if not download_url:
-                return (
-                    f"BPA job `{job_id}` succeeded but no download URL was returned.\n"
-                    f"Response: {json.dumps(report_meta, default=str)}"
-                )
+        # ── Step 5: Download report and parse ─────────────────────────────
+        dl_resp = _requests.get(download_url, timeout=(10, 60))
+        dl_resp.raise_for_status()
+        report_data = dl_resp.json()
 
-            # ── Step 5: Download report and parse ─────────────────────────────
-            dl_resp = _requests.get(download_url, timeout=(10, 60))
-            dl_resp.raise_for_status()
-            report_data = dl_resp.json()
-
-            logger.info("aiops_bpa_complete", job_id=job_id, device=label)
-            return _parse_bpa_report(report_data, label)
-
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc, tool='scm_aiops_bpa', device=device_name, tenant_id=tenant_id)}"
+        logger.info("aiops_bpa_complete", job_id=job_id, device=label)
+        return _parse_bpa_report(report_data, label)

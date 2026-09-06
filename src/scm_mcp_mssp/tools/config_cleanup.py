@@ -25,6 +25,7 @@ from mcp.server.fastmcp import FastMCP
 
 from ..audit.extractor import _bearer_session_for
 from ..utils.logging import get_logger
+from ..utils.tool_decorator import scm_tool
 
 logger = get_logger(__name__)
 
@@ -155,10 +156,13 @@ def _render(status: int, data: Any) -> str:
 
 def register_config_cleanup_tools(mcp: FastMCP, get_client: Any) -> None:
     """Register Config Cleanup read-only tools."""
+    tool = scm_tool(get_client)
 
     @mcp.tool()
+    @tool
     def scm_zerohit_rules(
-        tenant_id: str = "",
+        client: Any,
+        tenant_id: str,
         manager_hostname: str = "SCM",
         location: str = "",
         limit: int = 200,
@@ -183,7 +187,6 @@ def register_config_cleanup_tools(mcp: FastMCP, get_client: Any) -> None:
             Markdown table of zero-hit rules ranked by days_with_zero_hits, or an
             actionable message on 4xx/5xx.
         """
-        client = get_client(tenant_id)
         status, data = _get_json(
             client,
             {

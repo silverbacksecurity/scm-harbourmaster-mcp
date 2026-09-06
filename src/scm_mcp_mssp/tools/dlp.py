@@ -22,6 +22,7 @@ from mcp.server.fastmcp import FastMCP
 
 from ..utils.errors import handle_scm_exception
 from ..utils.logging import get_logger
+from ..utils.tool_decorator import scm_tool
 
 logger = get_logger(__name__)
 
@@ -126,14 +127,15 @@ def _strip(obj: dict, readonly: set[str]) -> dict:
 
 def register_dlp_tools(mcp: FastMCP, get_client: Any) -> None:
     """Register Enterprise DLP backup / restore / list tools onto the MCP server."""
+    tool = scm_tool(get_client)
+    tool = scm_tool(get_client)
+    tool = scm_tool(get_client)
 
     # ── List ──────────────────────────────────────────────────────────────────
 
     @mcp.tool()
-    def dlp_enterprise_list(
-        tenant_id: str = "",
-        company_id: str = "",
-    ) -> str:
+    @tool
+    def dlp_enterprise_list(client: Any, tenant_id: str, company_id: str = "") -> str:
         """List Enterprise DLP data patterns and data profiles for a tenant.
 
         Queries the PAN Enterprise DLP API (api.dlp.paloaltonetworks.com)
@@ -152,20 +154,16 @@ def register_dlp_tools(mcp: FastMCP, get_client: Any) -> None:
 
         Ref: https://pan.dev/dlp/api/
         """
-        try:
-            client = get_client(tenant_id)
-            session = client.session
-            cid = company_id or _dlp_company_id(session)
-            if not cid:
-                return (
-                    "⚠️ Could not resolve Enterprise DLP company ID. "
-                    "The tenant may not have Enterprise DLP licensed, or the API returned no companies. "
-                    "Pass `company_id` explicitly if known."
-                )
-            patterns = _dlp_list_patterns(session, cid)
-            profiles = _dlp_list_profiles(session, cid)
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc)}"
+        session = client.session
+        cid = company_id or _dlp_company_id(session)
+        if not cid:
+            return (
+                "⚠️ Could not resolve Enterprise DLP company ID. "
+                "The tenant may not have Enterprise DLP licensed, or the API returned no companies. "
+                "Pass `company_id` explicitly if known."
+            )
+        patterns = _dlp_list_patterns(session, cid)
+        profiles = _dlp_list_profiles(session, cid)
 
         lines = [
             f"# Enterprise DLP — Tenant `{tenant_id or 'default'}` | Company `{cid}`\n",
@@ -224,9 +222,11 @@ def register_dlp_tools(mcp: FastMCP, get_client: Any) -> None:
     # ── Backup ────────────────────────────────────────────────────────────────
 
     @mcp.tool()
+    @tool
     def dlp_backup(
+        client: Any,
+        tenant_id: str,
         folder: str = "All",
-        tenant_id: str = "",
         company_id: str = "",
         include_enterprise: bool = True,
     ) -> str:
@@ -256,32 +256,27 @@ def register_dlp_tools(mcp: FastMCP, get_client: Any) -> None:
 
         Ref: https://pan.dev/dlp/api/
         """
-        try:
-            client = get_client(tenant_id)
-            session = client.session
+        session = client.session
 
-            data_objects = _scm_list(session, "/data-objects", folder)
-            data_filtering_profiles = _scm_list(session, "/data-filtering-profiles", folder)
+        data_objects = _scm_list(session, "/data-objects", folder)
+        data_filtering_profiles = _scm_list(session, "/data-filtering-profiles", folder)
 
-            enterprise: dict[str, Any] = {
-                "company_id": "",
-                "data_patterns": [],
-                "data_profiles": [],
-            }
-            if include_enterprise:
-                cid = company_id or _dlp_company_id(session)
-                if cid:
-                    enterprise["company_id"] = cid
-                    enterprise["data_patterns"] = _dlp_list_patterns(session, cid)
-                    enterprise["data_profiles"] = _dlp_list_profiles(session, cid)
-                else:
-                    enterprise["_note"] = (
-                        "Enterprise DLP company ID could not be resolved — "
-                        "tenant may not have Enterprise DLP licensed."
-                    )
-
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc)}"
+        enterprise: dict[str, Any] = {
+            "company_id": "",
+            "data_patterns": [],
+            "data_profiles": [],
+        }
+        if include_enterprise:
+            cid = company_id or _dlp_company_id(session)
+            if cid:
+                enterprise["company_id"] = cid
+                enterprise["data_patterns"] = _dlp_list_patterns(session, cid)
+                enterprise["data_profiles"] = _dlp_list_profiles(session, cid)
+            else:
+                enterprise["_note"] = (
+                    "Enterprise DLP company ID could not be resolved — "
+                    "tenant may not have Enterprise DLP licensed."
+                )
 
         backup = {
             "backup_version": "1.0",
@@ -319,10 +314,12 @@ def register_dlp_tools(mcp: FastMCP, get_client: Any) -> None:
     # ── Restore ───────────────────────────────────────────────────────────────
 
     @mcp.tool()
+    @tool
     def dlp_restore(
+        client: Any,
+        tenant_id: str,
         backup_json: str,
         target_folder: str,
-        tenant_id: str = "",
         company_id: str = "",
         dry_run: bool = True,
     ) -> str:
@@ -413,7 +410,6 @@ def register_dlp_tools(mcp: FastMCP, get_client: Any) -> None:
 
         # Live restore
         try:
-            client = get_client(tenant_id)
             session = client.session
         except Exception as exc:
             return f"Error connecting to tenant: {handle_scm_exception(exc)}"
@@ -529,11 +525,9 @@ def register_dlp_tools(mcp: FastMCP, get_client: Any) -> None:
     # ── Incidents (v4 Beta API + v1 GA) ──────────────────────────────────────
 
     @mcp.tool()
+    @tool
     def dlp_incidents_list(
-        tenant_id: str = "",
-        status: str = "",
-        severity: str = "",
-        limit: int = 50,
+        client: Any, status: str = "", severity: str = "", limit: int = 50
     ) -> str:
         """List Enterprise DLP incidents from the v4 Beta Incidents API.
 
@@ -550,39 +544,35 @@ def register_dlp_tools(mcp: FastMCP, get_client: Any) -> None:
         Returns:
             JSON: list of DLP incidents with total count.
         """
-        try:
-            client = get_client(tenant_id)
-            session = client.session
-            params: dict[str, Any] = {"limit": min(limit, 200)}
-            if status:
-                params["status"] = status
-            if severity:
-                params["severity"] = severity
+        session = client.session
+        params: dict[str, Any] = {"limit": min(limit, 200)}
+        if status:
+            params["status"] = status
+        if severity:
+            params["severity"] = severity
 
-            resp = session.get(
-                f"{_DLP_BASE}/v4/api/incidents",
-                params=params,
-                timeout=(5, 15),
+        resp = session.get(
+            f"{_DLP_BASE}/v4/api/incidents",
+            params=params,
+            timeout=(5, 15),
+        )
+        if resp.status_code in _NOT_LICENSED_STATUSES:
+            return json.dumps(
+                {
+                    "incidents": [],
+                    "total": 0,
+                    "hint": (
+                        "Enterprise DLP Incidents API returned "
+                        f"{resp.status_code} — the tenant may not have "
+                        "Enterprise DLP licensed, or the v4 Beta API is "
+                        "not enabled for this account."
+                    ),
+                },
+                indent=2,
+                default=str,
             )
-            if resp.status_code in _NOT_LICENSED_STATUSES:
-                return json.dumps(
-                    {
-                        "incidents": [],
-                        "total": 0,
-                        "hint": (
-                            "Enterprise DLP Incidents API returned "
-                            f"{resp.status_code} — the tenant may not have "
-                            "Enterprise DLP licensed, or the v4 Beta API is "
-                            "not enabled for this account."
-                        ),
-                    },
-                    indent=2,
-                    default=str,
-                )
-            resp.raise_for_status()
-            data = resp.json()
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc)}"
+        resp.raise_for_status()
+        data = resp.json()
 
         items = data if isinstance(data, list) else data.get("items", data.get("data", []))
         return json.dumps(
@@ -600,10 +590,8 @@ def register_dlp_tools(mcp: FastMCP, get_client: Any) -> None:
         )
 
     @mcp.tool()
-    def dlp_incidents_get(
-        tenant_id: str = "",
-        incident_id: str = "",
-    ) -> str:
+    @tool
+    def dlp_incidents_get(client: Any, incident_id: str = "") -> str:
         """Get a single Enterprise DLP incident by ID.
 
         Queries GET /v4/api/incidents/{id} on api.dlp.paloaltonetworks.com.
@@ -618,34 +606,29 @@ def register_dlp_tools(mcp: FastMCP, get_client: Any) -> None:
         if not incident_id:
             return json.dumps({"error": "incident_id is required"}, indent=2)
 
-        try:
-            client = get_client(tenant_id)
-            session = client.session
-            resp = session.get(
-                f"{_DLP_BASE}/v4/api/incidents/{incident_id}",
-                timeout=(5, 15),
+        session = client.session
+        resp = session.get(
+            f"{_DLP_BASE}/v4/api/incidents/{incident_id}",
+            timeout=(5, 15),
+        )
+        if resp.status_code in _NOT_LICENSED_STATUSES:
+            return json.dumps(
+                {
+                    "incident_id": incident_id,
+                    "available": False,
+                    "hint": f"DLP Incidents API returned {resp.status_code}.",
+                },
+                indent=2,
+                default=str,
             )
-            if resp.status_code in _NOT_LICENSED_STATUSES:
-                return json.dumps(
-                    {
-                        "incident_id": incident_id,
-                        "available": False,
-                        "hint": f"DLP Incidents API returned {resp.status_code}.",
-                    },
-                    indent=2,
-                    default=str,
-                )
-            resp.raise_for_status()
-            data = resp.json()
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc)}"
+        resp.raise_for_status()
+        data = resp.json()
 
         return json.dumps({"incident_id": incident_id, "incident": data}, indent=2, default=str)
 
     @mcp.tool()
-    def dlp_incidents_assignees(
-        tenant_id: str = "",
-    ) -> str:
+    @tool
+    def dlp_incidents_assignees(client: Any) -> str:
         """List DLP incident assignees from the v1 GA Incidents API.
 
         Queries GET /v1/api/incidents/assignee on api.dlp.paloaltonetworks.com.
@@ -657,26 +640,22 @@ def register_dlp_tools(mcp: FastMCP, get_client: Any) -> None:
         Returns:
             JSON: list of assignees.
         """
-        try:
-            client = get_client(tenant_id)
-            session = client.session
-            resp = session.get(
-                f"{_DLP_BASE}/v1/api/incidents/assignee",
-                timeout=(5, 15),
+        session = client.session
+        resp = session.get(
+            f"{_DLP_BASE}/v1/api/incidents/assignee",
+            timeout=(5, 15),
+        )
+        if resp.status_code in _NOT_LICENSED_STATUSES:
+            return json.dumps(
+                {
+                    "assignees": [],
+                    "hint": f"DLP Incidents API returned {resp.status_code}.",
+                },
+                indent=2,
+                default=str,
             )
-            if resp.status_code in _NOT_LICENSED_STATUSES:
-                return json.dumps(
-                    {
-                        "assignees": [],
-                        "hint": f"DLP Incidents API returned {resp.status_code}.",
-                    },
-                    indent=2,
-                    default=str,
-                )
-            resp.raise_for_status()
-            data = resp.json()
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc)}"
+        resp.raise_for_status()
+        data = resp.json()
 
         items = data if isinstance(data, list) else data.get("items", data.get("data", []))
         return json.dumps({"assignees": items, "total": len(items)}, indent=2, default=str)

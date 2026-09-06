@@ -12,53 +12,48 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 from ..auth.oauth import evict_tenant, list_loaded_tenants
-from ..utils.errors import handle_scm_exception
 from ..utils.formatting import format_result as _fmt
 from ..utils.logging import get_logger
+from ..utils.tool_decorator import scm_tool
 
 logger = get_logger(__name__)
 
 
 def register_setup_tools(mcp: FastMCP, get_client: Any) -> None:
     """Register SCM Setup and MSSP management tools."""
+    tool = scm_tool(get_client)
 
     # ── Folders ─────────────────────────────────────────────────────────────
 
     @mcp.tool()
-    def scm_folder_list(tenant_id: str = "", limit: int = 200) -> str:
+    @tool
+    def scm_folder_list(client: Any, limit: int = 200) -> str:
         """List SCM folders (represents the tenant/customer hierarchy).
 
         Args:
             tenant_id: SCM tenant ID.
             limit: Maximum results.
         """
-        try:
-            client = get_client(tenant_id)
-            # Folder.list() has no real `limit` kwarg — slice client-side.
-            results = client.folder.list()[: max(0, limit)]
-            return _fmt(results)
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc)}"
+        results = client.folder.list()[: max(0, limit)]
+        return _fmt(results)
 
     @mcp.tool()
-    def scm_folder_get(name: str, tenant_id: str = "") -> str:
+    @tool
+    def scm_folder_get(client: Any, name: str) -> str:
         """Fetch a single SCM folder by name.
 
         Args:
             name: Folder name.
             tenant_id: SCM tenant ID.
         """
-        try:
-            client = get_client(tenant_id)
-            obj = client.folder.fetch(name=name)
-            return _fmt(obj)
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc)}"
+        obj = client.folder.fetch(name=name)
+        return _fmt(obj)
 
     # ── Devices ─────────────────────────────────────────────────────────────
 
     @mcp.tool()
-    def scm_device_list(folder: str, tenant_id: str = "", limit: int = 200) -> str:
+    @tool
+    def scm_device_list(client: Any, folder: str, limit: int = 200) -> str:
         """List devices (firewalls, Panorama) onboarded to SCM.
 
         Args:
@@ -66,32 +61,22 @@ def register_setup_tools(mcp: FastMCP, get_client: Any) -> None:
             tenant_id: SCM tenant ID.
             limit: Maximum results.
         """
-        try:
-            client = get_client(tenant_id)
-            # Device.list() ignores `folder` (devices are tenant-global, not
-            # folder-scoped) and has no real `limit` kwarg.
-            results = client.device.list()[: max(0, limit)]
-            return _fmt(results)
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc)}"
+        results = client.device.list()[: max(0, limit)]
+        return _fmt(results)
 
     # ── Snippets ─────────────────────────────────────────────────────────────
 
     @mcp.tool()
-    def scm_snippet_list(tenant_id: str = "", limit: int = 200) -> str:
+    @tool
+    def scm_snippet_list(client: Any, limit: int = 200) -> str:
         """List configuration snippets available in SCM.
 
         Args:
             tenant_id: SCM tenant ID.
             limit: Maximum results.
         """
-        try:
-            client = get_client(tenant_id)
-            # Snippet.list() has no real `limit` kwarg — slice client-side.
-            results = client.snippet.list()[: max(0, limit)]
-            return _fmt(results)
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc)}"
+        results = client.snippet.list()[: max(0, limit)]
+        return _fmt(results)
 
     # ── MSSP Tenant Management ──────────────────────────────────────────────
 

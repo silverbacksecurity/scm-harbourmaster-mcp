@@ -26,6 +26,7 @@ from mcp.server.fastmcp import FastMCP
 from ..audit.extractor import _bearer_session_for
 from ..utils.formatting import format_result as _fmt
 from ..utils.logging import get_logger
+from ..utils.tool_decorator import scm_tool
 
 logger = get_logger(__name__)
 
@@ -87,10 +88,12 @@ def _posture_ok(value: str | None) -> bool:
 
 def register_pab_tools(mcp: FastMCP, get_client: Any) -> None:
     """Register tenant-level Prisma Access Browser tools."""
+    tool = scm_tool(get_client)
 
     @mcp.tool()
+    @tool
     def scm_pab_inventory(
-        tenant_id: str = "",
+        client: Any,
         view: str = "summary",
         limit: int = 50,
         os_type: str = "",
@@ -123,7 +126,6 @@ def register_pab_tools(mcp: FastMCP, get_client: Any) -> None:
             JSON with the requested view plus any endpoint warnings.
         """
         try:
-            client = get_client(tenant_id)
             warnings: list[str] = []
             if view == "users":
                 params = {"user.status": user_status} if user_status else {}
@@ -209,12 +211,9 @@ def register_pab_tools(mcp: FastMCP, get_client: Any) -> None:
             return f"Error: {exc}"
 
     @mcp.tool()
+    @tool
     def scm_pab_apps(
-        tenant_id: str = "",
-        view: str = "apps",
-        app_type: str = "",
-        name: str = "",
-        limit: int = 50,
+        client: Any, view: str = "apps", app_type: str = "", name: str = "", limit: int = 50
     ) -> str:
         """Prisma Access Browser application catalog and app groups.
 
@@ -235,7 +234,6 @@ def register_pab_tools(mcp: FastMCP, get_client: Any) -> None:
             JSON with the requested view.
         """
         try:
-            client = get_client(tenant_id)
             if view == "apps":
                 params: dict[str, Any] = {"limit": limit}
                 if app_type:
@@ -285,11 +283,9 @@ def register_pab_tools(mcp: FastMCP, get_client: Any) -> None:
             return f"Error: {exc}"
 
     @mcp.tool()
+    @tool
     def scm_pab_user_requests(
-        tenant_id: str = "",
-        status: str = "",
-        request_type: str = "",
-        limit: int = 50,
+        client: Any, status: str = "", request_type: str = "", limit: int = 50
     ) -> str:
         """Prisma Access Browser user access requests (helpdesk queue).
 
@@ -307,7 +303,6 @@ def register_pab_tools(mcp: FastMCP, get_client: Any) -> None:
             JSON array of user requests.
         """
         try:
-            client = get_client(tenant_id)
             params: dict[str, Any] = {}
             if status:
                 params["request.status"] = status

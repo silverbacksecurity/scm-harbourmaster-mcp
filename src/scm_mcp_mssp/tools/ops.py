@@ -27,6 +27,7 @@ from ..auth.oauth import fetch_licenses, get_scm_client
 from ..config.settings import TenantConfig, load_all_tenant_configs
 from ..utils.errors import handle_scm_exception
 from ..utils.logging import get_logger
+from ..utils.tool_decorator import scm_tool
 
 logger = get_logger(__name__)
 
@@ -570,13 +571,14 @@ def _renewal_talking_points(
 
 def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
     """Register operational visibility and MSSP dashboard tools."""
+    tool = scm_tool(get_client)
+    tool = scm_tool(get_client)
+    tool = scm_tool(get_client)
 
     @mcp.tool()
+    @tool
     def scm_cert_scan(
-        folder: str = "Shared",
-        tenant_id: str = "",
-        warn_days: int = 90,
-        all_folders: bool = True,
+        client: Any, folder: str = "Shared", warn_days: int = 90, all_folders: bool = True
     ) -> str:
         """Scan all SCM certificate objects and flag anything expiring soon.
 
@@ -603,10 +605,6 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
             Markdown report: status summary, full cert table sorted by expiry,
             and IKE gateway cert-auth cross-reference.
         """
-        try:
-            client = get_client(tenant_id)
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc)}"
 
         session = getattr(client, "session", None)
         if session is None:
@@ -731,10 +729,9 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
         return "\n".join(lines)
 
     @mcp.tool()
+    @tool
     def scm_cert_lifecycle(
-        tenant_id: str = "",
-        warn_days: int = 90,
-        all_tenants: bool = False,
+        client: Any, tenant_id: str, warn_days: int = 90, all_tenants: bool = False
     ) -> str:
         """Multi-tenant TLS certificate lifecycle dashboard.
 
@@ -763,7 +760,6 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
                         logger.warning("cert_lifecycle_auth_failed", tenant=key, error=str(exc))
                         targets.append((tc.label or key, None))
             else:
-                client = get_client(tenant_id)
                 targets = [(tenant_id or "active tenant", client)]
         except Exception as exc:
             return f"Error: {handle_scm_exception(exc)}"
@@ -960,12 +956,14 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
         return "\n".join(lines)
 
     @mcp.tool()
+    @tool
     def scm_cert_import(
+        client: Any,
+        tenant_id: str,
         name: str,
         pem: str,
         folder: str = "Shared",
         is_ca: bool = False,
-        tenant_id: str = "",
     ) -> str:
         """Import a PEM certificate into an SCM tenant folder.
 
@@ -983,59 +981,55 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
             is_ca: Mark this certificate as a CA certificate (default False).
             tenant_id: SCM tenant ID. Defaults to the configured default tenant.
         """
-        try:
-            client = get_client(tenant_id)
+        payload: dict[str, Any] = {
+            "name": name,
+            "folder": folder,
+            "certificate": pem.strip(),
+            "ca": is_ca,
+        }
 
-            payload: dict[str, Any] = {
-                "name": name,
-                "folder": folder,
-                "certificate": pem.strip(),
-                "ca": is_ca,
-            }
+        result = client.post(
+            "/config/v1/certificates",
+            json=payload,
+        )
 
-            result = client.post(
-                "/config/v1/certificates",
-                json=payload,
-            )
+        logger.info(
+            "cert_imported",
+            name=name,
+            folder=folder,
+            is_ca=is_ca,
+            tenant_id=tenant_id,
+        )
 
-            logger.info(
-                "cert_imported",
-                name=name,
-                folder=folder,
-                is_ca=is_ca,
-                tenant_id=tenant_id,
-            )
-
-            if result is None:
-                return (
-                    f"✅ Certificate `{name}` imported into folder `{folder}` "
-                    f"({'CA' if is_ca else 'leaf'} type). Run `scm_commit` to activate."
-                )
-
-            import json as _json
-
+        if result is None:
             return (
-                "✅ Certificate imported successfully.\n\n"
-                + _json.dumps(
-                    result if isinstance(result, dict) else {"result": str(result)},
-                    indent=2,
-                    default=str,
-                )
-                + f"\n\nRun `scm_commit(folders=['{folder}'])` to activate."
+                f"✅ Certificate `{name}` imported into folder `{folder}` "
+                f"({'CA' if is_ca else 'leaf'} type). Run `scm_commit` to activate."
             )
 
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc, tool='scm_cert_import', name=name, folder=folder, tenant_id=tenant_id)}"
+        import json as _json
+
+        return (
+            "✅ Certificate imported successfully.\n\n"
+            + _json.dumps(
+                result if isinstance(result, dict) else {"result": str(result)},
+                indent=2,
+                default=str,
+            )
+            + f"\n\nRun `scm_commit(folders=['{folder}'])` to activate."
+        )
 
     @mcp.tool()
+    @tool
     def scm_tls_profile_manager(
+        client: Any,
+        tenant_id: str,
         action: str = "list",
         name: str = "",
         min_version: str = "tls1-2",
         max_version: str = "tls1-3",
         cert_profile: str = "",
         folder: str = "Shared",
-        tenant_id: str = "",
     ) -> str:
         """List or create TLS service profiles for SSL inspection configuration.
 
@@ -1060,116 +1054,109 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
         """
         import json as _json
 
-        try:
-            client = get_client(tenant_id)
+        if action == "list":
+            result = client.get(
+                "/config/v1/tls-service-profiles",
+                params={"folder": folder, "limit": 200},
+            )
+            profiles: list[dict[str, Any]] = []
+            if isinstance(result, dict):
+                profiles = result.get("data", [])
+            elif isinstance(result, list):
+                profiles = result
 
-            if action == "list":
-                result = client.get(
-                    "/config/v1/tls-service-profiles",
-                    params={"folder": folder, "limit": 200},
-                )
-                profiles: list[dict[str, Any]] = []
-                if isinstance(result, dict):
-                    profiles = result.get("data", [])
-                elif isinstance(result, list):
-                    profiles = result
-
-                if not profiles:
-                    return (
-                        f"No TLS service profiles found in folder `{folder}`.\n\n"
-                        "Create one with `scm_tls_profile_manager(action='create', name='...')`."
-                    )
-
-                lines = [
-                    f"## TLS Service Profiles — {folder} ({tenant_id or 'default tenant'})",
-                    "",
-                    f"Total: {len(profiles)}",
-                    "",
-                    "| Name | Min TLS | Max TLS | Cert Profile | Auth |",
-                    "|---|---|---|---|---|",
-                ]
-                for p in profiles:
-                    pname = p.get("name", "?")
-                    proto = p.get("protocol_settings") or p.get("protocol") or {}
-                    if isinstance(proto, dict):
-                        min_v = proto.get("min_version", proto.get("min-version", "—"))
-                        max_v = proto.get("max_version", proto.get("max-version", "—"))
-                    else:
-                        min_v = max_v = "—"
-                    cp = p.get("certificate_profile", "—")
-                    auth = p.get("client_authentication", [])
-                    auth_s = (
-                        ", ".join(a.get("name", str(a)) for a in auth)
-                        if isinstance(auth, list)
-                        else str(auth)
-                    )
-                    lines.append(f"| `{pname}` | {min_v} | {max_v} | {cp} | {auth_s or '—'} |")
-                return "\n".join(lines)
-
-            elif action == "create":
-                if not name:
-                    return "Error: `name` is required when action='create'."
-
-                payload: dict[str, Any] = {
-                    "name": name,
-                    "folder": folder,
-                    "protocol_settings": {
-                        "min_version": min_version,
-                        "max_version": max_version,
-                        "auth_algo_sha1": False,
-                        "auth_algo_sha256": True,
-                        "auth_algo_sha384": True,
-                        "enc_algo_3des": False,
-                        "enc_algo_rc4": False,
-                        "enc_algo_aes_128_cbc": False,
-                        "enc_algo_aes_256_cbc": True,
-                        "enc_algo_aes_128_gcm": True,
-                        "enc_algo_aes_256_gcm": True,
-                    },
-                }
-                if cert_profile:
-                    payload["certificate_profile"] = cert_profile
-
-                result = client.post("/config/v1/tls-service-profiles", json=payload)
-                logger.info(
-                    "tls_profile_created",
-                    name=name,
-                    folder=folder,
-                    min_version=min_version,
-                    max_version=max_version,
-                    tenant_id=tenant_id,
-                )
-
-                detail = (
-                    _json.dumps(
-                        result if isinstance(result, dict) else {"result": str(result)},
-                        indent=2,
-                        default=str,
-                    )
-                    if result
-                    else ""
-                )
-
+            if not profiles:
                 return (
-                    f"✅ TLS service profile `{name}` created in folder `{folder}`.\n\n"
-                    f"Settings: TLS {min_version} — {max_version}, strong ciphers only "
-                    "(AES-256-GCM, AES-128-GCM, SHA-256/384; no 3DES, RC4, SHA-1).\n"
-                    + (f"\n```json\n{detail}\n```\n" if detail else "")
-                    + f"\nRun `scm_commit(folders=['{folder}'])` to activate."
+                    f"No TLS service profiles found in folder `{folder}`.\n\n"
+                    "Create one with `scm_tls_profile_manager(action='create', name='...')`."
                 )
-            else:
-                return f"Error: unknown action '{action}'. Use 'list' or 'create'."
 
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc, tool='scm_tls_profile_manager', action=action, tenant_id=tenant_id)}"
+            lines = [
+                f"## TLS Service Profiles — {folder} ({tenant_id or 'default tenant'})",
+                "",
+                f"Total: {len(profiles)}",
+                "",
+                "| Name | Min TLS | Max TLS | Cert Profile | Auth |",
+                "|---|---|---|---|---|",
+            ]
+            for p in profiles:
+                pname = p.get("name", "?")
+                proto = p.get("protocol_settings") or p.get("protocol") or {}
+                if isinstance(proto, dict):
+                    min_v = proto.get("min_version", proto.get("min-version", "—"))
+                    max_v = proto.get("max_version", proto.get("max-version", "—"))
+                else:
+                    min_v = max_v = "—"
+                cp = p.get("certificate_profile", "—")
+                auth = p.get("client_authentication", [])
+                auth_s = (
+                    ", ".join(a.get("name", str(a)) for a in auth)
+                    if isinstance(auth, list)
+                    else str(auth)
+                )
+                lines.append(f"| `{pname}` | {min_v} | {max_v} | {cp} | {auth_s or '—'} |")
+            return "\n".join(lines)
+
+        elif action == "create":
+            if not name:
+                return "Error: `name` is required when action='create'."
+
+            payload: dict[str, Any] = {
+                "name": name,
+                "folder": folder,
+                "protocol_settings": {
+                    "min_version": min_version,
+                    "max_version": max_version,
+                    "auth_algo_sha1": False,
+                    "auth_algo_sha256": True,
+                    "auth_algo_sha384": True,
+                    "enc_algo_3des": False,
+                    "enc_algo_rc4": False,
+                    "enc_algo_aes_128_cbc": False,
+                    "enc_algo_aes_256_cbc": True,
+                    "enc_algo_aes_128_gcm": True,
+                    "enc_algo_aes_256_gcm": True,
+                },
+            }
+            if cert_profile:
+                payload["certificate_profile"] = cert_profile
+
+            result = client.post("/config/v1/tls-service-profiles", json=payload)
+            logger.info(
+                "tls_profile_created",
+                name=name,
+                folder=folder,
+                min_version=min_version,
+                max_version=max_version,
+                tenant_id=tenant_id,
+            )
+
+            detail = (
+                _json.dumps(
+                    result if isinstance(result, dict) else {"result": str(result)},
+                    indent=2,
+                    default=str,
+                )
+                if result
+                else ""
+            )
+
+            return (
+                f"✅ TLS service profile `{name}` created in folder `{folder}`.\n\n"
+                f"Settings: TLS {min_version} — {max_version}, strong ciphers only "
+                "(AES-256-GCM, AES-128-GCM, SHA-256/384; no 3DES, RC4, SHA-1).\n"
+                + (f"\n```json\n{detail}\n```\n" if detail else "")
+                + f"\nRun `scm_commit(folders=['{folder}'])` to activate."
+            )
+        else:
+            return f"Error: unknown action '{action}'. Use 'list' or 'create'."
 
     # ─────────────────────────────────────────────────────────────────────────
 
     @mcp.tool()
+    @tool
     def scm_licence_forecast(
-        tenant_id: str = "",
-        warn_days: int = 90,
-        all_tenants: bool = False,
+        client: Any, tenant_id: str, warn_days: int = 90, all_tenants: bool = False
     ) -> str:
         """Forecast licence expiry dates and seat utilisation.
 
@@ -1204,7 +1191,6 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
                         logger.warning("lic_forecast_auth_failed", tenant=key, error=str(exc))
                         targets.append((tc.label, None))
             else:
-                client = get_client(tenant_id)
                 targets = [(tenant_id or "active tenant", client)]
         except Exception as exc:
             return f"Error: {handle_scm_exception(exc)}"
@@ -1304,8 +1290,10 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
     # ─────────────────────────────────────────────────────────────────────────
 
     @mcp.tool()
+    @tool
     def scm_renewal_brief(
-        tenant_id: str = "",
+        client: Any,
+        tenant_id: str,
         all_tenants: bool = False,
         horizon_days: int = 180,
         underuse_pct: int = 40,
@@ -1353,7 +1341,6 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
                         logger.warning("renewal_brief_auth_failed", tenant=key, error=str(exc))
                         targets.append((label, None))
             else:
-                client = get_client(tenant_id)
                 label = tenant_id or "active tenant"
                 own_tc = _load_all_tenant_configs().get(tenant_id)
                 metas[label] = (
@@ -1979,7 +1966,8 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
         return "\n".join(lines)
 
     @mcp.tool()
-    def scm_gp_session_summary(tenant_id: str = "") -> str:
+    @tool
+    def scm_gp_session_summary(client: Any, tenant_id: str) -> str:
         """Live GlobalProtect and Prisma Access Agent session summary.
 
         Queries the Prisma Access Insights API for current connected mobile-user
@@ -2003,10 +1991,6 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
             agent-type and GP-version breakdown.  Sections that return no data from
             the Insights API are omitted rather than shown as empty tables.
         """
-        try:
-            client = get_client(tenant_id if tenant_id else "")
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc, tool='scm_gp_session_summary')}"
 
         session = client.session
 
@@ -2353,9 +2337,11 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
     # ── Device Summary ──────────────────────────────────────────────────────
 
     @mcp.tool()
+    @tool
     def scm_device_summary(
+        client: Any,
+        tenant_id: str,
         folder: str = "ngfw-shared",
-        tenant_id: str = "",
     ) -> str:
         """Device inventory health summary — count by model, connection, HA state.
 
@@ -2372,10 +2358,6 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
         Returns:
             Markdown report with summary table and per-model breakdown.
         """
-        try:
-            client = get_client(tenant_id if tenant_id else "")
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc, tool='scm_device_summary')}"
 
         from ..auth.oauth import get_tenant_meta as _get_meta
 
@@ -2482,7 +2464,8 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
     # ── User Count ──────────────────────────────────────────────────────────
 
     @mcp.tool()
-    def scm_user_count(tenant_id: str = "") -> str:
+    @tool
+    def scm_user_count(client: Any, tenant_id: str) -> str:
         """Live connected user count across Prisma Access and NGFW.
 
         Queries the Prisma Access Insights v3.0 API for current connected
@@ -2498,10 +2481,6 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
             Markdown report: headline total, GP vs Agent split, licensed
             capacity and utilisation percentage.
         """
-        try:
-            client = get_client(tenant_id if tenant_id else "")
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc, tool='scm_user_count')}"
 
         session = client.session
 

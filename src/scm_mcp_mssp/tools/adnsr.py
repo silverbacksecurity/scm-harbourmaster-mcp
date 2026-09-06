@@ -22,6 +22,7 @@ from mcp.server.fastmcp import FastMCP
 
 from ..utils.errors import handle_scm_exception
 from ..utils.logging import get_logger
+from ..utils.tool_decorator import scm_tool
 
 logger = get_logger(__name__)
 
@@ -68,13 +69,12 @@ def _check_license(status: int, body: Any) -> str | None:
 
 def register_adnsr_tools(mcp: FastMCP, get_client: Any) -> None:
     """Register Advanced DNS Security Resolver and NGFW Operations tools."""
+    tool = scm_tool(get_client)
+    tool = scm_tool(get_client)
 
     @mcp.tool()
-    def scm_adnsr_list(
-        resource: str = "profiles",
-        folder: str = "Shared",
-        tenant_id: str = "",
-    ) -> str:
+    @tool
+    def scm_adnsr_list(client: Any, resource: str = "profiles", folder: str = "Shared") -> str:
         """List Advanced DNS Security Resolver (ADNSR) resources.
 
         Queries the ADNSR API (`/adns-resolver/v1/`) introduced May 2026.
@@ -99,67 +99,63 @@ def register_adnsr_tools(mcp: FastMCP, get_client: Any) -> None:
             folder: SCM folder scope (default "Shared").
             tenant_id: SCM tenant ID. Defaults to active tenant.
         """
-        try:
-            client = get_client(tenant_id)
-            session = getattr(client, "session", None)
-            if not session:
-                return "Error: no HTTP session available on SCM client."
+        session = getattr(client, "session", None)
+        if not session:
+            return "Error: no HTTP session available on SCM client."
 
-            valid = {
-                "profiles",
-                "internal-domains",
-                "connection-sources",
-                "custom-fqdns",
-                "edl-definitions",
-                "misconfigured-domains",
-                "resolver-info",
-                "ca-certs",
-            }
-            resource = resource.strip().lower()
-            if resource not in valid:
-                return f"Unknown resource '{resource}'. Valid values: {', '.join(sorted(valid))}"
+        valid = {
+            "profiles",
+            "internal-domains",
+            "connection-sources",
+            "custom-fqdns",
+            "edl-definitions",
+            "misconfigured-domains",
+            "resolver-info",
+            "ca-certs",
+        }
+        resource = resource.strip().lower()
+        if resource not in valid:
+            return f"Unknown resource '{resource}'. Valid values: {', '.join(sorted(valid))}"
 
-            params: dict[str, str] = {}
-            if folder and resource not in ("resolver-info",):
-                params["folder"] = folder
+        params: dict[str, str] = {}
+        if folder and resource not in ("resolver-info",):
+            params["folder"] = folder
 
-            status, body = _adnsr_get(session, f"/{resource}", params)
+        status, body = _adnsr_get(session, f"/{resource}", params)
 
-            lic_err = _check_license(status, body)
-            if lic_err:
-                return f"**ADNSR {resource} — {lic_err}**{_ADNSR_LICENSE_HINT}"
+        lic_err = _check_license(status, body)
+        if lic_err:
+            return f"**ADNSR {resource} — {lic_err}**{_ADNSR_LICENSE_HINT}"
 
-            if status != 200:
-                return f"Error {status}: {json.dumps(body, default=str)[:500]}"
+        if status != 200:
+            return f"Error {status}: {json.dumps(body, default=str)[:500]}"
 
-            ts = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
-            lines = [
-                f"## ADNSR {resource.title()} — {folder}",
-                "",
-                f"*Retrieved: {ts}*",
-                "",
-            ]
+        ts = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
+        lines = [
+            f"## ADNSR {resource.title()} — {folder}",
+            "",
+            f"*Retrieved: {ts}*",
+            "",
+        ]
 
-            items = body if isinstance(body, list) else body.get("data", [body])
-            if not items:
-                lines.append(f"No {resource} configured.")
-                return "\n".join(lines)
-
-            lines.append(f"**{len(items)} item(s)**")
-            lines.append("")
-            lines += ["```json", json.dumps(items, indent=2, default=str)[:4000], "```"]
+        items = body if isinstance(body, list) else body.get("data", [body])
+        if not items:
+            lines.append(f"No {resource} configured.")
             return "\n".join(lines)
 
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc, tool='scm_adnsr_list', tenant_id=tenant_id)}"
+        lines.append(f"**{len(items)} item(s)**")
+        lines.append("")
+        lines += ["```json", json.dumps(items, indent=2, default=str)[:4000], "```"]
+        return "\n".join(lines)
 
     @mcp.tool()
+    @tool
     def scm_adnsr_profile_create(
+        client: Any,
         name: str,
         folder: str = "Shared",
         action: str = "sinkhole",
         log_queries: bool = True,
-        tenant_id: str = "",
     ) -> str:
         """Create an Advanced DNS Security Resolver profile.
 
@@ -177,57 +173,50 @@ def register_adnsr_tools(mcp: FastMCP, get_client: Any) -> None:
             log_queries: Enable DNS query logging (default True).
             tenant_id: SCM tenant ID. Defaults to active tenant.
         """
-        try:
-            client = get_client(tenant_id)
-            session = getattr(client, "session", None)
-            if not session:
-                return "Error: no HTTP session available on SCM client."
+        session = getattr(client, "session", None)
+        if not session:
+            return "Error: no HTTP session available on SCM client."
 
-            if not name or not name.strip():
-                return "Error: name is required."
+        if not name or not name.strip():
+            return "Error: name is required."
 
-            valid_actions = {"sinkhole", "block", "allow"}
-            if action not in valid_actions:
-                return f"Invalid action '{action}'. Valid: {', '.join(sorted(valid_actions))}"
+        valid_actions = {"sinkhole", "block", "allow"}
+        if action not in valid_actions:
+            return f"Invalid action '{action}'. Valid: {', '.join(sorted(valid_actions))}"
 
-            payload: dict[str, Any] = {
-                "name": name.strip(),
-                "folder": folder,
-                "action": action,
-                "log_queries": log_queries,
-            }
+        payload: dict[str, Any] = {
+            "name": name.strip(),
+            "folder": folder,
+            "action": action,
+            "log_queries": log_queries,
+        }
 
-            url = f"{_ADNSR_BASE}/profiles"
-            resp = session.post(url, json=payload, timeout=(10, 30))
+        url = f"{_ADNSR_BASE}/profiles"
+        resp = session.post(url, json=payload, timeout=(10, 30))
 
-            if resp.status_code == 403:
-                try:
-                    body = resp.json()
-                except Exception:
-                    body = {"message": resp.text}
-                lic_err = _check_license(403, body)
-                return f"**ADNSR profile create — {lic_err}**{_ADNSR_LICENSE_HINT}"
+        if resp.status_code == 403:
+            try:
+                body = resp.json()
+            except Exception:
+                body = {"message": resp.text}
+            lic_err = _check_license(403, body)
+            return f"**ADNSR profile create — {lic_err}**{_ADNSR_LICENSE_HINT}"
 
-            if resp.status_code not in (200, 201):
-                return f"Error {resp.status_code}: {resp.text[:500]}"
+        if resp.status_code not in (200, 201):
+            return f"Error {resp.status_code}: {resp.text[:500]}"
 
-            created = resp.json()
-            profile_id = created.get("id") or created.get("name") or name
-            return (
-                f"✅ ADNSR profile `{name}` created (id: `{profile_id}`).\n\n"
-                f"Action: **{action}**  |  Log queries: **{log_queries}**  |  Folder: **{folder}**\n\n"
-                "Run `scm_adnsr_list` to verify, then apply the profile to your Prisma Access "
-                "mobile user or remote network configuration."
-            )
-
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc, tool='scm_adnsr_profile_create', tenant_id=tenant_id)}"
+        created = resp.json()
+        profile_id = created.get("id") or created.get("name") or name
+        return (
+            f"✅ ADNSR profile `{name}` created (id: `{profile_id}`).\n\n"
+            f"Action: **{action}**  |  Log queries: **{log_queries}**  |  Folder: **{folder}**\n\n"
+            "Run `scm_adnsr_list` to verify, then apply the profile to your Prisma Access "
+            "mobile user or remote network configuration."
+        )
 
     @mcp.tool()
-    def scm_ngfw_local_config_list(
-        serial: str,
-        tenant_id: str = "",
-    ) -> str:
+    @tool
+    def scm_ngfw_local_config_list(client: Any, serial: str) -> str:
         """List local configuration versions pushed to a specific SCM-managed NGFW.
 
         Uses the NGFW Operations API (`GET /sse/config/v1/local-config/versions`)
@@ -242,73 +231,65 @@ def register_adnsr_tools(mcp: FastMCP, get_client: Any) -> None:
             serial: Device serial number (e.g. "007351000123456").
             tenant_id: SCM tenant ID. Defaults to active tenant.
         """
-        try:
-            client = get_client(tenant_id)
-            session = getattr(client, "session", None)
-            if not session:
-                return "Error: no HTTP session available on SCM client."
+        session = getattr(client, "session", None)
+        if not session:
+            return "Error: no HTTP session available on SCM client."
 
-            if not serial or not serial.strip():
-                return (
-                    "Error: serial is required. Run `scm_ngfw_device_list` to find "
-                    "the serial numbers of SCM-managed NGFW devices."
-                )
+        if not serial or not serial.strip():
+            return (
+                "Error: serial is required. Run `scm_ngfw_device_list` to find "
+                "the serial numbers of SCM-managed NGFW devices."
+            )
 
-            url = f"{_NGFW_OPS_BASE}/local-config/versions"
-            resp = session.get(url, params={"serial": serial.strip()}, timeout=(10, 30))
+        url = f"{_NGFW_OPS_BASE}/local-config/versions"
+        resp = session.get(url, params={"serial": serial.strip()}, timeout=(10, 30))
 
-            if resp.status_code == 403:
-                return (
-                    f"**NGFW Operations API — access denied for device `{serial}`**"
-                    f"{_NGFW_OPS_LICENSE_HINT}"
-                )
+        if resp.status_code == 403:
+            return (
+                f"**NGFW Operations API — access denied for device `{serial}`**"
+                f"{_NGFW_OPS_LICENSE_HINT}"
+            )
 
-            resp.raise_for_status()
-            data = resp.json()
+        resp.raise_for_status()
+        data = resp.json()
 
-            versions = data if isinstance(data, list) else data.get("data", [])
-            ts = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
+        versions = data if isinstance(data, list) else data.get("data", [])
+        ts = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
 
-            lines = [
-                f"## NGFW Local Config Versions — {serial}",
-                "",
-                f"*Retrieved: {ts}  |  {len(versions)} version(s)*",
-                "",
-            ]
+        lines = [
+            f"## NGFW Local Config Versions — {serial}",
+            "",
+            f"*Retrieved: {ts}  |  {len(versions)} version(s)*",
+            "",
+        ]
 
-            if not versions:
-                lines.append(
-                    "No local config versions found. The device may not have received a push yet."
-                )
-                return "\n".join(lines)
-
-            lines += [
-                "| Version | Timestamp | Status | Description |",
-                "|---|---|---|---|",
-            ]
-            for v in versions:
-                ver = v.get("version") or v.get("id") or "—"
-                pushed = _fmt_local_ts(v.get("timestamp") or v.get("created_at") or "")
-                status = v.get("status") or v.get("state") or "—"
-                desc = str(v.get("description") or v.get("comment") or "—")[:60]
-                lines.append(f"| {ver} | {pushed} | {status} | {desc} |")
-
-            lines += [
-                "",
-                f'Use `scm_ngfw_local_config_get(serial="{serial}", version="<version>")` '
-                "to retrieve the XML config for a specific version.",
-            ]
+        if not versions:
+            lines.append(
+                "No local config versions found. The device may not have received a push yet."
+            )
             return "\n".join(lines)
 
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc, tool='scm_ngfw_local_config_list', tenant_id=tenant_id)}"
+        lines += [
+            "| Version | Timestamp | Status | Description |",
+            "|---|---|---|---|",
+        ]
+        for v in versions:
+            ver = v.get("version") or v.get("id") or "—"
+            pushed = _fmt_local_ts(v.get("timestamp") or v.get("created_at") or "")
+            status = v.get("status") or v.get("state") or "—"
+            desc = str(v.get("description") or v.get("comment") or "—")[:60]
+            lines.append(f"| {ver} | {pushed} | {status} | {desc} |")
+
+        lines += [
+            "",
+            f'Use `scm_ngfw_local_config_get(serial="{serial}", version="<version>")` '
+            "to retrieve the XML config for a specific version.",
+        ]
+        return "\n".join(lines)
 
     @mcp.tool()
-    def scm_ngfw_local_config_get(
-        serial: str,
-        version: str = "running",
-        tenant_id: str = "",
-    ) -> str:
+    @tool
+    def scm_ngfw_local_config_get(client: Any, serial: str, version: str = "running") -> str:
         """Fetch the XML configuration file for a specific NGFW local config version.
 
         Uses the NGFW Operations API to retrieve the actual PAN-OS XML config
@@ -327,70 +308,68 @@ def register_adnsr_tools(mcp: FastMCP, get_client: Any) -> None:
                      or "running" for the currently active config (default).
             tenant_id: SCM tenant ID. Defaults to active tenant.
         """
-        try:
-            client = get_client(tenant_id)
-            session = getattr(client, "session", None)
-            if not session:
-                return "Error: no HTTP session available on SCM client."
+        session = getattr(client, "session", None)
+        if not session:
+            return "Error: no HTTP session available on SCM client."
 
-            if not serial or not serial.strip():
-                return "Error: serial is required."
+        if not serial or not serial.strip():
+            return "Error: serial is required."
 
-            # Try version-specific path first, then running config path
-            if version.lower() == "running":
-                url = f"{_NGFW_OPS_BASE}/local-config/running"
-            else:
-                url = f"{_NGFW_OPS_BASE}/local-config/versions/{version}"
+        # Try version-specific path first, then running config path
+        if version.lower() == "running":
+            url = f"{_NGFW_OPS_BASE}/local-config/running"
+        else:
+            url = f"{_NGFW_OPS_BASE}/local-config/versions/{version}"
 
-            resp = session.get(url, params={"serial": serial.strip()}, timeout=(10, 60))
+        resp = session.get(url, params={"serial": serial.strip()}, timeout=(10, 60))
 
-            if resp.status_code == 403:
-                return (
-                    f"**NGFW Operations API — access denied for device `{serial}`**"
-                    f"{_NGFW_OPS_LICENSE_HINT}"
-                )
+        if resp.status_code == 403:
+            return (
+                f"**NGFW Operations API — access denied for device `{serial}`**"
+                f"{_NGFW_OPS_LICENSE_HINT}"
+            )
 
-            if resp.status_code == 404:
-                return (
-                    f"Config version `{version}` not found for device `{serial}`.\n"
-                    f'Run `scm_ngfw_local_config_list(serial="{serial}")` to see available versions.'
-                )
+        if resp.status_code == 404:
+            return (
+                f"Config version `{version}` not found for device `{serial}`.\n"
+                f'Run `scm_ngfw_local_config_list(serial="{serial}")` to see available versions.'
+            )
 
-            resp.raise_for_status()
+        resp.raise_for_status()
 
-            # Response may be XML directly or JSON with a url/content field
-            ct = resp.headers.get("Content-Type", "")
-            if "xml" in ct or resp.text.strip().startswith("<?xml"):
-                xml_preview = resp.text[:500]
-                xml_len = len(resp.text)
+        # Response may be XML directly or JSON with a url/content field
+        ct = resp.headers.get("Content-Type", "")
+        if "xml" in ct or resp.text.strip().startswith("<?xml"):
+            xml_preview = resp.text[:500]
+            xml_len = len(resp.text)
+            return (
+                f"## NGFW Config XML — {serial} (version: {version})\n\n"
+                f"*Length: {xml_len:,} characters*\n\n"
+                f"```xml\n{xml_preview}\n... (truncated)\n```\n\n"
+                f"**Full XML available** — pass `config_xml` to `scm_aiops_bpa` for BPA analysis:\n"
+                f'`scm_aiops_bpa(config_xml=<full_xml>, device_serial="{serial}", '
+                f'requester_email="your@csp-email.com")`\n\n'
+                f"*Full config:*\n```xml\n{resp.text}\n```"
+            )
+        else:
+            data = resp.json()
+            dl_url = data.get("download-url") or data.get("url") or data.get("config_url")
+            if dl_url:
+                import requests as _r
+
+                xml_resp = _r.get(dl_url, timeout=(10, 60))
                 return (
                     f"## NGFW Config XML — {serial} (version: {version})\n\n"
-                    f"*Length: {xml_len:,} characters*\n\n"
-                    f"```xml\n{xml_preview}\n... (truncated)\n```\n\n"
-                    f"**Full XML available** — pass `config_xml` to `scm_aiops_bpa` for BPA analysis:\n"
-                    f'`scm_aiops_bpa(config_xml=<full_xml>, device_serial="{serial}", '
-                    f'requester_email="your@csp-email.com")`\n\n'
-                    f"*Full config:*\n```xml\n{resp.text}\n```"
+                    f"```xml\n{xml_resp.text[:500]}\n... (truncated)\n```\n\n"
+                    f"Full XML ({len(xml_resp.text):,} chars) available for `scm_aiops_bpa`."
                 )
-            else:
-                data = resp.json()
-                dl_url = data.get("download-url") or data.get("url") or data.get("config_url")
-                if dl_url:
-                    import requests as _r
-
-                    xml_resp = _r.get(dl_url, timeout=(10, 60))
-                    return (
-                        f"## NGFW Config XML — {serial} (version: {version})\n\n"
-                        f"```xml\n{xml_resp.text[:500]}\n... (truncated)\n```\n\n"
-                        f"Full XML ({len(xml_resp.text):,} chars) available for `scm_aiops_bpa`."
-                    )
-                return f"```json\n{json.dumps(data, indent=2, default=str)[:2000]}\n```"
-
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc, tool='scm_ngfw_local_config_get', tenant_id=tenant_id)}"
+            return f"```json\n{json.dumps(data, indent=2, default=str)[:2000]}\n```"
 
     @mcp.tool()
-    def scm_ngfw_wan_ip_summary(tenant_id: str = "", serial: str = "", enrich: bool = False) -> str:
+    @tool
+    def scm_ngfw_wan_ip_summary(
+        client: Any, tenant_id: str, serial: str = "", enrich: bool = False
+    ) -> str:
         """Report configured WAN/internet-facing interface IP addresses for NGFW devices.
 
         For each SCM-managed NGFW device (or just `serial` if given), fetches its
@@ -421,7 +400,6 @@ def register_adnsr_tools(mcp: FastMCP, get_client: Any) -> None:
             from ..audit.extractor import extract_ngfw_devices, extract_ngfw_interface_ips
             from ..audit.models import AuditSnapshot
 
-            client = get_client(tenant_id)
             snap = AuditSnapshot(folder="", tenant_id=tenant_id or "default")
             extract_ngfw_devices(client, snap)
             if serial:

@@ -27,6 +27,7 @@ from mcp.server.fastmcp import FastMCP
 from ..audit.extractor import _bearer_session_for
 from ..utils.formatting import format_result as _fmt
 from ..utils.logging import get_logger
+from ..utils.tool_decorator import scm_tool
 
 logger = get_logger(__name__)
 
@@ -445,13 +446,12 @@ def _view_queries(view: str, days: int) -> list[tuple[str, str, dict[str, Any]]]
 
 def register_mt_monitor_tools(mcp: FastMCP, get_client: Any) -> None:
     """Register cross-tenant MT Monitor analytics tools."""
+    tool = scm_tool(get_client)
 
     @mcp.tool()
+    @tool
     def scm_mt_analytics(
-        tenant_id: str = "",
-        view: str = "apps",
-        days: int = 7,
-        region: str = "",
+        client: Any, tenant_id: str, view: str = "apps", days: int = 7, region: str = ""
     ) -> str:
         """Cross-tenant analytics aggregated over the MSP tenant hierarchy.
 
@@ -522,7 +522,6 @@ def register_mt_monitor_tools(mcp: FastMCP, get_client: Any) -> None:
             if region and region not in _CDL_REGIONS:
                 return f"Error: region must be one of {', '.join(_CDL_REGIONS)}"
 
-            client = get_client(tenant_id)
             session = _bearer_session_for(client)
 
             if region:

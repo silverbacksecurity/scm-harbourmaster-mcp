@@ -17,6 +17,7 @@ from mcp.server.fastmcp import FastMCP
 from ..utils.errors import handle_scm_exception
 from ..utils.formatting import format_result as _fmt
 from ..utils.logging import get_logger
+from ..utils.tool_decorator import scm_tool
 from ..utils.validation import validate_body as _validate_body
 
 logger = get_logger(__name__)
@@ -139,11 +140,14 @@ def _insights_call(
 
 def register_insights_tools(mcp: FastMCP, get_client: Any) -> None:
     """Register the Insights general-purpose query tool."""
+    tool = scm_tool(get_client)
 
     @mcp.tool()
+    @tool
     def scm_insights_query(
+        client: Any,
+        tenant_id: str,
         resource: str,
-        tenant_id: str = "",
         body: str = "",
         api_version: str = "v3",
         region: str = "",
@@ -196,93 +200,89 @@ def register_insights_tools(mcp: FastMCP, get_client: Any) -> None:
         """
         import json
 
-        try:
-            # --- Resolve client ---
-            client = get_client(tenant_id)
-            session = getattr(client, "session", None)
-            if not session:
-                return "Error: no HTTP session available on SCM client."
-            _refresh_token(client)
+        session = getattr(client, "session", None)
+        if not session:
+            return "Error: no HTTP session available on SCM client."
+        _refresh_token(client)
 
-            # --- Resolve region ---
-            region = _resolve_region(tenant_id, region)
+        # --- Resolve region ---
+        region = _resolve_region(tenant_id, region)
 
-            # --- Resolve base URL ---
-            version = api_version.strip().lower()
-            if version == "v2":
-                base = _INSIGHTS_BASE_V2
-            elif version == "v1":
-                base = _INSIGHTS_BASE_V1
-            else:
-                base = _INSIGHTS_BASE_V3
+        # --- Resolve base URL ---
+        version = api_version.strip().lower()
+        if version == "v2":
+            base = _INSIGHTS_BASE_V2
+        elif version == "v1":
+            base = _INSIGHTS_BASE_V1
+        else:
+            base = _INSIGHTS_BASE_V3
 
-            # --- Parse body ---
-            body_dict: dict | None = None
-            if body.strip():
-                try:
-                    body_dict = json.loads(body)
-                except json.JSONDecodeError as exc:
-                    return f"Error: invalid JSON in `body`: {exc}"
+        # --- Parse body ---
+        body_dict: dict | None = None
+        if body.strip():
+            try:
+                body_dict = json.loads(body)
+            except json.JSONDecodeError as exc:
+                return f"Error: invalid JSON in `body`: {exc}"
 
-            # --- Build URL ---
-            resource_clean = resource.strip().lstrip("/")
-            if version in ("v1", "v2"):
-                # v1/v2: /api/sase/v{X}.0/resource/{resource}
-                path = f"{base}/{resource_clean}"
-            elif resource_clean.startswith("export/") or resource_clean.startswith("download"):
-                # v3 export/download paths don't take the /query/ prefix
-                path = f"{base}/{resource_clean}"
-            else:
-                # v3: /insights/v3.0/resource/query/{resource}
-                path = f"{base}/query/{resource_clean}"
+        # --- Build URL ---
+        resource_clean = resource.strip().lstrip("/")
+        if version in ("v1", "v2"):
+            # v1/v2: /api/sase/v{X}.0/resource/{resource}
+            path = f"{base}/{resource_clean}"
+        elif resource_clean.startswith("export/") or resource_clean.startswith("download"):
+            # v3 export/download paths don't take the /query/ prefix
+            path = f"{base}/{resource_clean}"
+        else:
+            # v3: /insights/v3.0/resource/query/{resource}
+            path = f"{base}/query/{resource_clean}"
 
-            # --- Call (assume a time window when the caller gave none) ---
-            caller_has_filter = body_dict is not None and "filter" in body_dict
-            if caller_has_filter:
-                time_window = "caller-provided filter"
+        # --- Call (assume a time window when the caller gave none) ---
+        caller_has_filter = body_dict is not None and "filter" in body_dict
+        if caller_has_filter:
+            time_window = "caller-provided filter"
+            status, data = _insights_call(session, path, tenant_id, body_dict, region)
+        else:
+            time_window = f"last_{hours}h (assumed)"
+            status, data = _insights_call(
+                session, path, tenant_id, with_time_window(body_dict, hours), region
+            )
+            if status == 400:
+                # Resource doesn't take an event_time filter — retry bare.
+                logger.info("insights_window_fallback", resource=resource)
+                time_window = "none (resource rejected the time filter)"
                 status, data = _insights_call(session, path, tenant_id, body_dict, region)
-            else:
-                time_window = f"last_{hours}h (assumed)"
-                status, data = _insights_call(
-                    session, path, tenant_id, with_time_window(body_dict, hours), region
-                )
-                if status == 400:
-                    # Resource doesn't take an event_time filter — retry bare.
-                    logger.info("insights_window_fallback", resource=resource)
-                    time_window = "none (resource rejected the time filter)"
-                    status, data = _insights_call(session, path, tenant_id, body_dict, region)
 
-            if status != 200:
-                return _fmt(
-                    {
-                        "resource": resource,
-                        "api_version": api_version,
-                        "region": region,
-                        "time_window": time_window,
-                        "error": f"HTTP {status}",
-                        "detail": data if isinstance(data, str) else str(data)[:500],
-                    }
-                )
-
-            rows = data.get("data", data) if isinstance(data, dict) else data
+        if status != 200:
             return _fmt(
                 {
                     "resource": resource,
                     "api_version": api_version,
                     "region": region,
                     "time_window": time_window,
-                    "count": len(rows) if isinstance(rows, list) else 0,
-                    "data": rows,
+                    "error": f"HTTP {status}",
+                    "detail": data if isinstance(data, str) else str(data)[:500],
                 }
             )
 
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc, tool='scm_insights_query', tenant_id=tenant_id)}"
+        rows = data.get("data", data) if isinstance(data, dict) else data
+        return _fmt(
+            {
+                "resource": resource,
+                "api_version": api_version,
+                "region": region,
+                "time_window": time_window,
+                "count": len(rows) if isinstance(rows, list) else 0,
+                "data": rows,
+            }
+        )
 
     @mcp.tool()
+    @tool
     def scm_insights_export(
+        client: Any,
+        tenant_id: str,
         resource: str = "",
-        tenant_id: str = "",
         body: str = "",
         action: str = "schedule",
         download_id: str = "",
@@ -368,63 +368,56 @@ def register_insights_tools(mcp: FastMCP, get_client: Any) -> None:
         if not resource:
             return _fmt({"error": "resource is required for schedule action"})
 
-        try:
-            client = get_client(tenant_id)
-            session = getattr(client, "session", None)
-            if not session:
-                return "Error: no HTTP session available on SCM client."
-            _refresh_token(client)
+        session = getattr(client, "session", None)
+        if not session:
+            return "Error: no HTTP session available on SCM client."
+        _refresh_token(client)
 
-            region = _resolve_region(tenant_id, region)
+        region = _resolve_region(tenant_id, region)
 
-            resource_clean = resource.strip().lstrip("/")
-            body_dict: dict | None = None
-            if body.strip():
-                try:
-                    body_dict = _json.loads(body)
-                except _json.JSONDecodeError as exc:
-                    return f"Error: invalid JSON in `body`: {exc}"
+        resource_clean = resource.strip().lstrip("/")
+        body_dict: dict | None = None
+        if body.strip():
+            try:
+                body_dict = _json.loads(body)
+            except _json.JSONDecodeError as exc:
+                return f"Error: invalid JSON in `body`: {exc}"
 
-            version = api_version.strip().lower()
-            if version == "v3":
-                path = f"{_INSIGHTS_BASE_V3}/export/query/{resource_clean}"
-            else:
-                path = f"{_INSIGHTS_BASE_V2}/export/schedule/query/{resource_clean}"
+        version = api_version.strip().lower()
+        if version == "v3":
+            path = f"{_INSIGHTS_BASE_V3}/export/query/{resource_clean}"
+        else:
+            path = f"{_INSIGHTS_BASE_V2}/export/schedule/query/{resource_clean}"
 
-            status, data = _insights_call(session, path, tenant_id, body_dict, region)
+        status, data = _insights_call(session, path, tenant_id, body_dict, region)
 
-            if status != 200:
-                return _fmt(
-                    {
-                        "action": "schedule",
-                        "resource": resource,
-                        "api_version": api_version,
-                        "error": f"HTTP {status}",
-                        "detail": data if isinstance(data, str) else str(data)[:500],
-                    }
-                )
-
-            # Extract download_id from response
-            dl_id = ""
-            if isinstance(data, dict):
-                dl_id = str(
-                    data.get("download_id") or data.get("id") or data.get("request_id") or ""
-                )
-
+        if status != 200:
             return _fmt(
                 {
                     "action": "schedule",
                     "resource": resource,
                     "api_version": api_version,
-                    "download_id": dl_id,
-                    "response": data,
-                    "next_step": (
-                        f"Poll with: scm_insights_export(action='status', download_id='{dl_id}')"
-                        if dl_id
-                        else "Check response for download identifier"
-                    ),
+                    "error": f"HTTP {status}",
+                    "detail": data if isinstance(data, str) else str(data)[:500],
                 }
             )
 
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc, tool='scm_insights_export', tenant_id=tenant_id)}"
+        # Extract download_id from response
+        dl_id = ""
+        if isinstance(data, dict):
+            dl_id = str(data.get("download_id") or data.get("id") or data.get("request_id") or "")
+
+        return _fmt(
+            {
+                "action": "schedule",
+                "resource": resource,
+                "api_version": api_version,
+                "download_id": dl_id,
+                "response": data,
+                "next_step": (
+                    f"Poll with: scm_insights_export(action='status', download_id='{dl_id}')"
+                    if dl_id
+                    else "Check response for download identifier"
+                ),
+            }
+        )

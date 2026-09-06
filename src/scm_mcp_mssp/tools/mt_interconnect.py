@@ -20,6 +20,7 @@ from mcp.server.fastmcp import FastMCP
 
 from ..audit.extractor import _bearer_session_for
 from ..utils.logging import get_logger
+from ..utils.tool_decorator import scm_tool
 
 logger = get_logger(__name__)
 
@@ -76,11 +77,13 @@ def _render(title: str, url: str, status: int, data: Any) -> str:
 
 def register_spi_tools(mcp: FastMCP, get_client: Any) -> None:
     """Register SP Interconnect read-only tools."""
+    tool = scm_tool(get_client)
 
     @mcp.tool()
+    @tool
     def scm_spi_status(
+        client: Any,
         view: str = "summary",
-        tenant_id: str = "",
         interconnect_id: str = "",
         cloud_provider: str = "",
         usage: str = "",
@@ -116,7 +119,6 @@ def register_spi_tools(mcp: FastMCP, get_client: Any) -> None:
         url = _VIEWS.get(view)
         if url is None:
             return f"Unknown view {view!r}. Valid views: {', '.join(sorted(_VIEWS))}"
-        client = get_client(tenant_id)
         params: dict[str, Any] = {}
         if view == "interconnects":
             params = {

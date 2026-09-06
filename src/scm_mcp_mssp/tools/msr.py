@@ -33,8 +33,8 @@ from ..audit.msr_report import (
 )
 from ..auth.oauth import fetch_licenses
 from ..config.settings import load_all_tenant_configs
-from ..utils.errors import handle_scm_exception
 from ..utils.logging import get_logger
+from ..utils.tool_decorator import scm_tool
 from .compliance import _compliance_get
 from .insights import _INSIGHTS_BASE_V3, _insights_call, _refresh_token
 from .insights import _REGION_MAP as _INS_REGION_MAP
@@ -408,10 +408,13 @@ def gather_msr_data(
 
 def register_msr_tools(mcp: FastMCP, get_client: Any) -> None:
     """Register the MSR tool — ``scm_msr_report``."""
+    tool = scm_tool(get_client)
 
     @mcp.tool()
+    @tool
     def scm_msr_report(
-        tenant_id: str = "",
+        client: Any,
+        tenant_id: str,
         month: str = "",
         mssp_name: str = "MSSP",
         output_format: str = "markdown",
@@ -457,11 +460,6 @@ def register_msr_tools(mcp: FastMCP, get_client: Any) -> None:
         except ValueError as exc:
             return f"Error: {exc}"
         period_label = start_end_label[2]
-
-        try:
-            client = get_client(tenant_id)
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc, tool='scm_msr_report', tenant_id=tenant_id)}"
 
         data = gather_msr_data(
             client,

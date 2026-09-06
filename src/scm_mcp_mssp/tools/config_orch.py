@@ -20,6 +20,7 @@ from mcp.server.fastmcp import FastMCP
 
 from ..utils.formatting import format_result as _fmt
 from ..utils.logging import get_logger
+from ..utils.tool_decorator import scm_tool
 
 logger = get_logger(__name__)
 
@@ -125,12 +126,15 @@ def _audit_write(tool: str, action: str, ticket_ref: str, tenant_id: str, resour
 
 def register_config_orch_tools(mcp: FastMCP, get_client: Any) -> None:
     """Register Configuration Orchestration MCP tools."""
+    tool = scm_tool(get_client)
 
     # ── Remote Networks ─────────────────────────────────────────────────────
 
     @mcp.tool()
+    @tool
     def scm_config_orch_remote_networks(
-        tenant_id: str = "",
+        client: Any,
+        tenant_id: str,
         action: str = "list",
         resource_id: str = "",
         body_json: str = "",
@@ -171,7 +175,6 @@ def register_config_orch_tools(mcp: FastMCP, get_client: Any) -> None:
             return _fmt({"error": safety_err})
 
         try:
-            client = get_client(tenant_id)
             session = _bearer_session(client)
         except Exception as exc:
             return _fmt({"error": "auth_failed", "detail": str(exc)})
@@ -331,8 +334,10 @@ def register_config_orch_tools(mcp: FastMCP, get_client: Any) -> None:
     # ── Bandwidth Allocations ────────────────────────────────────────────────
 
     @mcp.tool()
+    @tool
     def scm_config_orch_bandwidth(
-        tenant_id: str = "",
+        client: Any,
+        tenant_id: str,
         action: str = "list",
         resource_id: str = "",
         api_version: str = "v2",
@@ -370,7 +375,6 @@ def register_config_orch_tools(mcp: FastMCP, get_client: Any) -> None:
             return _fmt({"error": safety_err})
 
         try:
-            client = get_client(tenant_id)
             session = _bearer_session(client)
         except Exception as exc:
             return _fmt({"error": "auth_failed", "detail": str(exc)})
@@ -511,8 +515,10 @@ def register_config_orch_tools(mcp: FastMCP, get_client: Any) -> None:
     # ── Profiles (IKE / IPSec Crypto + IKE Gateways) ─────────────────────────
 
     @mcp.tool()
+    @tool
     def scm_config_orch_profiles(
-        tenant_id: str = "",
+        client: Any,
+        tenant_id: str,
         profile_type: str = "ike-crypto",
         action: str = "list",
         resource_id: str = "",
@@ -577,7 +583,6 @@ def register_config_orch_tools(mcp: FastMCP, get_client: Any) -> None:
             return _fmt({"error": safety_err})
 
         try:
-            client = get_client(tenant_id)
             session = _bearer_session(client)
         except Exception as exc:
             return _fmt({"error": "auth_failed", "detail": str(exc)})

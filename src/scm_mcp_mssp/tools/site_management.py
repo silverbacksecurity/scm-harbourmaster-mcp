@@ -35,6 +35,7 @@ from mcp.server.fastmcp import FastMCP
 from ..audit.extractor import _bearer_session_for
 from ..utils.formatting import format_result as _fmt
 from ..utils.logging import get_logger
+from ..utils.tool_decorator import scm_tool
 
 logger = get_logger(__name__)
 
@@ -142,10 +143,13 @@ def _extract_items(data: Any) -> list[Any]:
 
 def register_site_management_tools(mcp: FastMCP, get_client: Any) -> None:
     """Register the Site Management (NGFW device onboarding) MCP tool."""
+    tool = scm_tool(get_client)
 
     @mcp.tool()
+    @tool
     def scm_site_management(
-        tenant_id: str = "",
+        client: Any,
+        tenant_id: str,
         resource_type: str = "site",
         action: str = "list",
         resource_id: str = "",
@@ -253,7 +257,6 @@ def register_site_management_tools(mcp: FastMCP, get_client: Any) -> None:
             return _fmt({"error": safety_err})
 
         try:
-            client = get_client(tenant_id)
             session = _bearer_session_for(client)
         except Exception as exc:
             return _fmt({"error": "auth_failed", "detail": str(exc)})

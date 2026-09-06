@@ -25,6 +25,7 @@ from mcp.server.fastmcp import FastMCP
 
 from ..utils.errors import handle_scm_exception
 from ..utils.logging import get_logger
+from ..utils.tool_decorator import scm_tool
 
 logger = get_logger(__name__)
 
@@ -723,11 +724,14 @@ _WRITE_ACTIONS: dict[str, Any] = {
 
 def register_compliance_tools(mcp: FastMCP, get_client: Any) -> None:
     """Register Compliance Center tools (read-side analytics + write-side CRUD)."""
+    tool = scm_tool(get_client)
 
     @mcp.tool()
-    def scm_compliance_center(  # noqa: C901
+    @tool
+    def scm_compliance_center(
+        client: Any,
+        tenant_id: str,
         action: str,
-        tenant_id: str = "",
         framework_id: str = "",
         product: str = "all",
         category: str = "",
@@ -789,7 +793,6 @@ def register_compliance_tools(mcp: FastMCP, get_client: Any) -> None:
             )
 
         try:
-            client = get_client(tenant_id)
             return handler(
                 client,
                 framework_id=framework_id,
@@ -804,9 +807,11 @@ def register_compliance_tools(mcp: FastMCP, get_client: Any) -> None:
             return f"Error: {handle_scm_exception(exc, tool='scm_compliance_center', tenant_id=tenant_id)}"
 
     @mcp.tool()
-    def scm_compliance_framework(  # noqa: C901
+    @tool
+    def scm_compliance_framework(
+        client: Any,
+        tenant_id: str,
         action: str,
-        tenant_id: str = "",
         framework_id: str = "",
         payload_json: str = "",
         release: bool = False,
@@ -853,7 +858,6 @@ def register_compliance_tools(mcp: FastMCP, get_client: Any) -> None:
             )
 
         try:
-            client = get_client(tenant_id)
             return handler(
                 client,
                 framework_id=framework_id,

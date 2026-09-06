@@ -17,6 +17,7 @@ from mcp.server.fastmcp import FastMCP
 
 from ..utils.formatting import format_result as _fmt
 from ..utils.logging import get_logger
+from ..utils.tool_decorator import scm_tool
 
 logger = get_logger(__name__)
 
@@ -88,14 +89,12 @@ def _rest_get(session: Any, url: str, params: dict | None = None) -> dict | list
 
 def register_email_dlp_tools(mcp: FastMCP, get_client: Any) -> None:
     """Register Email DLP MCP tools onto the MCP server."""
+    tool = scm_tool(get_client)
 
     @mcp.tool()
+    @tool
     def scm_email_dlp_incidents(
-        tenant_id: str = "",
-        incident_id: str = "",
-        report_id: str = "",
-        status: str = "",
-        limit: int = 50,
+        client: Any, incident_id: str = "", report_id: str = "", status: str = "", limit: int = 50
     ) -> str:
         """List Email DLP incidents or retrieve a specific incident / report.
 
@@ -119,7 +118,6 @@ def register_email_dlp_tools(mcp: FastMCP, get_client: Any) -> None:
             JSON: incident list, single incident, or report data.
         """
         try:
-            client = get_client(tenant_id)
             session = _bearer_session(client)
         except Exception as exc:
             return _fmt({"error": "auth_failed", "detail": str(exc)})

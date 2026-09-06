@@ -17,6 +17,7 @@ from mcp.server.fastmcp import FastMCP
 from ..utils.errors import handle_scm_exception
 from ..utils.formatting import format_result as _fmt
 from ..utils.logging import get_logger
+from ..utils.tool_decorator import scm_tool
 
 logger = get_logger(__name__)
 
@@ -53,11 +54,15 @@ def _age(ts: str | None) -> str:
 
 def register_deployment_tools(mcp: FastMCP, get_client: Any) -> None:
     """Register all SCM Deployment tools onto the MCP server."""
+    tool = scm_tool(get_client)
+    tool = scm_tool(get_client)
+    tool = scm_tool(get_client)
 
     # ── Remote Networks ─────────────────────────────────────────────────────
 
     @mcp.tool()
-    def scm_remote_network_list(folder: str, tenant_id: str = "", limit: int = 200) -> str:
+    @tool
+    def scm_remote_network_list(client: Any, folder: str, limit: int = 200) -> str:
         """List remote networks (branch/SD-WAN connections) in SCM.
 
         Args:
@@ -67,18 +72,12 @@ def register_deployment_tools(mcp: FastMCP, get_client: Any) -> None:
             tenant_id: SCM tenant ID.
             limit: Maximum results.
         """
-        try:
-            client = get_client(tenant_id)
-            # The API rejects any folder value other than "Remote Networks" for
-            # this resource (400 '"folder" must be [Remote Networks]'), and
-            # RemoteNetworks.list() has no real `limit` kwarg — slice client-side.
-            results = client.remote_network.list(folder="Remote Networks")[: max(0, limit)]
-            return _fmt(results)
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc)}"
+        results = client.remote_network.list(folder="Remote Networks")[: max(0, limit)]
+        return _fmt(results)
 
     @mcp.tool()
-    def scm_remote_network_get(name: str, folder: str, tenant_id: str = "") -> str:
+    @tool
+    def scm_remote_network_get(client: Any, name: str, folder: str) -> str:
         """Fetch details for a single remote network.
 
         Args:
@@ -86,17 +85,14 @@ def register_deployment_tools(mcp: FastMCP, get_client: Any) -> None:
             folder: SCM folder (unused — see scm_remote_network_list).
             tenant_id: SCM tenant ID.
         """
-        try:
-            client = get_client(tenant_id)
-            obj = client.remote_network.fetch(name=name, folder="Remote Networks")
-            return _fmt(obj)
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc)}"
+        obj = client.remote_network.fetch(name=name, folder="Remote Networks")
+        return _fmt(obj)
 
     # ── Service Connections ─────────────────────────────────────────────────
 
     @mcp.tool()
-    def scm_service_connection_list(folder: str, tenant_id: str = "", limit: int = 200) -> str:
+    @tool
+    def scm_service_connection_list(client: Any, folder: str, limit: int = 200) -> str:
         """List service connections (cloud/DC interconnects) in SCM.
 
         Args:
@@ -104,19 +100,14 @@ def register_deployment_tools(mcp: FastMCP, get_client: Any) -> None:
             tenant_id: SCM tenant ID.
             limit: Maximum results.
         """
-        try:
-            client = get_client(tenant_id)
-            # ServiceConnection.list() ignores `folder` (always uses the fixed
-            # "Service Connections" container) and has no real `limit` kwarg.
-            results = client.service_connection.list()[: max(0, limit)]
-            return _fmt(results)
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc)}"
+        results = client.service_connection.list()[: max(0, limit)]
+        return _fmt(results)
 
     # ── Bandwidth Allocations ───────────────────────────────────────────────
 
     @mcp.tool()
-    def scm_bandwidth_allocation_list(folder: str, tenant_id: str = "", limit: int = 200) -> str:
+    @tool
+    def scm_bandwidth_allocation_list(client: Any, folder: str, limit: int = 200) -> str:
         """List bandwidth allocations for Prisma Access compute locations.
 
         Args:
@@ -124,24 +115,14 @@ def register_deployment_tools(mcp: FastMCP, get_client: Any) -> None:
             tenant_id: SCM tenant ID.
             limit: Maximum results.
         """
-        try:
-            client = get_client(tenant_id)
-            # BandwidthAllocations.list() ignores `folder` (it's a global,
-            # non-folder-scoped resource) and has no real `limit` kwarg.
-            results = client.bandwidth_allocation.list()[: max(0, limit)]
-            return _fmt(results)
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc)}"
+        results = client.bandwidth_allocation.list()[: max(0, limit)]
+        return _fmt(results)
 
     # ── Commit ──────────────────────────────────────────────────────────────
 
     @mcp.tool()
-    def scm_commit(
-        folders: list[str],
-        description: str = "",
-        tenant_id: str = "",
-        admin: str = "",
-    ) -> str:
+    @tool
+    def scm_commit(client: Any, folders: list[str], description: str = "", admin: str = "") -> str:
         """Commit pending SCM configuration changes.
 
         Commits the candidate config for the listed folders.  This is
@@ -154,41 +135,30 @@ def register_deployment_tools(mcp: FastMCP, get_client: Any) -> None:
             tenant_id: SCM tenant ID.
             admin: Optional admin name to attribute the commit to.
         """
-        try:
-            client = get_client(tenant_id)
-            result = client.commit(
-                folders=folders,
-                description=description or "Committed via scm-mcp-mssp",
-                sync=True,
-                timeout=300,
-            )
-            logger.info("commit_triggered", folders=folders, job_id=getattr(result, "job_id", None))
-            return _fmt(result)
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc, tenant_id=tenant_id, folders=folders)}"
+        result = client.commit(
+            folders=folders,
+            description=description or "Committed via scm-mcp-mssp",
+            sync=True,
+            timeout=300,
+        )
+        logger.info("commit_triggered", folders=folders, job_id=getattr(result, "job_id", None))
+        return _fmt(result)
 
     @mcp.tool()
-    def scm_job_status(job_id: str, tenant_id: str = "") -> str:
+    @tool
+    def scm_job_status(client: Any, job_id: str) -> str:
         """Check the status of an asynchronous SCM job (e.g. commit).
 
         Args:
             job_id: Job ID returned by commit or other async operations.
             tenant_id: SCM tenant ID.
         """
-        try:
-            client = get_client(tenant_id)
-            result = client.get_job_status(job_id)
-            return _fmt(result)
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc)}"
+        result = client.get_job_status(job_id)
+        return _fmt(result)
 
     @mcp.tool()
-    def scm_list_jobs(
-        tenant_id: str = "",
-        limit: int = 50,
-        offset: int = 0,
-        job_type: str = "",
-    ) -> str:
+    @tool
+    def scm_list_jobs(client: Any, limit: int = 50, offset: int = 0, job_type: str = "") -> str:
         """List SCM configuration jobs (commits, pushes) showing who triggered each one.
 
         Returns recent jobs ordered newest-first, including the SCM username (uname)
@@ -205,57 +175,52 @@ def register_deployment_tools(mcp: FastMCP, get_client: Any) -> None:
             offset: Pagination offset.
             job_type: Optional filter — e.g. "Commit" or "NGFW_Push".
         """
-        try:
-            client = get_client(tenant_id)
-            response = client.list_jobs(limit=min(limit, 200), offset=offset)
+        response = client.list_jobs(limit=min(limit, 200), offset=offset)
 
-            jobs = response.data if hasattr(response, "data") else []
+        jobs = response.data if hasattr(response, "data") else []
 
-            # Optional client-side type filter (SDK doesn't support server-side type filter)
-            if job_type:
-                jobs = [
-                    j
-                    for j in jobs
-                    if job_type.lower() in (getattr(j, "type_str", "") or "").lower()
-                ]
+        # Optional client-side type filter (SDK doesn't support server-side type filter)
+        if job_type:
+            jobs = [
+                j for j in jobs if job_type.lower() in (getattr(j, "type_str", "") or "").lower()
+            ]
 
-            if not jobs:
-                return json.dumps({"total": 0, "jobs": [], "note": "No jobs found."})
+        if not jobs:
+            return json.dumps({"total": 0, "jobs": [], "note": "No jobs found."})
 
-            rows = []
-            for j in jobs:
-                rows.append(
-                    {
-                        "job_id": getattr(j, "id", ""),
-                        "type": getattr(j, "type_str", getattr(j, "job_type", "")),
-                        "result": getattr(j, "result_str", ""),
-                        "user": getattr(j, "uname", ""),
-                        "description": getattr(j, "description", ""),
-                        "start_ts": str(getattr(j, "start_ts", "")),
-                        "end_ts": str(getattr(j, "end_ts", "")),
-                        "percent": getattr(j, "percent", ""),
-                        "parent_id": getattr(j, "parent_id", None),
-                    }
-                )
-
-            total = getattr(response, "total", len(rows))
-            return json.dumps(
+        rows = []
+        for j in jobs:
+            rows.append(
                 {
-                    "total": total,
-                    "showing": len(rows),
-                    "offset": offset,
-                    "jobs": rows,
-                },
-                indent=2,
-                default=str,
+                    "job_id": getattr(j, "id", ""),
+                    "type": getattr(j, "type_str", getattr(j, "job_type", "")),
+                    "result": getattr(j, "result_str", ""),
+                    "user": getattr(j, "uname", ""),
+                    "description": getattr(j, "description", ""),
+                    "start_ts": str(getattr(j, "start_ts", "")),
+                    "end_ts": str(getattr(j, "end_ts", "")),
+                    "percent": getattr(j, "percent", ""),
+                    "parent_id": getattr(j, "parent_id", None),
+                }
             )
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc)}"
+
+        total = getattr(response, "total", len(rows))
+        return json.dumps(
+            {
+                "total": total,
+                "showing": len(rows),
+                "offset": offset,
+                "jobs": rows,
+            },
+            indent=2,
+            default=str,
+        )
 
     # ── Config Version Management ────────────────────────────────────────────
 
     @mcp.tool()
-    def scm_config_versions(tenant_id: str = "") -> str:
+    @tool
+    def scm_config_versions(client: Any, tenant_id: str) -> str:
         """List SCM configuration versions with timestamps, descriptions, and running state.
 
         Shows the full version history of committed configs for this tenant.
@@ -265,82 +230,75 @@ def register_deployment_tools(mcp: FastMCP, get_client: Any) -> None:
         Args:
             tenant_id: SCM tenant ID. Defaults to the configured default tenant.
         """
+        raw = _cv_get(client, _CV_BASE)
+        versions: list[dict[str, Any]] = raw.get("data", []) if raw else []
+
+        # Fetch running version per scope (Mobile Users, Remote Networks, ...) to annotate
+        running_by_scope: dict[str, Any] = {}
         try:
-            client = get_client(tenant_id)
+            running_raw = _cv_get(client, f"{_CV_BASE}/running")
+            for entry in running_raw.get("data") or []:
+                device = entry.get("device")
+                if device:
+                    running_by_scope[device] = entry.get("version")
+        except Exception:
+            pass
 
-            # Fetch version list
-            raw = _cv_get(client, _CV_BASE)
-            versions: list[dict[str, Any]] = raw.get("data", []) if raw else []
-
-            # Fetch running version per scope (Mobile Users, Remote Networks, ...) to annotate
-            running_by_scope: dict[str, Any] = {}
-            try:
-                running_raw = _cv_get(client, f"{_CV_BASE}/running")
-                for entry in running_raw.get("data") or []:
-                    device = entry.get("device")
-                    if device:
-                        running_by_scope[device] = entry.get("version")
-            except Exception:
-                pass
-
-            if not versions:
-                running_summary = (
-                    ", ".join(f"{k}={v}" for k, v in running_by_scope.items()) or "unknown"
-                )
-                return (
-                    "No config versions found. Config versions are saved after each commit.\n\n"
-                    f"Running versions: {running_summary}"
-                )
-
-            col_w = (12, 24, 10, 40)
-            header = (
-                f"{'Version':<{col_w[0]}}  {'Committed':<{col_w[1]}}  "
-                f"{'Admin':<{col_w[2]}}  {'Description':<{col_w[3]}}"
+        if not versions:
+            running_summary = (
+                ", ".join(f"{k}={v}" for k, v in running_by_scope.items()) or "unknown"
             )
-            sep = "  ".join("─" * w for w in col_w)
+            return (
+                "No config versions found. Config versions are saved after each commit.\n\n"
+                f"Running versions: {running_summary}"
+            )
 
-            rows = [header, sep]
-            for v in versions:
-                ver = str(v.get("version", "?"))
-                ts = _age(v.get("created_at") or v.get("timestamp") or v.get("date"))
-                admin = str(v.get("created_by") or v.get("admin") or v.get("uname") or "—")[
-                    : col_w[2]
-                ]
-                desc = str(v.get("description") or "—")[: col_w[3]]
-                scope = v.get("scope")
-                flag = (
-                    " ◀ running"
-                    if scope and str(running_by_scope.get(scope)) == str(v.get("version"))
-                    else ""
-                )
-                rows.append(
-                    f"{ver:<{col_w[0]}}  {ts:<{col_w[1]}}  {admin:<{col_w[2]}}  {desc:<{col_w[3]}}{flag}"
-                )
+        col_w = (12, 24, 10, 40)
+        header = (
+            f"{'Version':<{col_w[0]}}  {'Committed':<{col_w[1]}}  "
+            f"{'Admin':<{col_w[2]}}  {'Description':<{col_w[3]}}"
+        )
+        sep = "  ".join("─" * w for w in col_w)
 
-            lines = [
-                f"## Config Versions — {tenant_id or 'default tenant'}",
-                "",
-                f"Total versions: {raw.get('total', len(versions))}  "
-                f"|  Running: {', '.join(f'{k}={v}' for k, v in running_by_scope.items()) or 'unknown'}",
-                "",
-                "```",
-                *rows,
-                "```",
-                "",
-                "Use `scm_config_rollback(version=N)` to load any version back to candidate.",
-            ]
-            return "\n".join(lines)
+        rows = [header, sep]
+        for v in versions:
+            ver = str(v.get("version", "?"))
+            ts = _age(v.get("created_at") or v.get("timestamp") or v.get("date"))
+            admin = str(v.get("created_by") or v.get("admin") or v.get("uname") or "—")[: col_w[2]]
+            desc = str(v.get("description") or "—")[: col_w[3]]
+            scope = v.get("scope")
+            flag = (
+                " ◀ running"
+                if scope and str(running_by_scope.get(scope)) == str(v.get("version"))
+                else ""
+            )
+            rows.append(
+                f"{ver:<{col_w[0]}}  {ts:<{col_w[1]}}  {admin:<{col_w[2]}}  {desc:<{col_w[3]}}{flag}"
+            )
 
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc, tool='scm_config_versions', tenant_id=tenant_id)}"
+        lines = [
+            f"## Config Versions — {tenant_id or 'default tenant'}",
+            "",
+            f"Total versions: {raw.get('total', len(versions))}  "
+            f"|  Running: {', '.join(f'{k}={v}' for k, v in running_by_scope.items()) or 'unknown'}",
+            "",
+            "```",
+            *rows,
+            "```",
+            "",
+            "Use `scm_config_rollback(version=N)` to load any version back to candidate.",
+        ]
+        return "\n".join(lines)
 
     @mcp.tool()
+    @tool
     def scm_config_push_track(
+        client: Any,
+        tenant_id: str,
         folders: list[str],
         description: str = "",
         timeout: int = 300,
         rollback_on_failure: bool = False,
-        tenant_id: str = "",
     ) -> str:
         """Push candidate config with async job tracking and optional auto-rollback.
 
@@ -360,8 +318,6 @@ def register_deployment_tools(mcp: FastMCP, get_client: Any) -> None:
             tenant_id: SCM tenant ID. Defaults to the configured default tenant.
         """
         try:
-            client = get_client(tenant_id)
-
             # Snapshot running version per pushed folder (for rollback capability).
             # The /running endpoint reports one running version per scope
             # (e.g. "Remote Networks", "Mobile Users"), not a single global version.
@@ -479,11 +435,13 @@ def register_deployment_tools(mcp: FastMCP, get_client: Any) -> None:
             return f"Error: {handle_scm_exception(exc, tool='scm_config_push_track', tenant_id=tenant_id)}"
 
     @mcp.tool()
+    @tool
     def scm_config_rollback(
+        client: Any,
+        tenant_id: str,
         version: int,
         commit_immediately: bool = False,
         description: str = "",
-        tenant_id: str = "",
     ) -> str:
         """Load a previous SCM config version back to candidate for recommit.
 
@@ -499,81 +457,73 @@ def register_deployment_tools(mcp: FastMCP, get_client: Any) -> None:
             description: Commit description when commit_immediately=True.
             tenant_id: SCM tenant ID. Defaults to the configured default tenant.
         """
-        try:
-            client = get_client(tenant_id)
+        ver_info: dict[str, Any] = {}
+        with suppress(Exception):
+            raw_ver = client.get(f"{_CV_BASE}/{version}")
+            if isinstance(raw_ver, list) and raw_ver:
+                ver_info = raw_ver[0]
+            elif isinstance(raw_ver, dict):
+                ver_info = raw_ver
 
-            # Fetch version metadata for confirmation. This endpoint returns a
-            # single-item list, not the {"data": [...]} envelope used elsewhere.
-            ver_info: dict[str, Any] = {}
-            with suppress(Exception):
-                raw_ver = client.get(f"{_CV_BASE}/{version}")
-                if isinstance(raw_ver, list) and raw_ver:
-                    ver_info = raw_ver[0]
-                elif isinstance(raw_ver, dict):
-                    ver_info = raw_ver
+        ver_date = (
+            ver_info.get("created_at")
+            or ver_info.get("timestamp")
+            or ver_info.get("date")
+            or "unknown date"
+        )
+        ver_desc = ver_info.get("description") or "—"
+        ver_admin = ver_info.get("created_by") or ver_info.get("admin") or "—"
 
-            ver_date = (
-                ver_info.get("created_at")
-                or ver_info.get("timestamp")
-                or ver_info.get("date")
-                or "unknown date"
+        # Load the version to candidate
+        logger.info(
+            "config_rollback_start",
+            version=version,
+            tenant_id=tenant_id,
+            commit_immediately=commit_immediately,
+        )
+        client.post(f"{_CV_BASE}/{version}:load")
+        logger.info("config_rollback_loaded", version=version, tenant_id=tenant_id)
+
+        lines = [
+            f"## Config Rollback — Version {version} Loaded to Candidate",
+            "",
+            "| Field | Value |",
+            "|---|---|",
+            f"| Version | {version} |",
+            f"| Originally committed | {_age(str(ver_date))} ({ver_date}) |",
+            f"| Original description | {ver_desc} |",
+            f"| Original admin | {ver_admin} |",
+        ]
+
+        if commit_immediately:
+            desc = description or f"Rollback to version {version} via scm-mcp-mssp"
+            commit_result = client.commit(
+                folders=["all"],
+                description=desc,
+                sync=True,
+                timeout=300,
             )
-            ver_desc = ver_info.get("description") or "—"
-            ver_admin = ver_info.get("created_by") or ver_info.get("admin") or "—"
-
-            # Load the version to candidate
+            job_id = getattr(commit_result, "job_id", "—")
             logger.info(
-                "config_rollback_start",
+                "config_rollback_committed",
                 version=version,
+                job_id=job_id,
                 tenant_id=tenant_id,
-                commit_immediately=commit_immediately,
             )
-            client.post(f"{_CV_BASE}/{version}:load")
-            logger.info("config_rollback_loaded", version=version, tenant_id=tenant_id)
-
-            lines = [
-                f"## Config Rollback — Version {version} Loaded to Candidate",
+            lines += [
                 "",
-                "| Field | Value |",
-                "|---|---|",
-                f"| Version | {version} |",
-                f"| Originally committed | {_age(str(ver_date))} ({ver_date}) |",
-                f"| Original description | {ver_desc} |",
-                f"| Original admin | {ver_admin} |",
+                f"✅ **Committed immediately** — Job ID: `{job_id}`",
+                f"Description: _{desc}_",
+            ]
+        else:
+            lines += [
+                "",
+                "✅ Version loaded to candidate. **No changes have been pushed yet.**",
+                "",
+                "Next steps:",
+                "1. Review the candidate config in the SCM UI if desired",
+                "2. Run `scm_commit(folders=[...])` to push the rollback to Prisma Access",
+                "   or `scm_config_push_track(folders=[...])` for tracked push with rollback protection",
             ]
 
-            if commit_immediately:
-                desc = description or f"Rollback to version {version} via scm-mcp-mssp"
-                commit_result = client.commit(
-                    folders=["all"],
-                    description=desc,
-                    sync=True,
-                    timeout=300,
-                )
-                job_id = getattr(commit_result, "job_id", "—")
-                logger.info(
-                    "config_rollback_committed",
-                    version=version,
-                    job_id=job_id,
-                    tenant_id=tenant_id,
-                )
-                lines += [
-                    "",
-                    f"✅ **Committed immediately** — Job ID: `{job_id}`",
-                    f"Description: _{desc}_",
-                ]
-            else:
-                lines += [
-                    "",
-                    "✅ Version loaded to candidate. **No changes have been pushed yet.**",
-                    "",
-                    "Next steps:",
-                    "1. Review the candidate config in the SCM UI if desired",
-                    "2. Run `scm_commit(folders=[...])` to push the rollback to Prisma Access",
-                    "   or `scm_config_push_track(folders=[...])` for tracked push with rollback protection",
-                ]
-
-            return "\n".join(lines)
-
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc, tool='scm_config_rollback', version=version, tenant_id=tenant_id)}"
+        return "\n".join(lines)

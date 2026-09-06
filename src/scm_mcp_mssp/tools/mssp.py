@@ -31,6 +31,7 @@ from ..audit.tiers import (
 from ..auth.oauth import get_tenant_meta, list_loaded_tenants
 from ..utils.errors import handle_scm_exception
 from ..utils.logging import get_logger
+from ..utils.tool_decorator import scm_tool
 
 logger = get_logger(__name__)
 
@@ -40,15 +41,14 @@ _STATUS_ICON = {"compliant": "✅", "non-compliant": "❌", "gap": "⚠️"}
 
 def register_mssp_tools(mcp: FastMCP, get_client: Any, get_settings: Any) -> None:
     """Register all MSSP tier management tools."""
+    tool = scm_tool(get_client)
+    tool = scm_tool(get_client)
 
     # ── Tier Assessment ───────────────────────────────────────────────────────
 
     @mcp.tool()
-    def mssp_tier_assess(
-        folder: str,
-        tier: str = "",
-        tenant_id: str = "",
-    ) -> str:
+    @tool
+    def mssp_tier_assess(client: Any, tenant_id: str, folder: str, tier: str = "") -> str:
         """Score a tenant folder against its contracted MSSP service tier.
 
         Pulls live SCM configuration, runs all BPA checks, then scores results
@@ -66,55 +66,49 @@ def register_mssp_tools(mcp: FastMCP, get_client: Any, get_settings: Any) -> Non
         Returns:
             JSON tier compliance result with breach list and score percentage.
         """
-        try:
-            client = get_client(tenant_id)
-            snap = extract_snapshot(client, folder=folder, tenant_id=tenant_id or "default")
-            findings = run_all_checks(snap)
+        snap = extract_snapshot(client, folder=folder, tenant_id=tenant_id or "default")
+        findings = run_all_checks(snap)
 
-            # Resolve tier — argument overrides tenant config
-            resolved_tier = tier.lower() if tier else "bronze"
-            if not tier:
-                # Try to resolve from dynaconf tenant config
-                try:
-                    settings = get_settings()
-                    if hasattr(settings, "scm_tier"):
-                        resolved_tier = settings.scm_tier
-                except Exception:
-                    pass
+        # Resolve tier — argument overrides tenant config
+        resolved_tier = tier.lower() if tier else "bronze"
+        if not tier:
+            # Try to resolve from dynaconf tenant config
+            try:
+                settings = get_settings()
+                if hasattr(settings, "scm_tier"):
+                    resolved_tier = settings.scm_tier
+            except Exception:
+                pass
 
-            tier_def = get_tier(resolved_tier)
-            result = score_findings_against_tier(findings, tier_def)
-            result["folder"] = folder
-            result["extraction_errors"] = len(snap.extraction_errors)
+        tier_def = get_tier(resolved_tier)
+        result = score_findings_against_tier(findings, tier_def)
+        result["folder"] = folder
+        result["extraction_errors"] = len(snap.extraction_errors)
 
-            # Attach upgrade path if not compliant
-            if not result["tier_compliant"] and resolved_tier != "gold":
-                idx = TIER_ORDER.index(resolved_tier)
-                if idx + 1 < len(TIER_ORDER):
-                    next_tier = TIER_ORDER[idx + 1]
-                    result["next_tier"] = next_tier
-                    result["upgrade_gap_count"] = len(
-                        [
-                            f
-                            for f in findings
-                            if f.severity in get_tier(next_tier).required_severities
-                            and f.status in (Status.FAIL, Status.WARN)
-                            and f.severity not in tier_def.required_severities
-                        ]
-                    )
+        # Attach upgrade path if not compliant
+        if not result["tier_compliant"] and resolved_tier != "gold":
+            idx = TIER_ORDER.index(resolved_tier)
+            if idx + 1 < len(TIER_ORDER):
+                next_tier = TIER_ORDER[idx + 1]
+                result["next_tier"] = next_tier
+                result["upgrade_gap_count"] = len(
+                    [
+                        f
+                        for f in findings
+                        if f.severity in get_tier(next_tier).required_severities
+                        and f.status in (Status.FAIL, Status.WARN)
+                        and f.severity not in tier_def.required_severities
+                    ]
+                )
 
-            return json.dumps(result, indent=2)
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc)}"
+        return json.dumps(result, indent=2)
 
     # ── Tier Report ───────────────────────────────────────────────────────────
 
     @mcp.tool()
+    @tool
     def mssp_tier_report(
-        folder: str,
-        tier: str,
-        tenant_id: str = "",
-        save_to: str = "",
+        client: Any, tenant_id: str, folder: str, tier: str, save_to: str = ""
     ) -> str:
         """Generate a Markdown tier compliance report for a customer folder.
 
@@ -134,167 +128,159 @@ def register_mssp_tools(mcp: FastMCP, get_client: Any, get_settings: Any) -> Non
         Returns:
             Markdown compliance report.
         """
-        try:
-            client = get_client(tenant_id)
-            snap = extract_snapshot(client, folder=folder, tenant_id=tenant_id or "default")
-            findings = run_all_checks(snap)
-            tier_def = get_tier(tier)
-            score = score_findings_against_tier(findings, tier_def)
+        snap = extract_snapshot(client, folder=folder, tenant_id=tenant_id or "default")
+        findings = run_all_checks(snap)
+        tier_def = get_tier(tier)
+        score = score_findings_against_tier(findings, tier_def)
 
-            from datetime import UTC, datetime
+        from datetime import UTC, datetime
 
-            lines: list[str] = []
+        lines: list[str] = []
 
-            def h(n: int, t: str) -> None:
-                lines.append(f"{'#' * n} {t}\n")
+        def h(n: int, t: str) -> None:
+            lines.append(f"{'#' * n} {t}\n")
 
-            def ln(t: str = "") -> None:
-                lines.append(t)
+        def ln(t: str = "") -> None:
+            lines.append(t)
 
-            icon = _TIER_ICON.get(tier, "")
-            compliant = score["tier_compliant"]
-            status_str = "**COMPLIANT** ✅" if compliant else "**NON-COMPLIANT** ❌"
+        icon = _TIER_ICON.get(tier, "")
+        compliant = score["tier_compliant"]
+        status_str = "**COMPLIANT** ✅" if compliant else "**NON-COMPLIANT** ❌"
 
-            h(1, f"{icon} MSSP {tier_def.label} Tier — Service Compliance Report")
-            ln(f"**Customer folder:** `{folder}`")
-            ln(f"**Generated:** {datetime.now(UTC).isoformat()}")
-            ln(f"**Tier:** {tier_def.label} — {tier_def.description}")
-            ln(f"**Overall status:** {status_str}")
+        h(1, f"{icon} MSSP {tier_def.label} Tier — Service Compliance Report")
+        ln(f"**Customer folder:** `{folder}`")
+        ln(f"**Generated:** {datetime.now(UTC).isoformat()}")
+        ln(f"**Tier:** {tier_def.label} — {tier_def.description}")
+        ln(f"**Overall status:** {status_str}")
+        ln()
+
+        # Compliance score
+        h(2, "Compliance Score")
+        pct = score["compliance_score_pct"]
+        bar_filled = int(pct / 5)
+        bar = "█" * bar_filled + "░" * (20 - bar_filled)
+        ln(f"`{bar}` **{pct}%**")
+        ln()
+        ln("| Metric | Count |")
+        ln("|--------|-------|")
+        ln(f"| Required checks ({tier_def.label} tier) | {score['required_checks']} |")
+        ln(f"| Passed | {score['passed_required']} |")
+        ln(f"| **Breaches (must fix)** | **{score['breach_count']}** |")
+        ln(f"| Advisory (above tier scope) | {score['advisory_count']} |")
+        ln()
+
+        # Service description
+        h(2, "Service Tier Description")
+        ln(tier_def.service_description)
+        ln()
+        h(3, "Included in this tier")
+        for feature in tier_def.included_features:
+            ln(f"- ✅ {feature}")
+        ln()
+        if tier_def.excluded_features:
+            h(3, "Not included (available in higher tiers)")
+            for feature in tier_def.excluded_features:
+                ln(f"- ➖ {feature}")
             ln()
 
-            # Compliance score
-            h(2, "Compliance Score")
-            pct = score["compliance_score_pct"]
-            bar_filled = int(pct / 5)
-            bar = "█" * bar_filled + "░" * (20 - bar_filled)
-            ln(f"`{bar}` **{pct}%**")
-            ln()
-            ln("| Metric | Count |")
-            ln("|--------|-------|")
-            ln(f"| Required checks ({tier_def.label} tier) | {score['required_checks']} |")
-            ln(f"| Passed | {score['passed_required']} |")
-            ln(f"| **Breaches (must fix)** | **{score['breach_count']}** |")
-            ln(f"| Advisory (above tier scope) | {score['advisory_count']} |")
-            ln()
-
-            # Service description
-            h(2, "Service Tier Description")
-            ln(tier_def.service_description)
-            ln()
-            h(3, "Included in this tier")
-            for feature in tier_def.included_features:
-                ln(f"- ✅ {feature}")
-            ln()
-            if tier_def.excluded_features:
-                h(3, "Not included (available in higher tiers)")
-                for feature in tier_def.excluded_features:
-                    ln(f"- ➖ {feature}")
+        # Breach findings
+        if score["breaches"]:
+            h(2, "🔴 Tier Breaches — Action Required")
+            ln(
+                f"The following {score['breach_count']} finding(s) must be resolved "
+                f"to meet {tier_def.label} tier requirements.\n"
+            )
+            for f in score["breaches"]:
+                sev = f["severity"].upper()
+                h(3, f"[{f['check_id']}] {f['title']} — {sev}")
+                ln(f"**Issue:** {f['description']}")
                 ln()
-
-            # Breach findings
-            if score["breaches"]:
-                h(2, "🔴 Tier Breaches — Action Required")
-                ln(
-                    f"The following {score['breach_count']} finding(s) must be resolved "
-                    f"to meet {tier_def.label} tier requirements.\n"
-                )
-                for f in score["breaches"]:
-                    sev = f["severity"].upper()
-                    h(3, f"[{f['check_id']}] {f['title']} — {sev}")
-                    ln(f"**Issue:** {f['description']}")
-                    ln()
-                    if f["affected_objects"]:
-                        objs = f["affected_objects"][:8]
-                        more = (
-                            f" _(+{len(f['affected_objects']) - 8} more)_"
-                            if len(f["affected_objects"]) > 8
-                            else ""
-                        )
-                        ln(f"**Affected:** `{'`, `'.join(objs)}`{more}")
-                        ln()
-                    ln(f"**Remediation:** {f['remediation']}")
-                    ln()
-                    if f["ncsc_refs"]:
-                        ln(f"**NCSC controls:** {', '.join(f'`{r}`' for r in f['ncsc_refs'])}")
-                    ln()
-            else:
-                h(2, "✅ No Tier Breaches")
-                ln(f"All {tier_def.label} tier requirements are satisfied.")
-                ln()
-
-            # Advisory findings (out of tier scope — upsell context)
-            if score["advisory"] and tier != "gold":
-                next_idx = TIER_ORDER.index(tier) + 1
-                next_tier_label = (
-                    TIERS[TIER_ORDER[next_idx]].label if next_idx < len(TIER_ORDER) else None
-                )
-                if next_tier_label:
-                    h(2, f"⚠️ Advisory — {next_tier_label} Tier Gaps")
-                    ln(
-                        f"The following findings are outside your current {tier_def.label} scope "
-                        f"but would be required under a {next_tier_label} tier contract.\n"
+                if f["affected_objects"]:
+                    objs = f["affected_objects"][:8]
+                    more = (
+                        f" _(+{len(f['affected_objects']) - 8} more)_"
+                        if len(f["affected_objects"]) > 8
+                        else ""
                     )
-                    for f in score["advisory"][:5]:
-                        ln(f"- `{f['check_id']}` **{f['title']}** ({f['severity']})")
-                    if len(score["advisory"]) > 5:
-                        ln(f"- _...and {len(score['advisory']) - 5} more_")
+                    ln(f"**Affected:** `{'`, `'.join(objs)}`{more}")
                     ln()
-
-            # Upgrade path
-            if tier != "gold":
-                next_idx = TIER_ORDER.index(tier) + 1
-                if next_idx < len(TIER_ORDER):
-                    next_name = TIER_ORDER[next_idx]
-                    next_def = TIERS[next_name]
-                    gap = upgrade_gap(findings, tier, next_name)
-                    h(2, f"⬆️ Upgrade Path: {tier_def.label} → {next_def.label}")
-                    if gap["upgrade_ready"]:
-                        ln(
-                            f"✅ All {next_def.label} tier checks are currently passing. "
-                            f"Upgrade requires applying {len(gap['snippets_to_apply'])} additional snippets."
-                        )
-                    else:
-                        ln(
-                            f"{gap['blocking_count']} additional check(s) must pass before upgrading."
-                        )
-                    ln()
-                    if gap["new_features"]:
-                        ln(f"**New features in {next_def.label}:**")
-                        for feat in gap["new_features"][:6]:
-                            ln(f"- {feat}")
-                        ln()
-                    if gap["snippets_to_apply"]:
-                        ln(f"**Snippets to apply:** `{'`, `'.join(gap['snippets_to_apply'])}`")
-                        ln()
-
-            # NCSC framework table
-            h(2, "NCSC Framework Coverage")
-            ln("| Framework | Status |")
-            ln("|-----------|--------|")
-            for fw in ("CAF v4.0", "CE v3.2", "10 Steps", "NSF"):
-                covered = fw in tier_def.ncsc_frameworks
-                ln(f"| {fw} | {'✅ In scope' if covered else '➖ Not in scope'} |")
+                ln(f"**Remediation:** {f['remediation']}")
+                ln()
+                if f["ncsc_refs"]:
+                    ln(f"**NCSC controls:** {', '.join(f'`{r}`' for r in f['ncsc_refs'])}")
+                ln()
+        else:
+            h(2, "✅ No Tier Breaches")
+            ln(f"All {tier_def.label} tier requirements are satisfied.")
             ln()
 
-            report = "\n".join(lines)
-            if save_to:
-                from pathlib import Path
+        # Advisory findings (out of tier scope — upsell context)
+        if score["advisory"] and tier != "gold":
+            next_idx = TIER_ORDER.index(tier) + 1
+            next_tier_label = (
+                TIERS[TIER_ORDER[next_idx]].label if next_idx < len(TIER_ORDER) else None
+            )
+            if next_tier_label:
+                h(2, f"⚠️ Advisory — {next_tier_label} Tier Gaps")
+                ln(
+                    f"The following findings are outside your current {tier_def.label} scope "
+                    f"but would be required under a {next_tier_label} tier contract.\n"
+                )
+                for f in score["advisory"][:5]:
+                    ln(f"- `{f['check_id']}` **{f['title']}** ({f['severity']})")
+                if len(score["advisory"]) > 5:
+                    ln(f"- _...and {len(score['advisory']) - 5} more_")
+                ln()
 
-                Path(save_to).write_text(report)
-                logger.info("tier_report_saved", path=save_to, folder=folder, tier=tier)
-                return f"Report saved to: {save_to}\n\n{report}"
-            return report
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc)}"
+        # Upgrade path
+        if tier != "gold":
+            next_idx = TIER_ORDER.index(tier) + 1
+            if next_idx < len(TIER_ORDER):
+                next_name = TIER_ORDER[next_idx]
+                next_def = TIERS[next_name]
+                gap = upgrade_gap(findings, tier, next_name)
+                h(2, f"⬆️ Upgrade Path: {tier_def.label} → {next_def.label}")
+                if gap["upgrade_ready"]:
+                    ln(
+                        f"✅ All {next_def.label} tier checks are currently passing. "
+                        f"Upgrade requires applying {len(gap['snippets_to_apply'])} additional snippets."
+                    )
+                else:
+                    ln(f"{gap['blocking_count']} additional check(s) must pass before upgrading.")
+                ln()
+                if gap["new_features"]:
+                    ln(f"**New features in {next_def.label}:**")
+                    for feat in gap["new_features"][:6]:
+                        ln(f"- {feat}")
+                    ln()
+                if gap["snippets_to_apply"]:
+                    ln(f"**Snippets to apply:** `{'`, `'.join(gap['snippets_to_apply'])}`")
+                    ln()
+
+        # NCSC framework table
+        h(2, "NCSC Framework Coverage")
+        ln("| Framework | Status |")
+        ln("|-----------|--------|")
+        for fw in ("CAF v4.0", "CE v3.2", "10 Steps", "NSF"):
+            covered = fw in tier_def.ncsc_frameworks
+            ln(f"| {fw} | {'✅ In scope' if covered else '➖ Not in scope'} |")
+        ln()
+
+        report = "\n".join(lines)
+        if save_to:
+            from pathlib import Path
+
+            Path(save_to).write_text(report)
+            logger.info("tier_report_saved", path=save_to, folder=folder, tier=tier)
+            return f"Report saved to: {save_to}\n\n{report}"
+        return report
 
     # ── Upgrade Path ──────────────────────────────────────────────────────────
 
     @mcp.tool()
+    @tool
     def mssp_upgrade_path(
-        folder: str,
-        from_tier: str,
-        to_tier: str,
-        tenant_id: str = "",
+        client: Any, tenant_id: str, folder: str, from_tier: str, to_tier: str
     ) -> str:
         """Show what's needed to upgrade a tenant from one tier to another.
 
@@ -320,7 +306,6 @@ def register_mssp_tools(mcp: FastMCP, get_client: Any, get_settings: Any) -> Non
             if TIER_ORDER.index(from_tier) >= TIER_ORDER.index(to_tier):
                 return json.dumps({"error": "to_tier must be higher than from_tier"})
 
-            client = get_client(tenant_id)
             snap = extract_snapshot(client, folder=folder, tenant_id=tenant_id or "default")
             findings = run_all_checks(snap)
 
@@ -333,12 +318,9 @@ def register_mssp_tools(mcp: FastMCP, get_client: Any, get_settings: Any) -> Non
     # ── Tenant Onboarding ─────────────────────────────────────────────────────
 
     @mcp.tool()
+    @tool
     def mssp_onboard_tenant(
-        folder: str,
-        tier: str,
-        tenant_id: str = "",
-        create_folder: bool = False,
-        dry_run: bool = True,
+        client: Any, folder: str, tier: str, create_folder: bool = False, dry_run: bool = True
     ) -> str:
         """Onboard a new customer tenant with the correct tier snippet set.
 
@@ -357,105 +339,100 @@ def register_mssp_tools(mcp: FastMCP, get_client: Any, get_settings: Any) -> Non
         Returns:
             Onboarding plan or execution result with snippet status.
         """
+        tier_def = get_tier(tier)
+
+        # Check folder exists
+        folder_exists = False
         try:
-            client = get_client(tenant_id)
-            tier_def = get_tier(tier)
+            client.folder.fetch(name=folder)
+            folder_exists = True
+        except Exception:
+            pass
 
-            # Check folder exists
-            folder_exists = False
-            try:
-                client.folder.fetch(name=folder)
-                folder_exists = True
-            except Exception:
-                pass
-
-            # Check which tier snippets exist in SCM
-            try:
-                existing_snippets_raw = client.snippet.list()
-                existing_snippet_names = {
-                    s.name if hasattr(s, "name") else s.get("name", "")
-                    for s in existing_snippets_raw
-                }
-            except Exception:
-                existing_snippet_names = set()
-
-            snippets_present = [s for s in tier_def.scm_snippets if s in existing_snippet_names]
-            snippets_missing = [s for s in tier_def.scm_snippets if s not in existing_snippet_names]
-
-            plan: dict[str, Any] = {
-                "folder": folder,
-                "tier": tier,
-                "tier_label": tier_def.label,
-                "dry_run": dry_run,
-                "folder_exists": folder_exists,
-                "create_folder": create_folder and not folder_exists,
-                "snippets_required": list(tier_def.scm_snippets),
-                "snippets_present": snippets_present,
-                "snippets_missing": snippets_missing,
-                "actions": [],
-                "warnings": [],
+        # Check which tier snippets exist in SCM
+        try:
+            existing_snippets_raw = client.snippet.list()
+            existing_snippet_names = {
+                s.name if hasattr(s, "name") else s.get("name", "") for s in existing_snippets_raw
             }
+        except Exception:
+            existing_snippet_names = set()
 
-            # Build action list
-            if not folder_exists:
-                if create_folder:
-                    plan["actions"].append(f"CREATE folder '{folder}'")
-                else:
-                    plan["warnings"].append(
-                        f"Folder '{folder}' does not exist. Set create_folder=True to create it."
-                    )
+        snippets_present = [s for s in tier_def.scm_snippets if s in existing_snippet_names]
+        snippets_missing = [s for s in tier_def.scm_snippets if s not in existing_snippet_names]
 
-            for snippet in snippets_present:
-                plan["actions"].append(f"ASSOCIATE snippet '{snippet}' → folder '{folder}'")
+        plan: dict[str, Any] = {
+            "folder": folder,
+            "tier": tier,
+            "tier_label": tier_def.label,
+            "dry_run": dry_run,
+            "folder_exists": folder_exists,
+            "create_folder": create_folder and not folder_exists,
+            "snippets_required": list(tier_def.scm_snippets),
+            "snippets_present": snippets_present,
+            "snippets_missing": snippets_missing,
+            "actions": [],
+            "warnings": [],
+        }
 
-            for snippet in snippets_missing:
+        # Build action list
+        if not folder_exists:
+            if create_folder:
+                plan["actions"].append(f"CREATE folder '{folder}'")
+            else:
                 plan["warnings"].append(
-                    f"Snippet '{snippet}' not found in SCM. "
-                    f"Create it with the content defined in SNIPPET_TEMPLATES['{snippet}']. "
-                    "Run mssp_snippet_catalogue for content specifications."
+                    f"Folder '{folder}' does not exist. Set create_folder=True to create it."
                 )
 
-            if dry_run:
-                plan["result"] = "DRY RUN — no changes made"
-                return json.dumps(plan, indent=2)
+        for snippet in snippets_present:
+            plan["actions"].append(f"ASSOCIATE snippet '{snippet}' → folder '{folder}'")
 
-            # Execute
-            executed: list[str] = []
-            errors: list[str] = []
+        for snippet in snippets_missing:
+            plan["warnings"].append(
+                f"Snippet '{snippet}' not found in SCM. "
+                f"Create it with the content defined in SNIPPET_TEMPLATES['{snippet}']. "
+                "Run mssp_snippet_catalogue for content specifications."
+            )
 
-            if not folder_exists and create_folder:
-                try:
-                    client.folder.create({"name": folder})
-                    executed.append(f"Created folder '{folder}'")
-                    logger.info("folder_created", folder=folder, tier=tier)
-                except Exception as exc:
-                    errors.append(f"Failed to create folder: {exc}")
-
-            # Associate snippets — SCM snippet association is done via folder update
-            # or snippet.associate() depending on SDK version
-            for snippet_name in snippets_present:
-                try:
-                    # Attempt association — SDK may vary; log outcome
-                    snippet_obj = next(
-                        (
-                            s
-                            for s in existing_snippets_raw
-                            if (s.name if hasattr(s, "name") else s.get("name")) == snippet_name
-                        ),
-                        None,
-                    )
-                    if snippet_obj:
-                        executed.append(f"Associated snippet '{snippet_name}' with '{folder}'")
-                        logger.info("snippet_associated", snippet=snippet_name, folder=folder)
-                except Exception as exc:
-                    errors.append(f"Failed to associate '{snippet_name}': {exc}")
-
-            plan["result"] = "EXECUTED"
-            plan["executed"] = executed
-            plan["execution_errors"] = errors
+        if dry_run:
+            plan["result"] = "DRY RUN — no changes made"
             return json.dumps(plan, indent=2)
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc)}"
+
+        # Execute
+        executed: list[str] = []
+        errors: list[str] = []
+
+        if not folder_exists and create_folder:
+            try:
+                client.folder.create({"name": folder})
+                executed.append(f"Created folder '{folder}'")
+                logger.info("folder_created", folder=folder, tier=tier)
+            except Exception as exc:
+                errors.append(f"Failed to create folder: {exc}")
+
+        # Associate snippets — SCM snippet association is done via folder update
+        # or snippet.associate() depending on SDK version
+        for snippet_name in snippets_present:
+            try:
+                # Attempt association — SDK may vary; log outcome
+                snippet_obj = next(
+                    (
+                        s
+                        for s in existing_snippets_raw
+                        if (s.name if hasattr(s, "name") else s.get("name")) == snippet_name
+                    ),
+                    None,
+                )
+                if snippet_obj:
+                    executed.append(f"Associated snippet '{snippet_name}' with '{folder}'")
+                    logger.info("snippet_associated", snippet=snippet_name, folder=folder)
+            except Exception as exc:
+                errors.append(f"Failed to associate '{snippet_name}': {exc}")
+
+        plan["result"] = "EXECUTED"
+        plan["executed"] = executed
+        plan["execution_errors"] = errors
+        return json.dumps(plan, indent=2)
 
     # ── Tenant Dashboard ──────────────────────────────────────────────────────
 
@@ -537,7 +514,8 @@ def register_mssp_tools(mcp: FastMCP, get_client: Any, get_settings: Any) -> Non
     # ── Licence Info ──────────────────────────────────────────────────────────
 
     @mcp.tool()
-    def scm_license_info(tenant_id: str = "") -> str:
+    @tool
+    def scm_license_info(client: Any, tenant_id: str) -> str:
         """List all Prisma SASE subscription licences for a tenant, with expiry dates.
 
         Calls the Palo Alto Networks Subscription Service API
@@ -556,7 +534,6 @@ def register_mssp_tools(mcp: FastMCP, get_client: Any, get_settings: Any) -> Non
         try:
             from ..auth.oauth import fetch_licenses
 
-            client = get_client(tenant_id)
             bundles = fetch_licenses(client)
         except Exception as exc:
             return f"Error fetching licences: {exc}"
@@ -624,7 +601,8 @@ def register_mssp_tools(mcp: FastMCP, get_client: Any, get_settings: Any) -> Non
     # ── Mobile User Stats ─────────────────────────────────────────────────────
 
     @mcp.tool()
-    def scm_mobile_user_stats(tenant_id: str = "", region: str = "eu") -> str:
+    @tool
+    def scm_mobile_user_stats(client: Any, tenant_id: str, region: str = "eu") -> str:
         """Show Prisma Access mobile user allocation and current logged-in user count.
 
         Uses the Prisma Access Insights API to retrieve live connected user counts,
@@ -639,7 +617,6 @@ def register_mssp_tools(mcp: FastMCP, get_client: Any, get_settings: Any) -> Non
 
         _INSIGHTS_BASE = "https://api.sase.paloaltonetworks.com"
 
-        client = get_client(tenant_id)
         session = client.session
         tsg_id = tenant_id
 
@@ -774,7 +751,8 @@ def register_mssp_tools(mcp: FastMCP, get_client: Any, get_settings: Any) -> Non
     # ── Tenant discovery ──────────────────────────────────────────────────────
 
     @mcp.tool()
-    def scm_discover_tenants(tenant_id: str = "") -> str:
+    @tool
+    def scm_discover_tenants(client: Any) -> str:
         """Discover all managed sub-tenants visible to the authenticated SP/super-user account.
 
         Calls the Prisma SASE Tenancy API (GET /tenancy/v1/tenants) and the IAM API
@@ -792,7 +770,6 @@ def register_mssp_tools(mcp: FastMCP, get_client: Any, get_settings: Any) -> Non
         """
         import requests as _req
 
-        client = get_client(tenant_id)
         settings = get_settings()
         mssp_name = settings.mssp_name or "MSSP"
 
@@ -992,11 +969,11 @@ def _rest_get(session: Any, url: str, params: dict | None = None) -> list[dict]:
 
 
 def register_casb_dlp_tools(mcp: FastMCP, get_client: Any) -> None:
+    tool = scm_tool(get_client)
+
     @mcp.tool()
-    def scm_dlp_list(
-        folder: str = "All",
-        tenant_id: str = "",
-    ) -> str:
+    @tool
+    def scm_dlp_list(client: Any, tenant_id: str, folder: str = "All") -> str:
         """
         List DLP data-filtering profiles and data objects configured in SCM.
         Uses the SCM Config REST API (/config/v1/data-filtering-profiles and
@@ -1009,16 +986,11 @@ def register_casb_dlp_tools(mcp: FastMCP, get_client: Any) -> None:
         Returns:
             Markdown summary of DLP profiles and data objects.
         """
-        from ..utils.errors import handle_scm_exception
 
-        try:
-            client = get_client(tenant_id)
-            session = _bearer_session(client)
-            params = {"folder": folder, "limit": 1000}
-            profiles = _rest_get(session, f"{_SCM_CONFIG_BASE}/data-filtering-profiles", params)
-            objects = _rest_get(session, f"{_SCM_CONFIG_BASE}/data-objects", params)
-        except Exception as exc:
-            return handle_scm_exception(exc)
+        session = _bearer_session(client)
+        params = {"folder": folder, "limit": 1000}
+        profiles = _rest_get(session, f"{_SCM_CONFIG_BASE}/data-filtering-profiles", params)
+        objects = _rest_get(session, f"{_SCM_CONFIG_BASE}/data-objects", params)
 
         lines = [f"# DLP Configuration — `{folder}` | Tenant `{tenant_id or 'default'}`\n"]
 
@@ -1055,10 +1027,8 @@ def register_casb_dlp_tools(mcp: FastMCP, get_client: Any) -> None:
         return "\n".join(lines)
 
     @mcp.tool()
-    def scm_casb_list(
-        folder: str = "All",
-        tenant_id: str = "",
-    ) -> str:
+    @tool
+    def scm_casb_list(client: Any, tenant_id: str, folder: str = "All") -> str:
         """
         List CASB SaaS tenant restrictions configured in SCM.
         Uses /config/v1/saas-tenant-restrictions (SCM Config REST API).
@@ -1070,17 +1040,10 @@ def register_casb_dlp_tools(mcp: FastMCP, get_client: Any) -> None:
         Returns:
             Markdown summary of SaaS tenant restriction policies.
         """
-        from ..utils.errors import handle_scm_exception
 
-        try:
-            client = get_client(tenant_id)
-            session = _bearer_session(client)
-            params = {"folder": folder, "limit": 1000}
-            restrictions = _rest_get(
-                session, f"{_SCM_CONFIG_BASE}/saas-tenant-restrictions", params
-            )
-        except Exception as exc:
-            return handle_scm_exception(exc)
+        session = _bearer_session(client)
+        params = {"folder": folder, "limit": 1000}
+        restrictions = _rest_get(session, f"{_SCM_CONFIG_BASE}/saas-tenant-restrictions", params)
 
         lines = [
             f"# CASB — SaaS Tenant Restrictions — `{folder}` | Tenant `{tenant_id or 'default'}`\n"
@@ -1104,7 +1067,8 @@ def register_casb_dlp_tools(mcp: FastMCP, get_client: Any) -> None:
         return "\n".join(lines)
 
     @mcp.tool()
-    def scm_ztna_connector_list(tenant_id: str = "") -> str:
+    @tool
+    def scm_ztna_connector_list(client: Any, tenant_id: str) -> str:
         """
         List ZTNA Connector infrastructure (connectors and connector groups).
         Uses the ZTNA Connector API (/sse/connector/v2.0/api/).
@@ -1116,24 +1080,19 @@ def register_casb_dlp_tools(mcp: FastMCP, get_client: Any) -> None:
         Returns:
             Markdown summary of ZTNA connectors and groups.
         """
-        from ..utils.errors import handle_scm_exception
 
-        try:
-            client = get_client(tenant_id)
-            session = _bearer_session(client)
+        session = _bearer_session(client)
 
-            # Licence check
-            chk = session.get(f"{_ZTNA_BASE}/license", timeout=(5, 8))
-            if chk.status_code == 424:
-                return (
-                    "ℹ️ ZTNA Connector is not enabled for this tenant.\n"
-                    "Enable it in Prisma Access → Remote Access → ZTNA Connector."
-                )
+        # Licence check
+        chk = session.get(f"{_ZTNA_BASE}/license", timeout=(5, 8))
+        if chk.status_code == 424:
+            return (
+                "ℹ️ ZTNA Connector is not enabled for this tenant.\n"
+                "Enable it in Prisma Access → Remote Access → ZTNA Connector."
+            )
 
-            connectors = _rest_get(session, f"{_ZTNA_BASE}/connectors")
-            groups = _rest_get(session, f"{_ZTNA_BASE}/connector-groups")
-        except Exception as exc:
-            return handle_scm_exception(exc)
+        connectors = _rest_get(session, f"{_ZTNA_BASE}/connectors")
+        groups = _rest_get(session, f"{_ZTNA_BASE}/connector-groups")
 
         lines = [f"# ZTNA Connectors — Tenant `{tenant_id or 'default'}`\n"]
 
@@ -1168,7 +1127,8 @@ def register_casb_dlp_tools(mcp: FastMCP, get_client: Any) -> None:
         return "\n".join(lines)
 
     @mcp.tool()
-    def scm_browser_list(tenant_id: str = "") -> str:
+    @tool
+    def scm_browser_list(client: Any, tenant_id: str) -> str:
         """
         List Prisma Browser (Remote Browser Isolation / RBI) configuration.
         Uses the Prisma Browser Management API (/seb/api/v1/).
@@ -1182,23 +1142,18 @@ def register_casb_dlp_tools(mcp: FastMCP, get_client: Any) -> None:
         Returns:
             Markdown summary of Prisma Browser configuration.
         """
-        from ..utils.errors import handle_scm_exception
 
-        try:
-            client = get_client(tenant_id)
-            session = _bearer_session(client)
-            # Groups (original)
-            device_groups = _rest_get(session, f"{_BROWSER_BASE}/device-groups")
-            user_groups = _rest_get(session, f"{_BROWSER_BASE}/user-groups")
-            app_groups = _rest_get(session, f"{_BROWSER_BASE}/application-groups")
-            # New endpoints (June 2026)
-            users = _rest_get(session, f"{_BROWSER_BASE}/users")
-            devices = _rest_get(session, f"{_BROWSER_BASE}/devices")
-            applications = _rest_get(session, f"{_BROWSER_BASE}/applications")
-            plugins = _rest_get(session, f"{_BROWSER_BASE}/applications/plugins")
-            user_requests = _rest_get(session, f"{_BROWSER_BASE}/user-requests")
-        except Exception as exc:
-            return handle_scm_exception(exc)
+        session = _bearer_session(client)
+        # Groups (original)
+        device_groups = _rest_get(session, f"{_BROWSER_BASE}/device-groups")
+        user_groups = _rest_get(session, f"{_BROWSER_BASE}/user-groups")
+        app_groups = _rest_get(session, f"{_BROWSER_BASE}/application-groups")
+        # New endpoints (June 2026)
+        users = _rest_get(session, f"{_BROWSER_BASE}/users")
+        devices = _rest_get(session, f"{_BROWSER_BASE}/devices")
+        applications = _rest_get(session, f"{_BROWSER_BASE}/applications")
+        plugins = _rest_get(session, f"{_BROWSER_BASE}/applications/plugins")
+        user_requests = _rest_get(session, f"{_BROWSER_BASE}/user-requests")
 
         all_data = [
             device_groups,
@@ -1329,12 +1284,11 @@ def register_casb_dlp_tools(mcp: FastMCP, get_client: Any) -> None:
 
 def register_ngfw_airs_tools(mcp: FastMCP, get_client: Any) -> None:
     """Register MCP tools for NGFW device inventory and Prisma AIRS."""
+    tool = scm_tool(get_client)
 
     @mcp.tool()
-    def scm_ngfw_device_list(
-        folder: str = "ngfw-shared",
-        tenant_id: str = "",
-    ) -> str:
+    @tool
+    def scm_ngfw_device_list(client: Any, folder: str = "ngfw-shared") -> str:
         """List NGFW managed devices onboarded to Strata Cloud Manager.
 
         Returns device inventory including model, serial number, software version,
@@ -1351,7 +1305,6 @@ def register_ngfw_airs_tools(mcp: FastMCP, get_client: Any) -> None:
         Ref: https://pan.dev/scm/api/config/ngfw/setup/list-devices/
         """
         try:
-            client = get_client(tenant_id)
             devices = client.device.list(folder=folder, limit=1000)
             items = [d.model_dump() if hasattr(d, "model_dump") else dict(d) for d in devices]
 
@@ -1382,9 +1335,8 @@ def register_ngfw_airs_tools(mcp: FastMCP, get_client: Any) -> None:
             return f"Error: {handle_scm_exception(exc)}"
 
     @mcp.tool()
-    def scm_airs_list(
-        tenant_id: str = "",
-    ) -> str:
+    @tool
+    def scm_airs_list(client: Any, tenant_id: str) -> str:
         """List Prisma AIRS (AI Runtime Security) configuration for a tenant.
 
         Queries the AIRS management API for:
@@ -1421,7 +1373,6 @@ def register_ngfw_airs_tools(mcp: FastMCP, get_client: Any) -> None:
             return (data.get(list_key) or []), False
 
         try:
-            client = get_client(tenant_id)
             session = getattr(client, "session", None)
             if session is None:
                 return "Error: client has no .session attribute"
