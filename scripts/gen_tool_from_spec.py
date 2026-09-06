@@ -126,6 +126,7 @@ def _emit(family: str, prefix: str, commit: str, entries: list[dict]) -> str:
         "",
         "from ..audit.extractor import _bearer_session_for",
         "from ..utils.logging import get_logger",
+        "from ..utils.tool_decorator import scm_tool",
         "",
         "logger = get_logger(__name__)",
         "",
@@ -185,23 +186,27 @@ def _emit(family: str, prefix: str, commit: str, entries: list[dict]) -> str:
         "",
         f"def register_{prefix}_tools(mcp: FastMCP, get_client: Any) -> None:",
         f'    """Register {family} read-only tools."""',
+        "    tool = scm_tool(get_client)",
     ]
     for fn, slug, e in fetch_names:  # type: ignore[misc]
-        tool = f"scm_{prefix}_{slug}"
+        tool_name = f"scm_{prefix}_{slug}"
         sig_params = "".join(f", {p['py']}: {p['type']} | None = None" for p in e["params"])
         fwd = "".join(f", {p['py']}={p['py']}" for p in e["params"])
         doc_desc = e["description"] or e["summary"] or slug
         lines += [
             "",
             "    @mcp.tool()",
-            f'    def {tool}(tenant_id: str = ""{sig_params}) -> str:',
+            "    @tool",
+            f"    def {tool_name}(client: Any{sig_params}) -> str:",
             f'        """{e["summary"] or slug}.',
             "",
             f"        {doc_desc}",
             "",
             f"        GET `{e['path']}` (pan.dev {family}, spec: {e['spec_file'].rsplit('/', 1)[-1]})",
+            "",
+            "        Args:",
+            "            tenant_id: SCM tenant ID.",
             '        """',
-            "        client = get_client(tenant_id)",
             f"        status, data = {fn}(client{fwd})",
             f'        return _render("{e["summary"] or slug}", "{e["url"]}", status, data)',
         ]

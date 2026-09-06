@@ -48,8 +48,7 @@ SECTION_MAP: dict[str, tuple[str, str]] = {
     "dlp.py": ("Enterprise DLP", "Enterprise DLP profile listing, backup, and restore."),
     "mssp.py": (
         "MSSP Multi-Tenant",
-        "Tier assessment, onboarding, dashboard, licensing, CDL, CASB, ZTNA, Browser, "
-        "NGFW, AIRS.",
+        "Tier assessment, onboarding, dashboard, licensing, CDL, CASB, ZTNA, Browser, NGFW, AIRS.",
     ),
     "sdwan.py": (
         "Prisma SD-WAN",
@@ -82,7 +81,7 @@ SECTION_MAP: dict[str, tuple[str, str]] = {
     ),
     "pab_msp.py": (
         "Prisma Access Browser for MSP",
-        "Region-level PAB summaries and per-TSG security-event reports (multitenant " "MSP API).",
+        "Region-level PAB summaries and per-TSG security-event reports (multitenant MSP API).",
     ),
     "reload.py": ("Utility", "Hot-reload and restart of the running MCP server."),
 }
@@ -102,14 +101,52 @@ def _anchor(title: str) -> str:
     return s.replace(" ", "-")
 
 
+def _raw_args_info(node: ast.FunctionDef | ast.AsyncFunctionDef) -> list[tuple[str, str, str]]:
+    args_info = []
+    defaults_offset = len(node.args.args) - len(node.args.defaults)
+    for i, arg in enumerate(node.args.args):
+        if arg.arg == "self":
+            continue
+        ann = ""
+        if arg.annotation:
+            with contextlib.suppress(Exception):
+                ann = ast.unparse(arg.annotation)
+        default = ""
+        default_idx = i - defaults_offset
+        if default_idx >= 0:
+            with contextlib.suppress(Exception):
+                default = ast.unparse(node.args.defaults[default_idx])
+        args_info.append((arg.arg, ann, default))
+    return args_info
+
+
+def _is_scm_tool_decorator(dec: ast.expr) -> bool:
+    """True for the bare `@tool` decorator (utils/tool_decorator.scm_tool)."""
+    return isinstance(dec, ast.Name) and dec.id == "tool"
+
+
+def _exposed_args_info(args_info: list[tuple[str, str, str]]) -> list[tuple[str, str, str]]:
+    """Mirror what @scm_tool actually presents to FastMCP: `client` (and a
+    function-declared `tenant_id`, if present) replaced by one synthesized
+    `tenant_id: str = ""` param up front — see utils/tool_decorator.py.
+    """
+    rest = args_info[1:]  # drop `client`
+    if rest and rest[0][0] == "tenant_id":
+        rest = rest[1:]  # already represented by the synthesized param below
+    # Single-quoted to match ast.unparse's string-literal convention used
+    # for every other default in this table (see _raw_args_info).
+    return [("tenant_id", "str", "''"), *rest]
+
+
 def get_tools(fpath: Path) -> list[tuple[str, str, list[tuple[str, str, str]]]]:
     tree = ast.parse(fpath.read_text())
     tools = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             continue
+        is_tool = False
+        is_scm_tool = False
         for dec in node.decorator_list:
-            is_tool = False
             if (
                 isinstance(dec, ast.Attribute)
                 and dec.attr == "tool"
@@ -120,25 +157,14 @@ def get_tools(fpath: Path) -> list[tuple[str, str, list[tuple[str, str, str]]]]:
                 )
             ):
                 is_tool = True
-            if is_tool:
-                doc = ast.get_docstring(node) or "_No description._"
-                args_info = []
-                defaults_offset = len(node.args.args) - len(node.args.defaults)
-                for i, arg in enumerate(node.args.args):
-                    if arg.arg == "self":
-                        continue
-                    ann = ""
-                    if arg.annotation:
-                        with contextlib.suppress(Exception):
-                            ann = ast.unparse(arg.annotation)
-                    default = ""
-                    default_idx = i - defaults_offset
-                    if default_idx >= 0:
-                        with contextlib.suppress(Exception):
-                            default = ast.unparse(node.args.defaults[default_idx])
-                    args_info.append((arg.arg, ann, default))
-                tools.append((node.name, doc, args_info))
-                break
+            if _is_scm_tool_decorator(dec):
+                is_scm_tool = True
+        if is_tool:
+            doc = ast.get_docstring(node) or "_No description._"
+            args_info = _raw_args_info(node)
+            if is_scm_tool:
+                args_info = _exposed_args_info(args_info)
+            tools.append((node.name, doc, args_info))
     return tools
 
 

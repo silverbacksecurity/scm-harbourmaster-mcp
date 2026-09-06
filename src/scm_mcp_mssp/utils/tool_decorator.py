@@ -102,11 +102,16 @@ def scm_tool(get_client: Callable[[str], Any]) -> Callable[[F], F]:
 
         @functools.wraps(func)
         def wrapper(**kwargs: Any) -> str:
-            bound = new_sig.bind(**kwargs)
-            bound.apply_defaults()
-            call_kwargs = dict(bound.arguments)
-            tenant_id = call_kwargs.pop("tenant_id", "")
+            # Argument binding is inside the try as well: an MCP tool's
+            # contract is that it returns a string, so a bad argument set
+            # must degrade to a normalized error like every other failure
+            # rather than propagating a raw TypeError to the caller.
+            tenant_id = str(kwargs.get("tenant_id", "") or "")
             try:
+                bound = new_sig.bind(**kwargs)
+                bound.apply_defaults()
+                call_kwargs = dict(bound.arguments)
+                tenant_id = call_kwargs.pop("tenant_id", "")
                 client = get_client(tenant_id)
                 if wants_tenant_id:
                     return func(client, tenant_id, **call_kwargs)

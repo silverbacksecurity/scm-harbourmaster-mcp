@@ -4,7 +4,7 @@
 
 All tools authenticate via Bearer-token OAuth (SASE client credentials) configured in `settings.toml` / `.secrets.toml`.
 
-**161 tools** across 32 modules.
+**165 tools** across 34 modules.
 
 ## Table of Contents
 
@@ -29,6 +29,7 @@ All tools authenticate via Bearer-token OAuth (SASE client credentials) configur
 - [Adem](#adem)
 - [Cdl Logforwarding](#cdl-logforwarding)
 - [Compliance](#compliance)
+- [Config Cleanup](#config-cleanup)
 - [Config Orch](#config-orch)
 - [Csp Licensing](#csp-licensing)
 - [Dns Security](#dns-security)
@@ -39,6 +40,7 @@ All tools authenticate via Bearer-token OAuth (SASE client credentials) configur
 - [Pab](#pab)
 - [Planner Tools](#planner-tools)
 - [Service Status](#service-status)
+- [Site Management](#site-management)
 - [Ssr](#ssr)
 
 ---
@@ -61,8 +63,8 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
-| `folder` | `str` | `—` |
 | `tenant_id` | `str` | `''` |
+| `folder` | `str` | `—` |
 | `limit` | `int` | `200` |
 | `name_filter` | `str` | `''` |
 
@@ -79,9 +81,9 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
+| `tenant_id` | `str` | `''` |
 | `name` | `str` | `—` |
 | `folder` | `str` | `—` |
-| `tenant_id` | `str` | `''` |
 
 ### `scm_address_create`
 
@@ -102,13 +104,13 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
+| `tenant_id` | `str` | `''` |
 | `name` | `str` | `—` |
 | `folder` | `str` | `—` |
 | `ip_netmask` | `str` | `''` |
 | `fqdn` | `str` | `''` |
 | `ip_range` | `str` | `''` |
 | `description` | `str` | `''` |
-| `tenant_id` | `str` | `''` |
 
 ### `scm_address_delete`
 
@@ -123,9 +125,9 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
+| `tenant_id` | `str` | `''` |
 | `name` | `str` | `—` |
 | `folder` | `str` | `—` |
-| `tenant_id` | `str` | `''` |
 
 ### `scm_address_group_list`
 
@@ -140,8 +142,8 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
-| `folder` | `str` | `—` |
 | `tenant_id` | `str` | `''` |
+| `folder` | `str` | `—` |
 | `limit` | `int` | `200` |
 
 ### `scm_service_list`
@@ -157,8 +159,8 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
-| `folder` | `str` | `—` |
 | `tenant_id` | `str` | `''` |
+| `folder` | `str` | `—` |
 | `limit` | `int` | `200` |
 
 ### `scm_tag_list`
@@ -174,8 +176,8 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
-| `folder` | `str` | `—` |
 | `tenant_id` | `str` | `''` |
+| `folder` | `str` | `—` |
 | `limit` | `int` | `200` |
 
 ### `scm_edl_list`
@@ -191,8 +193,8 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
-| `folder` | `str` | `—` |
 | `tenant_id` | `str` | `''` |
+| `folder` | `str` | `—` |
 | `limit` | `int` | `200` |
 
 ---
@@ -215,8 +217,8 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
-| `folder` | `str` | `—` |
 | `tenant_id` | `str` | `''` |
+| `folder` | `str` | `—` |
 | `limit` | `int` | `200` |
 | `position` | `str` | `'pre'` |
 
@@ -233,9 +235,9 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
+| `tenant_id` | `str` | `''` |
 | `name` | `str` | `—` |
 | `folder` | `str` | `—` |
-| `tenant_id` | `str` | `''` |
 
 ### `scm_security_rule_create`
 
@@ -260,6 +262,7 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
+| `tenant_id` | `str` | `''` |
 | `name` | `str` | `—` |
 | `folder` | `str` | `—` |
 | `action` | `str` | `—` |
@@ -272,7 +275,6 @@ Args:
 | `profile_setting` | `dict[str, Any] \| None` | `None` |
 | `description` | `str` | `''` |
 | `disabled` | `bool` | `False` |
-| `tenant_id` | `str` | `''` |
 
 ### `scm_security_rule_delete`
 
@@ -287,9 +289,9 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
+| `tenant_id` | `str` | `''` |
 | `name` | `str` | `—` |
 | `folder` | `str` | `—` |
-| `tenant_id` | `str` | `''` |
 
 ### `scm_anti_spyware_profile_list`
 
@@ -304,8 +306,8 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
-| `folder` | `str` | `—` |
 | `tenant_id` | `str` | `''` |
+| `folder` | `str` | `—` |
 | `limit` | `int` | `200` |
 
 ### `scm_url_category_list`
@@ -321,8 +323,8 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
-| `folder` | `str` | `—` |
 | `tenant_id` | `str` | `''` |
+| `folder` | `str` | `—` |
 | `limit` | `int` | `200` |
 
 ---
@@ -344,8 +346,8 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
-| `folder` | `str` | `—` |
 | `tenant_id` | `str` | `''` |
+| `folder` | `str` | `—` |
 | `limit` | `int` | `200` |
 
 ### `scm_nat_rule_list`
@@ -362,8 +364,8 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
-| `folder` | `str` | `—` |
 | `tenant_id` | `str` | `''` |
+| `folder` | `str` | `—` |
 | `limit` | `int` | `200` |
 | `position` | `str` | `'pre'` |
 
@@ -380,9 +382,9 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
+| `tenant_id` | `str` | `''` |
 | `name` | `str` | `—` |
 | `folder` | `str` | `—` |
-| `tenant_id` | `str` | `''` |
 
 ### `scm_ike_gateway_list`
 
@@ -397,8 +399,8 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
-| `folder` | `str` | `—` |
 | `tenant_id` | `str` | `''` |
+| `folder` | `str` | `—` |
 | `limit` | `int` | `200` |
 
 ### `scm_ipsec_tunnel_list`
@@ -414,8 +416,8 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
-| `folder` | `str` | `—` |
 | `tenant_id` | `str` | `''` |
+| `folder` | `str` | `—` |
 | `limit` | `int` | `200` |
 
 ### `scm_dns_server_list`
@@ -435,8 +437,8 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
-| `folder` | `str` | `—` |
 | `tenant_id` | `str` | `''` |
+| `folder` | `str` | `—` |
 | `limit` | `int` | `200` |
 
 ---
@@ -460,8 +462,8 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
-| `folder` | `str` | `—` |
 | `tenant_id` | `str` | `''` |
+| `folder` | `str` | `—` |
 | `limit` | `int` | `200` |
 
 ### `scm_remote_network_get`
@@ -477,9 +479,9 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
+| `tenant_id` | `str` | `''` |
 | `name` | `str` | `—` |
 | `folder` | `str` | `—` |
-| `tenant_id` | `str` | `''` |
 
 ### `scm_service_connection_list`
 
@@ -494,8 +496,8 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
-| `folder` | `str` | `—` |
 | `tenant_id` | `str` | `''` |
+| `folder` | `str` | `—` |
 | `limit` | `int` | `200` |
 
 ### `scm_bandwidth_allocation_list`
@@ -511,8 +513,8 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
-| `folder` | `str` | `—` |
 | `tenant_id` | `str` | `''` |
+| `folder` | `str` | `—` |
 | `limit` | `int` | `200` |
 
 ### `scm_commit`
@@ -533,9 +535,9 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
+| `tenant_id` | `str` | `''` |
 | `folders` | `list[str]` | `—` |
 | `description` | `str` | `''` |
-| `tenant_id` | `str` | `''` |
 | `admin` | `str` | `''` |
 
 ### `scm_job_status`
@@ -550,8 +552,8 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
-| `job_id` | `str` | `—` |
 | `tenant_id` | `str` | `''` |
+| `job_id` | `str` | `—` |
 
 ### `scm_list_jobs`
 
@@ -620,11 +622,11 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
+| `tenant_id` | `str` | `''` |
 | `folders` | `list[str]` | `—` |
 | `description` | `str` | `''` |
 | `timeout` | `int` | `300` |
 | `rollback_on_failure` | `bool` | `False` |
-| `tenant_id` | `str` | `''` |
 
 ### `scm_config_rollback`
 
@@ -646,10 +648,10 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
+| `tenant_id` | `str` | `''` |
 | `version` | `int` | `—` |
 | `commit_immediately` | `bool` | `False` |
 | `description` | `str` | `''` |
-| `tenant_id` | `str` | `''` |
 
 ---
 
@@ -684,8 +686,8 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
-| `name` | `str` | `—` |
 | `tenant_id` | `str` | `''` |
+| `name` | `str` | `—` |
 
 ### `scm_device_list`
 
@@ -700,8 +702,8 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
-| `folder` | `str` | `—` |
 | `tenant_id` | `str` | `''` |
+| `folder` | `str` | `—` |
 | `limit` | `int` | `200` |
 
 ### `scm_snippet_list`
@@ -770,8 +772,8 @@ Returns:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
-| `folder` | `str` | `—` |
 | `tenant_id` | `str` | `''` |
+| `folder` | `str` | `—` |
 | `output_dir` | `str` | `''` |
 
 ### `scm_bpa_assess`
@@ -802,8 +804,8 @@ Returns:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
-| `folder` | `str` | `—` |
 | `tenant_id` | `str` | `''` |
+| `folder` | `str` | `—` |
 | `severity_filter` | `str` | `''` |
 | `failed_only` | `bool` | `False` |
 
@@ -831,8 +833,8 @@ Returns:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
-| `folder` | `str` | `—` |
 | `tenant_id` | `str` | `''` |
+| `folder` | `str` | `—` |
 | `framework` | `str` | `'all'` |
 
 ### `scm_dspt_assess`
@@ -868,8 +870,8 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
-| `folder` | `str` | `—` |
 | `tenant_id` | `str` | `''` |
+| `folder` | `str` | `—` |
 | `standard` | `str` | `'all'` |
 | `output_format` | `str` | `'markdown'` |
 | `save_to` | `str` | `''` |
@@ -912,8 +914,8 @@ Returns:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
-| `folder` | `str` | `—` |
 | `tenant_id` | `str` | `''` |
+| `folder` | `str` | `—` |
 | `clause_filter` | `str` | `'all'` |
 | `output_format` | `str` | `'markdown'` |
 | `save_to` | `str` | `''` |
@@ -948,8 +950,8 @@ Returns:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
-| `folder` | `str` | `—` |
 | `tenant_id` | `str` | `''` |
+| `folder` | `str` | `—` |
 | `output_format` | `str` | `'markdown'` |
 | `save_to` | `str` | `''` |
 
@@ -976,8 +978,8 @@ Returns:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
-| `folder` | `str` | `—` |
 | `tenant_id` | `str` | `''` |
+| `folder` | `str` | `—` |
 | `output_format` | `str` | `'markdown'` |
 | `save_to` | `str` | `''` |
 
@@ -1062,9 +1064,9 @@ Returns:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
+| `tenant_id` | `str` | `''` |
 | `deployment_type` | `str` | `'Prisma Access'` |
 | `folder` | `str` | `''` |
-| `tenant_id` | `str` | `''` |
 | `customer_name` | `str` | `''` |
 | `mssp_name` | `str` | `'MSSP'` |
 | `doc_version` | `str` | `'1.0'` |
@@ -1229,8 +1231,13 @@ current candidate config and compares it against the drift baseline
      modify, triaged HIGH/MEDIUM/LOW by enforcement impact.
   2. Rule shadowing — new or changed security rules that an earlier
      rule fully covers (they can never match), or that themselves
-     shadow existing rules. Conservative literal-value check: group/
-     EDL membership is not resolved, so flagged shadows are real.
+     shadow existing rules. Pre-rulebase and post-rulebase are checked
+     together in Panorama's pre-then-post evaluation order, so a
+     pre-rule shadowing a later post-rule is caught too. Source/
+     destination use real CIDR containment with address-group
+     membership resolved recursively; FQDN/wildcard addresses,
+     dynamic groups, and EDLs fall back to a conservative
+     literal-value check rather than risk a false claim.
   3. Best-practice delta — BPA findings this change introduces or
      resolves, by running the check engine against both states.
 
@@ -1254,8 +1261,43 @@ Returns:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
-| `folder` | `str` | `'Prisma Access'` |
 | `tenant_id` | `str` | `''` |
+| `folder` | `str` | `'Prisma Access'` |
+
+### `scm_rule_shadow_audit`
+
+Audit the entire live rulebase for shadowed security rules — no baseline or pending commit required (unlike scm_commit_preview, which only checks rules the pending change touches).
+
+```
+Tufin/Skybox-style rule-order analysis: for every enabled security rule,
+checks whether an earlier-evaluated rule already fully covers its
+source/destination/zones/application/service, meaning the later rule
+can never match any traffic. Source/destination are compared by real
+CIDR containment (not literal string equality) with address-group
+membership resolved recursively — "10.0.0.0/8 in rule 3" correctly
+shadows "10.1.2.0/24 in rule 47" even though the values differ.
+
+Pre-rulebase and post-rulebase are checked together in Panorama's
+pre-then-post evaluation order, so a pre-rule shadowing a later
+post-rule is caught too, not just shadows within the same rulebase.
+
+Args:
+    folder: SCM folder to audit (also pulls in Remote Networks and
+        Mobile Users rules, matching how the rulebase is actually
+        evaluated — same multi-folder merge scm_commit_preview uses).
+    tenant_id: SCM tenant ID (MSSP mode).
+
+Returns:
+    Markdown report: shadowed-rule list with rulebase position, top
+    offending rules ranked by how many others they shadow, and a
+    caveats section disclosing any addresses that couldn't be
+    resolved to concrete IP ranges (~1-2 min: one full extraction).
+```
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `tenant_id` | `str` | `''` |
+| `folder` | `str` | `'Prisma Access'` |
 
 ### `scm_incident_rca`
 
@@ -1294,11 +1336,11 @@ Returns:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
+| `tenant_id` | `str` | `''` |
 | `incident_time` | `str` | `''` |
 | `symptom` | `str` | `''` |
 | `lookback_hours` | `int` | `24` |
 | `folder` | `str` | `'Prisma Access'` |
-| `tenant_id` | `str` | `''` |
 | `include_drift` | `bool` | `True` |
 
 ### `scm_config_diff`
@@ -1419,11 +1461,11 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
+| `tenant_id` | `str` | `''` |
 | `folder` | `str` | `—` |
 | `dry_run` | `bool` | `True` |
 | `syslog_profile` | `str` | `''` |
 | `overwrite_existing` | `bool` | `False` |
-| `tenant_id` | `str` | `''` |
 
 ### `scm_create_ncsc_snippet`
 
@@ -1457,11 +1499,11 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
+| `tenant_id` | `str` | `''` |
 | `snippet_name` | `str` | `'NCSC-Compliance'` |
 | `dry_run` | `bool` | `True` |
 | `syslog_profile` | `str` | `''` |
 | `description` | `str` | `'NCSC CAF v4.0 / CE v3.2 compliance baseline — managed by scm-mcp-mssp'` |
-| `tenant_id` | `str` | `''` |
 
 ### `scm_create_nist_snippet`
 
@@ -1496,11 +1538,11 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
+| `tenant_id` | `str` | `''` |
 | `snippet_name` | `str` | `'NIST-Compliance'` |
 | `dry_run` | `bool` | `True` |
 | `syslog_profile` | `str` | `''` |
 | `description` | `str` | `'NIST CSF v2.0 / SP 800-53 Rev 5 compliance baseline — managed by scm-mcp-mssp'` |
-| `tenant_id` | `str` | `''` |
 
 ### `scm_attach_ncsc_profiles`
 
@@ -1529,11 +1571,11 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
+| `tenant_id` | `str` | `''` |
 | `folder` | `str` | `—` |
 | `dry_run` | `bool` | `True` |
 | `profile_group_name` | `str` | `'NCSC-Baseline'` |
 | `skip_already_profiled` | `bool` | `True` |
-| `tenant_id` | `str` | `''` |
 
 ### `scm_ncsc_gap`
 
@@ -1556,9 +1598,9 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
+| `tenant_id` | `str` | `''` |
 | `folder` | `str` | `—` |
 | `position` | `str` | `'pre'` |
-| `tenant_id` | `str` | `''` |
 
 ### `scm_nist_gap`
 
@@ -1586,9 +1628,9 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
+| `tenant_id` | `str` | `''` |
 | `folder` | `str` | `—` |
 | `position` | `str` | `'pre'` |
-| `tenant_id` | `str` | `''` |
 
 ---
 
@@ -1655,8 +1697,8 @@ Ref: https://pan.dev/dlp/api/
 
 | Parameter | Type | Default |
 |-----------|------|---------|
-| `folder` | `str` | `'All'` |
 | `tenant_id` | `str` | `''` |
+| `folder` | `str` | `'All'` |
 | `company_id` | `str` | `''` |
 | `include_enterprise` | `bool` | `True` |
 
@@ -1693,9 +1735,9 @@ Ref: https://pan.dev/dlp/api/
 
 | Parameter | Type | Default |
 |-----------|------|---------|
+| `tenant_id` | `str` | `''` |
 | `backup_json` | `str` | `—` |
 | `target_folder` | `str` | `—` |
-| `tenant_id` | `str` | `''` |
 | `company_id` | `str` | `''` |
 | `dry_run` | `bool` | `True` |
 
@@ -1793,9 +1835,9 @@ Returns:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
+| `tenant_id` | `str` | `''` |
 | `folder` | `str` | `—` |
 | `tier` | `str` | `''` |
-| `tenant_id` | `str` | `''` |
 
 ### `mssp_tier_report`
 
@@ -1821,9 +1863,9 @@ Returns:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
+| `tenant_id` | `str` | `''` |
 | `folder` | `str` | `—` |
 | `tier` | `str` | `—` |
-| `tenant_id` | `str` | `''` |
 | `save_to` | `str` | `''` |
 
 ### `mssp_upgrade_path`
@@ -1850,10 +1892,10 @@ Returns:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
+| `tenant_id` | `str` | `''` |
 | `folder` | `str` | `—` |
 | `from_tier` | `str` | `—` |
 | `to_tier` | `str` | `—` |
-| `tenant_id` | `str` | `''` |
 
 ### `mssp_onboard_tenant`
 
@@ -1878,9 +1920,9 @@ Returns:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
+| `tenant_id` | `str` | `''` |
 | `folder` | `str` | `—` |
 | `tier` | `str` | `—` |
-| `tenant_id` | `str` | `''` |
 | `create_folder` | `bool` | `False` |
 | `dry_run` | `bool` | `True` |
 
@@ -2000,8 +2042,8 @@ Returns:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
-| `folder` | `str` | `'All'` |
 | `tenant_id` | `str` | `''` |
+| `folder` | `str` | `'All'` |
 
 ### `scm_casb_list`
 
@@ -2018,8 +2060,8 @@ Returns:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
-| `folder` | `str` | `'All'` |
 | `tenant_id` | `str` | `''` |
+| `folder` | `str` | `'All'` |
 
 ### `scm_ztna_connector_list`
 
@@ -2086,8 +2128,8 @@ Ref: https://pan.dev/scm/api/config/ngfw/setup/list-devices/
 
 | Parameter | Type | Default |
 |-----------|------|---------|
-| `folder` | `str` | `'ngfw-shared'` |
 | `tenant_id` | `str` | `''` |
+| `folder` | `str` | `'ngfw-shared'` |
 
 ### `scm_airs_list`
 
@@ -2930,8 +2972,8 @@ Returns:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
-| `folder` | `str` | `'Shared'` |
 | `tenant_id` | `str` | `''` |
+| `folder` | `str` | `'Shared'` |
 | `warn_days` | `int` | `90` |
 | `all_folders` | `bool` | `True` |
 
@@ -2984,11 +3026,11 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
+| `tenant_id` | `str` | `''` |
 | `name` | `str` | `—` |
 | `pem` | `str` | `—` |
 | `folder` | `str` | `'Shared'` |
 | `is_ca` | `bool` | `False` |
-| `tenant_id` | `str` | `''` |
 
 ### `scm_tls_profile_manager`
 
@@ -3017,13 +3059,13 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
+| `tenant_id` | `str` | `''` |
 | `action` | `str` | `'list'` |
 | `name` | `str` | `''` |
 | `min_version` | `str` | `'tls1-2'` |
 | `max_version` | `str` | `'tls1-3'` |
 | `cert_profile` | `str` | `''` |
 | `folder` | `str` | `'Shared'` |
-| `tenant_id` | `str` | `''` |
 
 ### `scm_licence_forecast`
 
@@ -3252,8 +3294,8 @@ Returns:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
-| `folder` | `str` | `'ngfw-shared'` |
 | `tenant_id` | `str` | `''` |
+| `folder` | `str` | `'ngfw-shared'` |
 
 ### `scm_user_count`
 
@@ -3312,6 +3354,7 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
+| `tenant_id` | `str` | `''` |
 | `severity` | `str` | `''` |
 | `status` | `str` | `''` |
 | `product` | `str` | `''` |
@@ -3319,7 +3362,6 @@ Args:
 | `days` | `int` | `30` |
 | `limit` | `int` | `100` |
 | `all_tenants` | `bool` | `False` |
-| `tenant_id` | `str` | `''` |
 
 ### `scm_incident_summary`
 
@@ -3340,9 +3382,9 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
+| `tenant_id` | `str` | `''` |
 | `days` | `int` | `7` |
 | `all_tenants` | `bool` | `True` |
-| `tenant_id` | `str` | `''` |
 
 ### `scm_posture_report`
 
@@ -3366,8 +3408,8 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
-| `folder` | `str` | `'Shared'` |
 | `tenant_id` | `str` | `''` |
+| `folder` | `str` | `'Shared'` |
 
 ### `scm_saas_posture`
 
@@ -3440,9 +3482,9 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
+| `tenant_id` | `str` | `''` |
 | `resource` | `str` | `'profiles'` |
 | `folder` | `str` | `'Shared'` |
-| `tenant_id` | `str` | `''` |
 
 ### `scm_adnsr_profile_create`
 
@@ -3466,11 +3508,11 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
+| `tenant_id` | `str` | `''` |
 | `name` | `str` | `—` |
 | `folder` | `str` | `'Shared'` |
 | `action` | `str` | `'sinkhole'` |
 | `log_queries` | `bool` | `True` |
-| `tenant_id` | `str` | `''` |
 
 ### `scm_ngfw_local_config_list`
 
@@ -3492,8 +3534,8 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
-| `serial` | `str` | `—` |
 | `tenant_id` | `str` | `''` |
+| `serial` | `str` | `—` |
 
 ### `scm_ngfw_local_config_get`
 
@@ -3519,9 +3561,9 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
+| `tenant_id` | `str` | `''` |
 | `serial` | `str` | `—` |
 | `version` | `str` | `'running'` |
-| `tenant_id` | `str` | `''` |
 
 ### `scm_ngfw_wan_ip_summary`
 
@@ -3605,6 +3647,7 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
+| `tenant_id` | `str` | `''` |
 | `config_xml` | `str` | `—` |
 | `requester_email` | `str` | `—` |
 | `requester_name` | `str` | `''` |
@@ -3614,7 +3657,6 @@ Args:
 | `device_version` | `str` | `'10.2.0'` |
 | `device_name` | `str` | `''` |
 | `timeout` | `int` | `120` |
-| `tenant_id` | `str` | `''` |
 
 ---
 
@@ -3694,8 +3736,8 @@ Returns:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
-| `view` | `str` | `'summary'` |
 | `tenant_id` | `str` | `''` |
+| `view` | `str` | `'summary'` |
 | `interconnect_id` | `str` | `''` |
 | `cloud_provider` | `str` | `''` |
 | `usage` | `str` | `''` |
@@ -3731,9 +3773,9 @@ Returns:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
+| `tenant_id` | `str` | `''` |
 | `scope` | `str` | `'tenants'` |
 | `region` | `str` | `'europe'` |
-| `tenant_id` | `str` | `''` |
 
 ### `scm_pab_msp_report`
 
@@ -3757,8 +3799,27 @@ Returns:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
+| `tenant_id` | `str` | `''` |
 | `report` | `str` | `'count'` |
 | `tsg_id` | `str` | `''` |
+
+### `scm_pab_msp_auth_profile`
+
+Prisma Access Browser MSP tenant authentication profile.
+
+```
+The one path in the already-tooled PAB-for-MSP family with no
+consumer: ``GET /mt/pab/tenant/auth_profile``. Read-only.
+
+Args:
+    tenant_id: SCM tenant ID used for auth (MSSP mode).
+
+Returns:
+    Markdown with a JSON payload, or an actionable message on 4xx.
+```
+
+| Parameter | Type | Default |
+|-----------|------|---------|
 | `tenant_id` | `str` | `''` |
 
 ---
@@ -3868,8 +3929,8 @@ Returns:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
-| `view` | `str` | `—` |
 | `tenant_id` | `str` | `''` |
+| `view` | `str` | `—` |
 | `endpoint_type` | `str` | `''` |
 | `response_type` | `str` | `''` |
 | `timerange` | `str` | `'last_3_day'` |
@@ -3968,8 +4029,8 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
-| `action` | `str` | `—` |
 | `tenant_id` | `str` | `''` |
+| `action` | `str` | `—` |
 | `framework_id` | `str` | `''` |
 | `product` | `str` | `'all'` |
 | `category` | `str` | `''` |
@@ -4014,11 +4075,48 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
-| `action` | `str` | `—` |
 | `tenant_id` | `str` | `''` |
+| `action` | `str` | `—` |
 | `framework_id` | `str` | `''` |
 | `payload_json` | `str` | `''` |
 | `release` | `bool` | `False` |
+
+---
+
+## Config Cleanup
+
+_Config Cleanup — read-only rule-usage optimization tools._
+
+### `scm_zerohit_rules`
+
+Security/NAT rules with zero traffic hits (rule-usage cleanup candidates).
+
+```
+New SCM Config Cleanup API (first seen on pan.dev 2026-08-14). Backed by an
+async analysis job — check the returned analysis status/timestamp rather than
+assuming the data is live. Rules-only for now; no address/service object-usage
+equivalent has shipped. Sorted worst-offender first (most days with zero hits).
+
+Args:
+    tenant_id: SCM tenant ID (MSSP mode).
+    manager_hostname: "SCM" for Strata Cloud Manager (default), or a Panorama
+        hostname for Panorama-managed rules.
+    location: Filter by folder (SCM) or device group (Panorama).
+    limit: Max rules to return (1-200, default 200).
+    offset: Pagination offset.
+
+Returns:
+    Markdown table of zero-hit rules ranked by days_with_zero_hits, or an
+    actionable message on 4xx/5xx.
+```
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `tenant_id` | `str` | `''` |
+| `manager_hostname` | `str` | `'SCM'` |
+| `location` | `str` | `''` |
+| `limit` | `int` | `200` |
+| `offset` | `int` | `0` |
 
 ---
 
@@ -4315,8 +4413,8 @@ Returns:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
-| `resource` | `str` | `—` |
 | `tenant_id` | `str` | `''` |
+| `resource` | `str` | `—` |
 | `body` | `str` | `''` |
 | `api_version` | `str` | `'v3'` |
 | `region` | `str` | `''` |
@@ -4359,8 +4457,8 @@ Returns:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
-| `resource` | `str` | `''` |
 | `tenant_id` | `str` | `''` |
+| `resource` | `str` | `''` |
 | `body` | `str` | `''` |
 | `action` | `str` | `'schedule'` |
 | `download_id` | `str` | `''` |
@@ -4785,6 +4883,107 @@ Returns:
 
 ---
 
+## Site Management
+
+_MCP tools for Site Management (NGFW device onboarding)._
+
+### `scm_site_management`
+
+Manage NGFW device-onboarding Site Management resources.
+
+```
+Covers the ``config/setup/device-onboarding/v1`` API: **sites**,
+**properties**, **onboarding-rules**, and **site-groups**. This is a
+distinct API from the SCM Config API — it automates variable
+resolution for NGFW device onboarding (device/HA-pair + property
+values, ordered onboarding-rule logic, and organisational site
+groups), not per-device firewall configuration.
+
+Valid ``resource_type`` values: ``site``, ``property``,
+``onboarding-rule``, ``site-group``.
+
+Valid ``action`` values: ``list``, ``get``, ``create``, ``update``,
+``delete`` (all resource types); ``move`` (onboarding-rule only —
+reorders rule priority).
+
+**Write safety (SSR pattern):**
+  - ``dry_run=True`` by default — returns planned state without
+    applying (for ``update``/``delete``/``move`` this fetches current
+    state via GET first and returns a current/planned diff).
+  - ``ticket_ref`` is mandatory for create/update/delete/move.
+  - Commit is a separate explicit ``scm_commit`` step (not applicable
+    to this API, which is not part of the SCM config-push model).
+
+Footguns to know about:
+  - **Site create wraps a single site into the API's batch envelope.**
+    The live API's ``POST /sites`` body is
+    ``{"sites": [ {...} ]}`` (a list, even for one site, all-or-nothing).
+    This tool keeps the ergonomics of "one resource per call": pass
+    ``body_json`` as the single site's fields (e.g.
+    ``{"name": "...", "site_group": "..."}``) and the tool wraps it
+    into ``{"sites": [body]}`` before POSTing.
+  - **Site delete** accepts a ``force`` flag (default False) to delete
+    even if the site is claimed.
+  - **Onboarding-rule move** requires ``position`` — one of
+    ``before``/``after``/``top``/``bottom`` — and ``reference`` (a
+    rule UUID) is **required** when ``position`` is ``before`` or
+    ``after``.
+  - A site must be **unclaimed** to update it (API 409s otherwise).
+  - A property name cannot start with ``_sys_``.
+  - A site-group's name/property-list updates 409 if referenced by
+    sites/rules using it.
+
+Args:
+    tenant_id:      SCM tenant ID (MSSP mode). Omit for default tenant.
+    resource_type:  ``site`` (default), ``property``,
+                     ``onboarding-rule``, or ``site-group``.
+    action:         ``list`` (default), ``get``, ``create``,
+                     ``update``, ``delete``; ``move`` (onboarding-rule
+                     only).
+    resource_id:    Resource UUID (required for get/update/delete,
+                     and the rule being moved for ``move``).
+    body_json:      JSON payload for create/update (a JSON string;
+                     see the sites-wrapping note above).
+    name:            ``list`` filter for sites (repeatable name isn't
+                     supported via this single string param — pass
+                     one name; omit to list all).
+    status:         ``list`` filter for sites: ``all`` (default),
+                     ``claimed``, or ``unclaimed``.
+    site_group:     ``list`` filter for sites, by site-group name.
+    property_type:  ``list`` filter for properties: ``integer`` or
+                     ``string``.
+    force:          For site ``delete`` — delete even if claimed
+                     (default False).
+    position:       For onboarding-rule ``move``: ``before``,
+                     ``after``, ``top``, or ``bottom``.
+    reference:      For onboarding-rule ``move``: reference rule UUID
+                     — required when ``position`` is before/after.
+    dry_run:        If True (default), validate/plan without applying.
+    ticket_ref:     Mandatory change-ticket reference for write actions.
+
+Returns:
+    JSON: list, detail, or operation result with before/after diff.
+```
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `tenant_id` | `str` | `''` |
+| `resource_type` | `str` | `'site'` |
+| `action` | `str` | `'list'` |
+| `resource_id` | `str` | `''` |
+| `body_json` | `str` | `''` |
+| `name` | `str` | `''` |
+| `status` | `str` | `''` |
+| `site_group` | `str` | `''` |
+| `property_type` | `str` | `''` |
+| `force` | `bool` | `False` |
+| `position` | `str` | `''` |
+| `reference` | `str` | `''` |
+| `dry_run` | `bool` | `True` |
+| `ticket_ref` | `str` | `''` |
+
+---
+
 ## Ssr
 
 _MCP tool for SSR — Simple Service Requests (restricted customer-change CRUD)._
@@ -4837,10 +5036,10 @@ Args:
 
 | Parameter | Type | Default |
 |-----------|------|---------|
+| `tenant_id` | `str` | `''` |
 | `operation` | `str` | `—` |
 | `target` | `str` | `—` |
 | `ticket_ref` | `str` | `—` |
-| `tenant_id` | `str` | `''` |
 | `folder` | `str` | `''` |
 | `action` | `str` | `'add'` |
 | `dry_run` | `bool` | `True` |

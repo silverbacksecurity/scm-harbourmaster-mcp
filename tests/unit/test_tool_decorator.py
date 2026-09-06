@@ -121,6 +121,27 @@ def test_optional_tenant_id_passthrough() -> None:
     assert out_default == "tenant=default folder=X client='fake-client'"
 
 
+def test_missing_required_argument_degrades_instead_of_raising() -> None:
+    """A tool must always return a string, never propagate a raw TypeError.
+
+    Argument binding happens inside the decorator's try/except for this
+    reason — found by live tenant testing, where a missing required arg
+    escaped as an unhandled TypeError instead of an "Error: ..." string.
+    """
+    mcp = _mcp_with_tools(lambda tenant_id="": "fake-client")
+    out = mcp._tool_manager.get_tool("scm_thing_get").fn(tenant_id="acme")  # no `name`
+    assert isinstance(out, str)
+    assert out.startswith("Error: [TypeError]")
+    assert "name" in out
+
+
+def test_unexpected_argument_degrades_instead_of_raising() -> None:
+    mcp = _mcp_with_tools(lambda tenant_id="": "fake-client")
+    out = mcp._tool_manager.get_tool("scm_thing_get").fn(tenant_id="acme", name="x", bogus_param=1)
+    assert isinstance(out, str)
+    assert out.startswith("Error: [TypeError]")
+
+
 def test_decorator_requires_client_as_first_parameter() -> None:
     tool = scm_tool(lambda tenant_id="": None)
 
