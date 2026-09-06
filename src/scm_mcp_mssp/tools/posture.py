@@ -234,10 +234,7 @@ def register_posture_tools(mcp: FastMCP, get_client: Any) -> None:
     tool = scm_tool(get_client)
 
     @mcp.tool()
-    @tool
     def scm_incident_search(
-        client: Any,
-        tenant_id: str,
         severity: str = "",
         status: str = "",
         product: str = "",
@@ -245,6 +242,7 @@ def register_posture_tools(mcp: FastMCP, get_client: Any) -> None:
         days: int = 30,
         limit: int = 100,
         all_tenants: bool = False,
+        tenant_id: str = "",
     ) -> str:
         """Search SCM security incidents via the Incidents API (March 2026).
 
@@ -293,6 +291,7 @@ def register_posture_tools(mcp: FastMCP, get_client: Any) -> None:
                         # abort the whole cross-tenant sweep.
                         tenant_errors.append(f"{label}: {exc}")
             else:
+                client = get_client(tenant_id)
                 targets = [(tenant_id or "default", tenant_id or "default", client)]
 
             for _key, label, c in targets:
@@ -375,9 +374,10 @@ def register_posture_tools(mcp: FastMCP, get_client: Any) -> None:
             return f"Error: {handle_scm_exception(exc, tool='scm_incident_search', tenant_id=tenant_id)}"
 
     @mcp.tool()
-    @tool
     def scm_incident_summary(
-        client: Any, tenant_id: str, days: int = 7, all_tenants: bool = True
+        days: int = 7,
+        all_tenants: bool = True,
+        tenant_id: str = "",
     ) -> str:
         """Cross-tenant SCM incident NOC dashboard.
 
@@ -410,6 +410,7 @@ def register_posture_tools(mcp: FastMCP, get_client: Any) -> None:
                         )
                         targets.append((k, label, None))
             else:
+                client = get_client(tenant_id)
                 targets = [(tenant_id or "default", tenant_id or "default", client)]
 
             ts = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
@@ -528,10 +529,8 @@ def register_posture_tools(mcp: FastMCP, get_client: Any) -> None:
         return "\n".join(lines)
 
     @mcp.tool()
-    @tool
     def scm_saas_posture(
-        client: Any,
-        tenant_id: str,
+        tenant_id: str = "",
         include_catalog: bool = False,
         save_to: str = "",
         load_from: str = "",
@@ -576,6 +575,7 @@ def register_posture_tools(mcp: FastMCP, get_client: Any) -> None:
                 from ..audit.extractor import extract_identity_sspm, extract_sspm
                 from ..audit.models import AuditSnapshot
 
+                client = get_client(tenant_id)
                 snap = AuditSnapshot(folder="", tenant_id=tenant_id or "default")
                 extract_sspm(client, snap)
                 extract_identity_sspm(client, snap)

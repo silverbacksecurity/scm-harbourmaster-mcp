@@ -729,9 +729,10 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
         return "\n".join(lines)
 
     @mcp.tool()
-    @tool
     def scm_cert_lifecycle(
-        client: Any, tenant_id: str, warn_days: int = 90, all_tenants: bool = False
+        tenant_id: str = "",
+        warn_days: int = 90,
+        all_tenants: bool = False,
     ) -> str:
         """Multi-tenant TLS certificate lifecycle dashboard.
 
@@ -760,6 +761,7 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
                         logger.warning("cert_lifecycle_auth_failed", tenant=key, error=str(exc))
                         targets.append((tc.label or key, None))
             else:
+                client = get_client(tenant_id)
                 targets = [(tenant_id or "active tenant", client)]
         except Exception as exc:
             return f"Error: {handle_scm_exception(exc)}"
@@ -1154,9 +1156,10 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
     # ─────────────────────────────────────────────────────────────────────────
 
     @mcp.tool()
-    @tool
     def scm_licence_forecast(
-        client: Any, tenant_id: str, warn_days: int = 90, all_tenants: bool = False
+        tenant_id: str = "",
+        warn_days: int = 90,
+        all_tenants: bool = False,
     ) -> str:
         """Forecast licence expiry dates and seat utilisation.
 
@@ -1191,6 +1194,7 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
                         logger.warning("lic_forecast_auth_failed", tenant=key, error=str(exc))
                         targets.append((tc.label, None))
             else:
+                client = get_client(tenant_id)
                 targets = [(tenant_id or "active tenant", client)]
         except Exception as exc:
             return f"Error: {handle_scm_exception(exc)}"
@@ -1290,10 +1294,8 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
     # ─────────────────────────────────────────────────────────────────────────
 
     @mcp.tool()
-    @tool
     def scm_renewal_brief(
-        client: Any,
-        tenant_id: str,
+        tenant_id: str = "",
         all_tenants: bool = False,
         horizon_days: int = 180,
         underuse_pct: int = 40,
@@ -1341,6 +1343,7 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
                         logger.warning("renewal_brief_auth_failed", tenant=key, error=str(exc))
                         targets.append((label, None))
             else:
+                client = get_client(tenant_id)
                 label = tenant_id or "active tenant"
                 own_tc = _load_all_tenant_configs().get(tenant_id)
                 metas[label] = (

@@ -278,11 +278,9 @@ def register_insights_tools(mcp: FastMCP, get_client: Any) -> None:
         )
 
     @mcp.tool()
-    @tool
     def scm_insights_export(
-        client: Any,
-        tenant_id: str,
         resource: str = "",
+        tenant_id: str = "",
         body: str = "",
         action: str = "schedule",
         download_id: str = "",
@@ -368,56 +366,63 @@ def register_insights_tools(mcp: FastMCP, get_client: Any) -> None:
         if not resource:
             return _fmt({"error": "resource is required for schedule action"})
 
-        session = getattr(client, "session", None)
-        if not session:
-            return "Error: no HTTP session available on SCM client."
-        _refresh_token(client)
+        try:
+            client = get_client(tenant_id)
+            session = getattr(client, "session", None)
+            if not session:
+                return "Error: no HTTP session available on SCM client."
+            _refresh_token(client)
 
-        region = _resolve_region(tenant_id, region)
+            region = _resolve_region(tenant_id, region)
 
-        resource_clean = resource.strip().lstrip("/")
-        body_dict: dict | None = None
-        if body.strip():
-            try:
-                body_dict = _json.loads(body)
-            except _json.JSONDecodeError as exc:
-                return f"Error: invalid JSON in `body`: {exc}"
+            resource_clean = resource.strip().lstrip("/")
+            body_dict: dict | None = None
+            if body.strip():
+                try:
+                    body_dict = _json.loads(body)
+                except _json.JSONDecodeError as exc:
+                    return f"Error: invalid JSON in `body`: {exc}"
 
-        version = api_version.strip().lower()
-        if version == "v3":
-            path = f"{_INSIGHTS_BASE_V3}/export/query/{resource_clean}"
-        else:
-            path = f"{_INSIGHTS_BASE_V2}/export/schedule/query/{resource_clean}"
+            version = api_version.strip().lower()
+            if version == "v3":
+                path = f"{_INSIGHTS_BASE_V3}/export/query/{resource_clean}"
+            else:
+                path = f"{_INSIGHTS_BASE_V2}/export/schedule/query/{resource_clean}"
 
-        status, data = _insights_call(session, path, tenant_id, body_dict, region)
+            status, data = _insights_call(session, path, tenant_id, body_dict, region)
 
-        if status != 200:
+            if status != 200:
+                return _fmt(
+                    {
+                        "action": "schedule",
+                        "resource": resource,
+                        "api_version": api_version,
+                        "error": f"HTTP {status}",
+                        "detail": data if isinstance(data, str) else str(data)[:500],
+                    }
+                )
+
+            # Extract download_id from response
+            dl_id = ""
+            if isinstance(data, dict):
+                dl_id = str(
+                    data.get("download_id") or data.get("id") or data.get("request_id") or ""
+                )
+
             return _fmt(
                 {
                     "action": "schedule",
                     "resource": resource,
                     "api_version": api_version,
-                    "error": f"HTTP {status}",
-                    "detail": data if isinstance(data, str) else str(data)[:500],
+                    "download_id": dl_id,
+                    "response": data,
+                    "next_step": (
+                        f"Poll with: scm_insights_export(action='status', download_id='{dl_id}')"
+                        if dl_id
+                        else "Check response for download identifier"
+                    ),
                 }
             )
 
-        # Extract download_id from response
-        dl_id = ""
-        if isinstance(data, dict):
-            dl_id = str(data.get("download_id") or data.get("id") or data.get("request_id") or "")
-
-        return _fmt(
-            {
-                "action": "schedule",
-                "resource": resource,
-                "api_version": api_version,
-                "download_id": dl_id,
-                "response": data,
-                "next_step": (
-                    f"Poll with: scm_insights_export(action='status', download_id='{dl_id}')"
-                    if dl_id
-                    else "Check response for download identifier"
-                ),
-            }
-        )
+        except Exception as exc:
+            return f"Error: {handle_scm_exception(exc, tool='scm_insights_export', tenant_id=tenant_id)}"
