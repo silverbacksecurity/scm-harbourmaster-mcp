@@ -38,3 +38,16 @@ repos:
     hooks:
       - id: pip-audit
         args: [--skip-editable]
+
+  # Block pushes to the public mirror (`pub` remote) that contain
+  # tenant-identifying content — gitleaks catches secrets, not customer
+  # names, which is how the 2026-07-13 leak slipped through.
+  - repo: local
+    hooks:
+      - id: public-leak-guard
+        name: Block tenant identifiers from reaching the public mirror
+        entry: python scripts/check_public_leak.py
+        language: system
+        stages: [pre-push]
+        pass_filenames: false
+        always_run: true

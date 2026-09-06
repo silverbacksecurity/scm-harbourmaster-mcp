@@ -760,7 +760,8 @@ uv run pytest tests/unit/ -v     # run tests
 uv run ruff check src/ tests/    # lint
 uv run ruff format src/ tests/   # format
 uv run mypy src/                 # type check
-uv run pre-commit install        # install git hooks
+uv run pre-commit install                    # install git hooks (commit-time)
+uv run pre-commit install --hook-type pre-push # + public-mirror leak guard (push-time)
 ```
 
 ### CI/CD
