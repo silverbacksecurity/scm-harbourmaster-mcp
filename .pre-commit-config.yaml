@@ -1,3 +1,7 @@
+# Everything below runs at commit time by default; only public-leak-guard
+# below overrides this to run at push time instead.
+default_stages: [pre-commit]
+
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.8.0
@@ -46,7 +50,7 @@ repos:
     hooks:
       - id: public-leak-guard
         name: Block tenant identifiers from reaching the public mirror
-        entry: python scripts/check_public_leak.py
+        entry: uv run python scripts/check_public_leak.py
         language: system
         stages: [pre-push]
         pass_filenames: false
