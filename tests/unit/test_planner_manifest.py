@@ -13,12 +13,12 @@ import inspect
 
 import pytest
 
-from scm_mcp_mssp.planner import (
+from scm_harbourmaster_mcp.planner import (
     ManifestError,
     UnknownToolError,
     load_manifest,
 )
-from scm_mcp_mssp.planner.manifest import VALID_DOMAINS
+from scm_harbourmaster_mcp.planner.manifest import VALID_DOMAINS
 
 # Write tools per the Phase 1 spec (ROADMAP + docs/planner-agent/TOOL_MANIFEST.md),
 # extended with the write tools added since: scm_ssr_execute, scm_adnsr_profile_create.
@@ -58,8 +58,8 @@ EXPECTED_WRITE_TOOLS = {
 def _registered_tools() -> set[str]:
     from mcp.server.fastmcp import FastMCP
 
-    from scm_mcp_mssp.server import register_all_tools
-    from scm_mcp_mssp.tools.reload import register_reload_tool
+    from scm_harbourmaster_mcp.server import register_all_tools
+    from scm_harbourmaster_mcp.tools.reload import register_reload_tool
 
     mcp = FastMCP("manifest-coverage-test")
     register_all_tools(mcp, get_client=lambda tid="": None, get_settings=lambda: None)

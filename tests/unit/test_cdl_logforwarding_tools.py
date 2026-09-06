@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 from mcp.server.fastmcp import FastMCP
 
-from src.scm_mcp_mssp.tools.cdl_logforwarding import register_cdl_logforwarding_tools
+from src.scm_harbourmaster_mcp.tools.cdl_logforwarding import register_cdl_logforwarding_tools
 
 # ---------------------------------------------------------------------------
 # Fake helpers
@@ -90,7 +90,7 @@ class TestCdlLogforwarding:
             }
         )
         monkeypatch.setattr(
-            "src.scm_mcp_mssp.tools.cdl_logforwarding._bearer_session",
+            "src.scm_harbourmaster_mcp.tools.cdl_logforwarding._bearer_session",
             lambda client: session,
         )
 
@@ -109,7 +109,7 @@ class TestCdlLogforwarding:
             }
         )
         monkeypatch.setattr(
-            "src.scm_mcp_mssp.tools.cdl_logforwarding._bearer_session",
+            "src.scm_harbourmaster_mcp.tools.cdl_logforwarding._bearer_session",
             lambda client: session,
         )
 
@@ -128,7 +128,7 @@ class TestCdlLogforwarding:
             }
         )
         monkeypatch.setattr(
-            "src.scm_mcp_mssp.tools.cdl_logforwarding._bearer_session",
+            "src.scm_harbourmaster_mcp.tools.cdl_logforwarding._bearer_session",
             lambda client: session,
         )
 
@@ -146,7 +146,7 @@ class TestCdlLogforwarding:
             }
         )
         monkeypatch.setattr(
-            "src.scm_mcp_mssp.tools.cdl_logforwarding._bearer_session",
+            "src.scm_harbourmaster_mcp.tools.cdl_logforwarding._bearer_session",
             lambda client: session,
         )
 
@@ -166,7 +166,7 @@ class TestCdlLogforwarding:
             }
         )
         monkeypatch.setattr(
-            "src.scm_mcp_mssp.tools.cdl_logforwarding._bearer_session",
+            "src.scm_harbourmaster_mcp.tools.cdl_logforwarding._bearer_session",
             lambda client: session,
         )
 
@@ -182,7 +182,7 @@ class TestCdlLogforwarding:
 
     def test_auth_failure(self, tools, monkeypatch) -> None:
         monkeypatch.setattr(
-            "src.scm_mcp_mssp.tools.cdl_logforwarding._bearer_session",
+            "src.scm_harbourmaster_mcp.tools.cdl_logforwarding._bearer_session",
             lambda client: (_ for _ in ()).throw(ValueError("No tenant configured")),
         )
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from scm_mcp_mssp.resources.endpoint_catalog import (
+from scm_harbourmaster_mcp.resources.endpoint_catalog import (
     catalog_meta,
     find_endpoint,
     load_catalog,

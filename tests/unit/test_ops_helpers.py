@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import time
 
-from scm_mcp_mssp.tools.ops import (
+from scm_harbourmaster_mcp.tools.ops import (
     _days_until_epoch,
     _parse_expiry_str,
     _parse_semver,

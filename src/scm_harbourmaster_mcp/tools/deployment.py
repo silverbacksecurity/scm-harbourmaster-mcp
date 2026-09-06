@@ -137,7 +137,7 @@ def register_deployment_tools(mcp: FastMCP, get_client: Any) -> None:
         """
         result = client.commit(
             folders=folders,
-            description=description or "Committed via scm-mcp-mssp",
+            description=description or "Committed via scm-harbourmaster-mcp",
             sync=True,
             timeout=300,
         )
@@ -332,7 +332,7 @@ def register_deployment_tools(mcp: FastMCP, get_client: Any) -> None:
                 except Exception:
                     pass
 
-            desc = description or "Push via scm-mcp-mssp"
+            desc = description or "Push via scm-harbourmaster-mcp"
             logger.info("config_push_start", folders=folders, tenant_id=tenant_id, desc=desc)
 
             # Start push async
@@ -496,7 +496,7 @@ def register_deployment_tools(mcp: FastMCP, get_client: Any) -> None:
         ]
 
         if commit_immediately:
-            desc = description or f"Rollback to version {version} via scm-mcp-mssp"
+            desc = description or f"Rollback to version {version} via scm-harbourmaster-mcp"
             commit_result = client.commit(
                 folders=["all"],
                 description=desc,

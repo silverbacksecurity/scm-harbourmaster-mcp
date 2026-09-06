@@ -1,8 +1,8 @@
 # Planner Agent — Tool Manifest
 
 > Status: **implemented** (Phase 1, 2026-07-15). The manifest lives at
-> `src/scm_mcp_mssp/resources/tools_manifest.yaml` (ships in the wheel);
-> the loader and safety rails live in `scm_mcp_mssp/planner/manifest.py`.
+> `src/scm_harbourmaster_mcp/resources/tools_manifest.yaml` (ships in the wheel);
+> the loader and safety rails live in `scm_harbourmaster_mcp/planner/manifest.py`.
 > Coverage is CI-enforced: `tests/unit/test_planner_manifest.py` registers
 > every MCP tool against a live FastMCP instance and fails when a tool
 > lacks a manifest entry (or an entry goes stale). See Phase 1 of the
@@ -11,8 +11,8 @@
 
 ## Location
 
-`src/scm_mcp_mssp/resources/tools_manifest.yaml` — loaded via
-`scm_mcp_mssp.planner.load_manifest()` (importlib.resources, cached per
+`src/scm_harbourmaster_mcp/resources/tools_manifest.yaml` — loaded via
+`scm_harbourmaster_mcp.planner.load_manifest()` (importlib.resources, cached per
 process). The execution layer must resolve every tool through
 `Manifest.policy()` — unknown tools raise `UnknownToolError` rather than
 defaulting to unattended execution.
@@ -39,7 +39,7 @@ One entry per MCP tool (currently 141):
                               # exists
 ```
 
-## Loader API (`scm_mcp_mssp.planner`)
+## Loader API (`scm_harbourmaster_mcp.planner`)
 
 | Call | Purpose |
 | --- | --- |

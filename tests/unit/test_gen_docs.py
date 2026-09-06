@@ -118,7 +118,7 @@ def test_non_scm_tool_function_uses_its_raw_signature_unchanged(tmp_path: Path) 
 
 @pytest.mark.parametrize(
     "fpath",
-    sorted((Path(__file__).parent.parent.parent / "src/scm_mcp_mssp/tools").glob("*.py")),
+    sorted((Path(__file__).parent.parent.parent / "src/scm_harbourmaster_mcp/tools").glob("*.py")),
     ids=lambda p: p.name,
 )
 def test_no_real_tool_module_leaks_client_into_generated_docs(fpath: Path) -> None:

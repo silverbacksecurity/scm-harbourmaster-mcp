@@ -1,4 +1,4 @@
-# Contributing to scm-mcp-mssp
+# Contributing to scm-harbourmaster-mcp
 
 ## Branching model
 
@@ -57,7 +57,7 @@ The PR title must also follow this format — `pr-checks.yml` enforces it.
 
 ## Adding a new MCP tool
 
-1. Pick the right module in `src/scm_mcp_mssp/tools/` (or create one).
+1. Pick the right module in `src/scm_harbourmaster_mcp/tools/` (or create one).
 2. Decorate with `@mcp.tool()` and write a full docstring — Claude reads it.
 3. Register in `server.py` if a new module.
 4. Update tool count in `README.md` and `docs/TOOL_REFERENCE.md`.

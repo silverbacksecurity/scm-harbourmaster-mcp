@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from scm_mcp_mssp.audit.bpa_checks import check_pab_001, check_pab_002
-from scm_mcp_mssp.audit.models import AuditSnapshot, Status
-from scm_mcp_mssp.audit.ncsc_controls import NCSC_CONTROLS
+from scm_harbourmaster_mcp.audit.bpa_checks import check_pab_001, check_pab_002
+from scm_harbourmaster_mcp.audit.models import AuditSnapshot, Status
+from scm_harbourmaster_mcp.audit.ncsc_controls import NCSC_CONTROLS
 
 
 def _snap(devices: list[dict] | None = None) -> AuditSnapshot:

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Regenerate docs/TOOL_REFERENCE.md from tool docstrings.
 
-Discovers every ``@mcp.tool()``-decorated function in src/scm_mcp_mssp/tools/
+Discovers every ``@mcp.tool()``-decorated function in src/scm_harbourmaster_mcp/tools/
 via AST — no imports, no credentials needed. Modules listed in SECTION_MAP get
 curated titles/descriptions and ordering; any module *not* in the map is still
 documented (title derived from the filename, description from the module
@@ -19,7 +19,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).parent.parent
-TOOLS_DIR = ROOT / "src/scm_mcp_mssp/tools"
+TOOLS_DIR = ROOT / "src/scm_harbourmaster_mcp/tools"
 OUT_PATH = ROOT / "docs/TOOL_REFERENCE.md"
 
 # Curated section titles, descriptions, and ordering. Modules absent from this
@@ -183,7 +183,7 @@ def build() -> str:
     total = sum(len(t) for t in tools_by_module.values())
 
     lines = []
-    lines.append("# SCM MCP MSSP — Tool Reference\n")
+    lines.append("# SCM Harbourmaster — Tool Reference\n")
     lines.append(
         "> Auto-generated from source docstrings. Do not edit manually — run "
         "`uv run python scripts/gen_docs.py` to regenerate.\n"

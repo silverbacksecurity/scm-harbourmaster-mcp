@@ -2,7 +2,7 @@
 
 Every ``@mcp.tool()`` function used to repeat the same shape: resolve
 ``tenant_id`` -> ``client``, wrap the body in ``try/except``, and format any
-SDK exception through :func:`~scm_mcp_mssp.utils.errors.handle_scm_exception`.
+SDK exception through :func:`~scm_harbourmaster_mcp.utils.errors.handle_scm_exception`.
 That boilerplate had drifted — several tool modules invented their own
 error-return shapes instead of sharing this one, which is exactly how an
 uncaught ``HTTPError`` from ``scm_email_dlp_incidents`` reached a caller

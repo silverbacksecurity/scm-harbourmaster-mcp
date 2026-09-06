@@ -341,10 +341,10 @@ Planner API-key smoke testing._
   (`build_catalog(domains=[...])`).  Live smoke pending Anthropic API key in
   `.secrets.toml`.
 
-## Epic: Planner Agent — Agentic Orchestration Layer for scm-mcp-mssp
+## Epic: Planner Agent — Agentic Orchestration Layer for scm-harbourmaster-mcp
 
 **Goal** — build a Planner Agent layer above the existing 125-tool
-scm-mcp-mssp MCP server, following the PANW "NetSec Agents on SCM" taxonomy
+scm-harbourmaster-mcp MCP server, following the PANW "NetSec Agents on SCM" taxonomy
 (Persona → Planner → Expert Agents → Actions → Triggers), extended with an
 MSSP cross-tenant orchestration layer that PANW's native single-tenant model
 does not cover. The Planner decomposes high-level operator intent into
@@ -364,8 +364,8 @@ TOOL_MANIFEST.md).
 
 ### Phase 1 — Tool taxonomy & safety rails ✅ shipped 2026-07-15
 
-Delivered as `src/scm_mcp_mssp/resources/tools_manifest.yaml` (135 tools) +
-the `scm_mcp_mssp.planner` loader with the non-overridable write-approval
+Delivered as `src/scm_harbourmaster_mcp/resources/tools_manifest.yaml` (135 tools) +
+the `scm_harbourmaster_mcp.planner` loader with the non-overridable write-approval
 rule, and a CI coverage test that fails whenever a tool is registered
 without a manifest entry. See docs/planner-agent/TOOL_MANIFEST.md for the
 implemented schema, API, and domain groupings. The "enforce in the
@@ -407,7 +407,7 @@ has no bypass; unknown tools raise) — the loop that calls it is Phase 2.
 
 ### Phase 2 — Planner loop core ✅ core shipped 2026-07-15
 
-Delivered as the `scm_mcp_mssp.planner` package: schema/store/executor/
+Delivered as the `scm_harbourmaster_mcp.planner` package: schema/store/executor/
 engine/loop (see docs/planner-agent/ARCHITECTURE.md status note). Claude
 Opus 4.8 with structured outputs is the reasoning engine; the in-process
 FastMCP backend is the first ToolBackend (Streamable-HTTP later). The
@@ -426,7 +426,7 @@ in .secrets.toml (same credential as scm_ai_compliance_advisor).
   pending|running|ok|failed|skipped, result_summary, retries, started_at,
   finished_at}`, `revision_history[]`, `final_report_ref`.
 - [x] Use Claude via the Anthropic API (tool-use) as the reasoning engine;
-  the existing scm-mcp-mssp MCP server is the tool backend over Streamable
+  the existing scm-harbourmaster-mcp MCP server is the tool backend over Streamable
   transport (reuse the Copilot Studio transport work).
 - [ ] Implement sub-plan delegation: Planner selects domain → domain-scoped
   executor runs with only that domain's tools loaded.

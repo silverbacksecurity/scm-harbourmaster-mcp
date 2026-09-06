@@ -18,7 +18,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from scm_mcp_mssp.audit.msr_report import (
+from scm_harbourmaster_mcp.audit.msr_report import (
     MsrData,
     compute_service_stats,
     in_period,
@@ -318,17 +318,17 @@ class TestGather:
         """Patches for the external calls added 2026-07-18 (ADEM, Monitor API,
         Insights month-window) so gather tests never touch the network."""
         return [
-            patch("scm_mcp_mssp.tools.msr.extract_adem", side_effect=lambda c, s: s),
+            patch("scm_harbourmaster_mcp.tools.msr.extract_adem", side_effect=lambda c, s: s),
             patch(
-                "scm_mcp_mssp.tools.msr._bearer_session_for",
+                "scm_harbourmaster_mcp.tools.msr._bearer_session_for",
                 side_effect=RuntimeError("no mt session"),
             ),
-            patch("scm_mcp_mssp.tools.msr._insights_call", return_value=(403, "denied")),
-            patch("scm_mcp_mssp.tools.msr._refresh_token", return_value=None),
+            patch("scm_harbourmaster_mcp.tools.msr._insights_call", return_value=(403, "denied")),
+            patch("scm_harbourmaster_mcp.tools.msr._refresh_token", return_value=None),
         ]
 
     def test_period_filtering_and_degradation(self) -> None:
-        from scm_mcp_mssp.tools.msr import gather_msr_data
+        from scm_harbourmaster_mcp.tools.msr import gather_msr_data
 
         incidents = [
             {"severity": "High", "status": "Open", "raised_time": "2026-06-10T00:00:00Z"},
@@ -342,20 +342,22 @@ class TestGather:
         with contextlib.ExitStack() as stack:
             for p in [
                 patch(
-                    "scm_mcp_mssp.tools.msr.fetch_licenses",
+                    "scm_harbourmaster_mcp.tools.msr.fetch_licenses",
                     side_effect=RuntimeError("licence boom"),
                 ),
                 patch(
-                    "scm_mcp_mssp.tools.msr.extract_insights", side_effect=RuntimeError("ins boom")
+                    "scm_harbourmaster_mcp.tools.msr.extract_insights",
+                    side_effect=RuntimeError("ins boom"),
                 ),
                 patch(
-                    "scm_mcp_mssp.tools.msr._compliance_get", side_effect=RuntimeError("comp boom")
+                    "scm_harbourmaster_mcp.tools.msr._compliance_get",
+                    side_effect=RuntimeError("comp boom"),
                 ),
                 patch(
-                    "scm_mcp_mssp.tools.msr._resolve_tenant_meta",
+                    "scm_harbourmaster_mcp.tools.msr._resolve_tenant_meta",
                     return_value=("T", "t-1", "gold", "uk"),
                 ),
-                patch("scm_mcp_mssp.tools.msr._get_ssr_config", return_value={}),
+                patch("scm_harbourmaster_mcp.tools.msr._get_ssr_config", return_value={}),
                 *self._ext_patches(),
             ]:
                 stack.enter_context(p)
@@ -371,20 +373,20 @@ class TestGather:
         assert "licence boom" in md
 
     def test_bronze_skips_compliance_entirely(self) -> None:
-        from scm_mcp_mssp.tools.msr import gather_msr_data
+        from scm_harbourmaster_mcp.tools.msr import gather_msr_data
 
         client = self._client([], [])
         import contextlib
 
         with contextlib.ExitStack() as stack:
-            comp = stack.enter_context(patch("scm_mcp_mssp.tools.msr._compliance_get"))
+            comp = stack.enter_context(patch("scm_harbourmaster_mcp.tools.msr._compliance_get"))
             for p in [
-                patch("scm_mcp_mssp.tools.msr.fetch_licenses", return_value=[]),
+                patch("scm_harbourmaster_mcp.tools.msr.fetch_licenses", return_value=[]),
                 patch(
-                    "scm_mcp_mssp.tools.msr._resolve_tenant_meta",
+                    "scm_harbourmaster_mcp.tools.msr._resolve_tenant_meta",
                     return_value=("T", "t-1", "bronze", "eu"),
                 ),
-                patch("scm_mcp_mssp.tools.msr._get_ssr_config", return_value={}),
+                patch("scm_harbourmaster_mcp.tools.msr._get_ssr_config", return_value={}),
                 *self._ext_patches(),
             ]:
                 stack.enter_context(p)
@@ -393,7 +395,7 @@ class TestGather:
         assert "compliance" not in data.errors
 
     def test_ssr_ledger_gathered_from_object_descriptions(self) -> None:
-        from scm_mcp_mssp.tools.msr import gather_msr_data
+        from scm_harbourmaster_mcp.tools.msr import gather_msr_data
 
         client = self._client([], [])
         obj = MagicMock()
@@ -405,16 +407,18 @@ class TestGather:
 
         with contextlib.ExitStack() as stack:
             for p in [
-                patch("scm_mcp_mssp.tools.msr.fetch_licenses", return_value=[]),
+                patch("scm_harbourmaster_mcp.tools.msr.fetch_licenses", return_value=[]),
                 patch(
-                    "scm_mcp_mssp.tools.msr._resolve_tenant_meta",
+                    "scm_harbourmaster_mcp.tools.msr._resolve_tenant_meta",
                     return_value=("T", "t-1", "bronze", "eu"),
                 ),
                 patch(
-                    "scm_mcp_mssp.tools.msr._get_ssr_config",
+                    "scm_harbourmaster_mcp.tools.msr._get_ssr_config",
                     return_value={"url_allow_list": "SSR-Allow"},
                 ),
-                patch("scm_mcp_mssp.tools.msr._resolve_default_folder", return_value="Shared"),
+                patch(
+                    "scm_harbourmaster_mcp.tools.msr._resolve_default_folder", return_value="Shared"
+                ),
                 *self._ext_patches(),
             ]:
                 stack.enter_context(p)
@@ -431,7 +435,7 @@ class TestGather:
 
 class TestMonthWindow:
     def test_between_filter_bounds(self) -> None:
-        from scm_mcp_mssp.audit.msr_report import month_bounds, month_window_filter
+        from scm_harbourmaster_mcp.audit.msr_report import month_bounds, month_window_filter
 
         start, end, _ = month_bounds("2026-06")
         body = month_window_filter(start, end)
@@ -443,7 +447,7 @@ class TestMonthWindow:
     def test_fallback_days_clamped(self) -> None:
         from datetime import UTC, datetime
 
-        from scm_mcp_mssp.audit.msr_report import fallback_window_days
+        from scm_harbourmaster_mcp.audit.msr_report import fallback_window_days
 
         now = datetime(2026, 7, 18, tzinfo=UTC)
         assert fallback_window_days(datetime(2026, 7, 17, tzinfo=UTC), now) == 7  # floor
@@ -453,7 +457,7 @@ class TestMonthWindow:
 
 class TestMergeBwAllocation:
     def test_exact_match_adds_utilisation(self) -> None:
-        from scm_mcp_mssp.audit.msr_report import merge_bw_allocation
+        from scm_harbourmaster_mcp.audit.msr_report import merge_bw_allocation
 
         rows = [{"location": "UK South", "peak_consumption": 90.0}]
         allocs = [{"name": "uk-south", "allocated_mbps": 100}]
@@ -462,7 +466,7 @@ class TestMergeBwAllocation:
         assert merged[0]["utilisation_pct"] == 90
 
     def test_containment_match(self) -> None:
-        from scm_mcp_mssp.audit.msr_report import merge_bw_allocation
+        from scm_harbourmaster_mcp.audit.msr_report import merge_bw_allocation
 
         rows = [{"location": "Frankfurt DE", "total_consumption": 25.0}]
         allocs = [{"name": "Frankfurt", "allocated_mbps": 50}]
@@ -470,7 +474,7 @@ class TestMergeBwAllocation:
         assert merged[0]["utilisation_pct"] == 50
 
     def test_unmatched_allocation_appended(self) -> None:
-        from scm_mcp_mssp.audit.msr_report import merge_bw_allocation
+        from scm_harbourmaster_mcp.audit.msr_report import merge_bw_allocation
 
         merged = merge_bw_allocation([], [{"name": "us-east", "allocated_mbps": 200}])
         assert len(merged) == 1
@@ -478,7 +482,7 @@ class TestMergeBwAllocation:
         assert merged[0]["allocated_mbps"] == 200
 
     def test_no_allocation_leaves_row_untouched(self) -> None:
-        from scm_mcp_mssp.audit.msr_report import merge_bw_allocation
+        from scm_harbourmaster_mcp.audit.msr_report import merge_bw_allocation
 
         rows = [{"location": "Tokyo", "peak_consumption": 10.0}]
         merged = merge_bw_allocation(rows, [])
@@ -488,7 +492,7 @@ class TestMergeBwAllocation:
 
 class TestMuLocations:
     def test_dedups_users_per_location(self) -> None:
-        from scm_mcp_mssp.audit.msr_report import summarize_mu_locations
+        from scm_harbourmaster_mcp.audit.msr_report import summarize_mu_locations
 
         rows = [
             {"user": "alice", "pa_location": "London"},
@@ -499,20 +503,20 @@ class TestMuLocations:
         assert summarize_mu_locations(rows) == [("London", 2), ("Paris", 1)]
 
     def test_counts_rows_without_user_key(self) -> None:
-        from scm_mcp_mssp.audit.msr_report import summarize_mu_locations
+        from scm_harbourmaster_mcp.audit.msr_report import summarize_mu_locations
 
         rows = [{"location": "Berlin"}, {"location": "Berlin"}]
         assert summarize_mu_locations(rows) == [("Berlin", 2)]
 
     def test_no_location_key_returns_empty(self) -> None:
-        from scm_mcp_mssp.audit.msr_report import summarize_mu_locations
+        from scm_harbourmaster_mcp.audit.msr_report import summarize_mu_locations
 
         assert summarize_mu_locations([{"user": "alice"}]) == []
 
 
 class TestCommitCount:
     def test_commit_jobs_counted(self) -> None:
-        from scm_mcp_mssp.audit.msr_report import compute_service_stats
+        from scm_harbourmaster_mcp.audit.msr_report import compute_service_stats
 
         jobs = [
             {"type": "CommitAndPush", "result": "OK"},
@@ -525,12 +529,12 @@ class TestCommitCount:
 
 class TestNewSectionsRender:
     def _base(self, **kwargs):
-        from scm_mcp_mssp.audit.msr_report import MsrData
+        from scm_harbourmaster_mcp.audit.msr_report import MsrData
 
         return MsrData(tenant_label="T", tier="gold", period_label="2026-06", **kwargs)
 
     def test_bw_month_table_with_utilisation_flags(self) -> None:
-        from scm_mcp_mssp.audit.msr_report import render_msr_report
+        from scm_harbourmaster_mcp.audit.msr_report import render_msr_report
 
         data = self._base(
             bw_month_rows=[
@@ -552,7 +556,7 @@ class TestNewSectionsRender:
         assert "2026-06 (calendar month)" in md
 
     def test_bw_falls_back_to_snapshot_when_month_unavailable(self) -> None:
-        from scm_mcp_mssp.audit.msr_report import render_msr_report
+        from scm_harbourmaster_mcp.audit.msr_report import render_msr_report
 
         data = self._base(
             bandwidth_rows=[{"location": "UK", "total_consumption": 5.0}],
@@ -563,7 +567,7 @@ class TestNewSectionsRender:
         assert "month-window query was unavailable" in md
 
     def test_mu_section_renders_count_and_breakdown(self) -> None:
-        from scm_mcp_mssp.audit.msr_report import render_msr_report
+        from scm_harbourmaster_mcp.audit.msr_report import render_msr_report
 
         data = self._base(
             mu_month_users=42,
@@ -577,7 +581,7 @@ class TestNewSectionsRender:
         assert "| Unique mobile users (2026-06 (calendar month)) | 42 |" in md  # stats row
 
     def test_adem_section_renders_scores(self) -> None:
-        from scm_mcp_mssp.audit.msr_report import render_msr_report
+        from scm_harbourmaster_mcp.audit.msr_report import render_msr_report
 
         data = self._base(
             adem_summary={
@@ -598,7 +602,7 @@ class TestNewSectionsRender:
         assert "3-day window" in md
 
     def test_security_events_section_and_bullet(self) -> None:
-        from scm_mcp_mssp.audit.msr_report import render_msr_report
+        from scm_harbourmaster_mcp.audit.msr_report import render_msr_report
 
         data = self._base(
             threat_summary={"total_threats": 120, "blocked_count": 118, "window_days": 30}
@@ -610,7 +614,7 @@ class TestNewSectionsRender:
         assert "**118 security threat(s) blocked**" in md  # exec bullet
 
     def test_commit_row_in_stats(self) -> None:
-        from scm_mcp_mssp.audit.msr_report import render_msr_report
+        from scm_harbourmaster_mcp.audit.msr_report import render_msr_report
 
         data = self._base(
             jobs=[{"type": "CommitAndPush", "result": "OK", "start_ts": "2026-06-05 10:00:00"}]
@@ -619,7 +623,7 @@ class TestNewSectionsRender:
         assert "| Commit jobs | 1 |" in md
 
     def test_sources_section_renumbered(self) -> None:
-        from scm_mcp_mssp.audit.msr_report import render_msr_report
+        from scm_harbourmaster_mcp.audit.msr_report import render_msr_report
 
         md = render_msr_report(self._base())
         assert "## 11. Data Sources & Coverage" in md
@@ -637,15 +641,15 @@ class TestGatherMonthAdditions:
 
     def _base_patches(self) -> list:
         return [
-            patch("scm_mcp_mssp.tools.msr.fetch_licenses", return_value=[]),
+            patch("scm_harbourmaster_mcp.tools.msr.fetch_licenses", return_value=[]),
             patch(
-                "scm_mcp_mssp.tools.msr._resolve_tenant_meta",
+                "scm_harbourmaster_mcp.tools.msr._resolve_tenant_meta",
                 return_value=("T", "t-1", "bronze", "uk"),
             ),
-            patch("scm_mcp_mssp.tools.msr._get_ssr_config", return_value={}),
-            patch("scm_mcp_mssp.tools.msr._refresh_token", return_value=None),
+            patch("scm_harbourmaster_mcp.tools.msr._get_ssr_config", return_value={}),
+            patch("scm_harbourmaster_mcp.tools.msr._refresh_token", return_value=None),
             patch(
-                "scm_mcp_mssp.tools.msr.extract_insights",
+                "scm_harbourmaster_mcp.tools.msr.extract_insights",
                 return_value=MagicMock(
                     location_rn_bandwidth=[],
                     location_sc_bandwidth=[],
@@ -658,7 +662,7 @@ class TestGatherMonthAdditions:
     def test_month_bandwidth_merged_and_gathered(self) -> None:
         import contextlib
 
-        from scm_mcp_mssp.tools.msr import gather_msr_data
+        from scm_harbourmaster_mcp.tools.msr import gather_msr_data
 
         client = self._client()
         client.bandwidth_allocation.list.return_value = [
@@ -674,10 +678,10 @@ class TestGatherMonthAdditions:
         with contextlib.ExitStack() as stack:
             for p in [
                 *self._base_patches(),
-                patch("scm_mcp_mssp.tools.msr._insights_call", side_effect=fake_call),
-                patch("scm_mcp_mssp.tools.msr.extract_adem", side_effect=lambda c, s: s),
+                patch("scm_harbourmaster_mcp.tools.msr._insights_call", side_effect=fake_call),
+                patch("scm_harbourmaster_mcp.tools.msr.extract_adem", side_effect=lambda c, s: s),
                 patch(
-                    "scm_mcp_mssp.tools.msr._bearer_session_for",
+                    "scm_harbourmaster_mcp.tools.msr._bearer_session_for",
                     side_effect=RuntimeError("no mt"),
                 ),
             ]:
@@ -693,7 +697,7 @@ class TestGatherMonthAdditions:
     def test_month_filter_rejected_falls_back_to_last_n_days(self) -> None:
         import contextlib
 
-        from scm_mcp_mssp.tools.msr import gather_msr_data
+        from scm_harbourmaster_mcp.tools.msr import gather_msr_data
 
         client = self._client()
         client.bandwidth_allocation.list.return_value = []
@@ -711,10 +715,10 @@ class TestGatherMonthAdditions:
         with contextlib.ExitStack() as stack:
             for p in [
                 *self._base_patches(),
-                patch("scm_mcp_mssp.tools.msr._insights_call", side_effect=fake_call),
-                patch("scm_mcp_mssp.tools.msr.extract_adem", side_effect=lambda c, s: s),
+                patch("scm_harbourmaster_mcp.tools.msr._insights_call", side_effect=fake_call),
+                patch("scm_harbourmaster_mcp.tools.msr.extract_adem", side_effect=lambda c, s: s),
                 patch(
-                    "scm_mcp_mssp.tools.msr._bearer_session_for",
+                    "scm_harbourmaster_mcp.tools.msr._bearer_session_for",
                     side_effect=RuntimeError("no mt"),
                 ),
             ]:
@@ -728,7 +732,7 @@ class TestGatherMonthAdditions:
     def test_mobile_users_count_and_breakdown(self) -> None:
         import contextlib
 
-        from scm_mcp_mssp.tools.msr import gather_msr_data
+        from scm_harbourmaster_mcp.tools.msr import gather_msr_data
 
         client = self._client()
         client.bandwidth_allocation.list.return_value = []
@@ -748,10 +752,10 @@ class TestGatherMonthAdditions:
         with contextlib.ExitStack() as stack:
             for p in [
                 *self._base_patches(),
-                patch("scm_mcp_mssp.tools.msr._insights_call", side_effect=fake_call),
-                patch("scm_mcp_mssp.tools.msr.extract_adem", side_effect=lambda c, s: s),
+                patch("scm_harbourmaster_mcp.tools.msr._insights_call", side_effect=fake_call),
+                patch("scm_harbourmaster_mcp.tools.msr.extract_adem", side_effect=lambda c, s: s),
                 patch(
-                    "scm_mcp_mssp.tools.msr._bearer_session_for",
+                    "scm_harbourmaster_mcp.tools.msr._bearer_session_for",
                     side_effect=RuntimeError("no mt"),
                 ),
             ]:
@@ -764,7 +768,7 @@ class TestGatherMonthAdditions:
     def test_adem_and_threats_gathered(self) -> None:
         import contextlib
 
-        from scm_mcp_mssp.tools.msr import gather_msr_data
+        from scm_harbourmaster_mcp.tools.msr import gather_msr_data
 
         client = self._client()
         client.bandwidth_allocation.list.return_value = []
@@ -782,9 +786,11 @@ class TestGatherMonthAdditions:
         with contextlib.ExitStack() as stack:
             for p in [
                 *self._base_patches(),
-                patch("scm_mcp_mssp.tools.msr._insights_call", return_value=(404, "nope")),
-                patch("scm_mcp_mssp.tools.msr.extract_adem", side_effect=fake_adem),
-                patch("scm_mcp_mssp.tools.msr._bearer_session_for", return_value=mt_session),
+                patch("scm_harbourmaster_mcp.tools.msr._insights_call", return_value=(404, "nope")),
+                patch("scm_harbourmaster_mcp.tools.msr.extract_adem", side_effect=fake_adem),
+                patch(
+                    "scm_harbourmaster_mcp.tools.msr._bearer_session_for", return_value=mt_session
+                ),
             ]:
                 stack.enter_context(p)
             data = gather_msr_data(client, month="2026-06")
@@ -802,7 +808,7 @@ class TestInsightsTryGuard:
         on the exception, not only on a 4xx status."""
         import contextlib
 
-        from scm_mcp_mssp.tools.msr import gather_msr_data
+        from scm_harbourmaster_mcp.tools.msr import gather_msr_data
 
         client = MagicMock()
         resp = MagicMock()
@@ -820,15 +826,15 @@ class TestInsightsTryGuard:
 
         with contextlib.ExitStack() as stack:
             for p in [
-                patch("scm_mcp_mssp.tools.msr.fetch_licenses", return_value=[]),
+                patch("scm_harbourmaster_mcp.tools.msr.fetch_licenses", return_value=[]),
                 patch(
-                    "scm_mcp_mssp.tools.msr._resolve_tenant_meta",
+                    "scm_harbourmaster_mcp.tools.msr._resolve_tenant_meta",
                     return_value=("T", "t-1", "bronze", "uk"),
                 ),
-                patch("scm_mcp_mssp.tools.msr._get_ssr_config", return_value={}),
-                patch("scm_mcp_mssp.tools.msr._refresh_token", return_value=None),
+                patch("scm_harbourmaster_mcp.tools.msr._get_ssr_config", return_value={}),
+                patch("scm_harbourmaster_mcp.tools.msr._refresh_token", return_value=None),
                 patch(
-                    "scm_mcp_mssp.tools.msr.extract_insights",
+                    "scm_harbourmaster_mcp.tools.msr.extract_insights",
                     return_value=MagicMock(
                         location_rn_bandwidth=[],
                         location_sc_bandwidth=[],
@@ -836,10 +842,10 @@ class TestInsightsTryGuard:
                         errors=[],
                     ),
                 ),
-                patch("scm_mcp_mssp.tools.msr._insights_call", side_effect=fake_call),
-                patch("scm_mcp_mssp.tools.msr.extract_adem", side_effect=lambda c, s: s),
+                patch("scm_harbourmaster_mcp.tools.msr._insights_call", side_effect=fake_call),
+                patch("scm_harbourmaster_mcp.tools.msr.extract_adem", side_effect=lambda c, s: s),
                 patch(
-                    "scm_mcp_mssp.tools.msr._bearer_session_for",
+                    "scm_harbourmaster_mcp.tools.msr._bearer_session_for",
                     side_effect=RuntimeError("no mt"),
                 ),
             ]:

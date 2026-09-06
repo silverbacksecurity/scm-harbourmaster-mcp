@@ -1,6 +1,6 @@
 # Example Prompts for Claude Desktop
 
-A copy/paste library of natural-language requests you can drop straight into Claude Desktop (or Cursor, or any MCP client connected to this server) to drive **scm-mcp-mssp**. No tool names or JSON required — just ask.
+A copy/paste library of natural-language requests you can drop straight into Claude Desktop (or Cursor, or any MCP client connected to this server) to drive **scm-harbourmaster-mcp**. No tool names or JSON required — just ask.
 
 **255 examples** across 34 categories, mirroring [`TOOL_REFERENCE.md`](TOOL_REFERENCE.md).
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from scm_mcp_mssp.audit.drift_baseline import (
+from scm_harbourmaster_mcp.audit.drift_baseline import (
     baseline_filename,
     check_drift,
     drift_severity,
@@ -19,7 +19,7 @@ from scm_mcp_mssp.audit.drift_baseline import (
     snapshot_from_dict,
     snapshot_to_dict,
 )
-from scm_mcp_mssp.audit.models import AuditSnapshot
+from scm_harbourmaster_mcp.audit.models import AuditSnapshot
 
 
 def _snap(**fields: object) -> AuditSnapshot:

@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from mcp.server.fastmcp import FastMCP
 
-import scm_mcp_mssp.tools.pab_msp as pab_msp_mod
-from scm_mcp_mssp.tools.mt_interconnect import _render as spi_render
-from scm_mcp_mssp.tools.mt_interconnect import register_spi_tools
-from scm_mcp_mssp.tools.pab_msp import _render as pab_render
-from scm_mcp_mssp.tools.pab_msp import register_pab_msp_tools
+import scm_harbourmaster_mcp.tools.pab_msp as pab_msp_mod
+from scm_harbourmaster_mcp.tools.mt_interconnect import _render as spi_render
+from scm_harbourmaster_mcp.tools.mt_interconnect import register_spi_tools
+from scm_harbourmaster_mcp.tools.pab_msp import _render as pab_render
+from scm_harbourmaster_mcp.tools.pab_msp import register_pab_msp_tools
 
 
 class _FakeAuthResp:

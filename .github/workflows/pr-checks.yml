@@ -76,7 +76,7 @@ jobs:
         run: uv run mypy src/
 
       - name: Test with coverage
-        run: uv run pytest --cov=src/scm_mcp_mssp --cov-report=xml --cov-report=term-missing
+        run: uv run pytest --cov=src/scm_harbourmaster_mcp --cov-report=xml --cov-report=term-missing
         env:
           SCM_MCP_SCM_TENANT_ID: "test-tenant"
           SCM_MCP_SCM_CLIENT_ID: "test@iam"

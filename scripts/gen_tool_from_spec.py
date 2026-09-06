@@ -13,7 +13,7 @@ commit — and emits a Python module containing:
 
 The output is a *scaffold*: review it, consolidate related endpoints into
 fewer ergonomic tools (an MCP server's tool count is client-visible context),
-and move it into src/scm_mcp_mssp/tools/.
+and move it into src/scm_harbourmaster_mcp/tools/.
 
 Usage:
     uv run --with pyyaml python scripts/gen_tool_from_spec.py sase/mt-interconnect \
@@ -68,7 +68,7 @@ def _common_prefix(paths: list[str]) -> str:
 
 
 def _endpoint_entries(family: str, specs_dir: str | None) -> tuple[str, list[dict]]:
-    from scm_mcp_mssp.resources.endpoint_catalog import load_catalog
+    from scm_harbourmaster_mcp.resources.endpoint_catalog import load_catalog
 
     catalog = load_catalog()
     fam = catalog["specs"].get(family)

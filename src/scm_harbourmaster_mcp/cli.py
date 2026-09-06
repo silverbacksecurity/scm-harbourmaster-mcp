@@ -1,5 +1,5 @@
 """
-scm-mcp-mssp interactive CLI — MSSP operator menu.
+scm-harbourmaster-mcp interactive CLI — MSSP operator menu.
 
 Launch with:  uv run scm-mcp-cli
 """
@@ -76,7 +76,7 @@ BANNER = r"""
 """
 
 try:
-    VERSION = "v" + _pkg_version("scm-mcp-mssp")
+    VERSION = "v" + _pkg_version("scm-harbourmaster-mcp")
 except PackageNotFoundError:
     VERSION = "dev"
 SUBTITLE = "Strata Cloud Manager · MSSP Edition"
@@ -1233,9 +1233,9 @@ def _op_check_updates() -> None:
         ("pan-scm-sdk", "pan-scm-sdk"),
         ("prisma-sase", "prisma-sase"),
         ("mcp", "mcp"),
-        ("scm-mcp-mssp", "scm-mcp-mssp"),
+        ("scm-harbourmaster-mcp", "scm-harbourmaster-mcp"),
     ]
-    UA = "scm-mcp-mssp/updatecheck"
+    UA = "scm-harbourmaster-mcp/updatecheck"
 
     def _pypi(pkg: str) -> str | None:
         try:

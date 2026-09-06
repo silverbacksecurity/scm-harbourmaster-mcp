@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from mcp.server.fastmcp import FastMCP
 
-import scm_mcp_mssp.tools.policy_optimizer as po_mod
-from scm_mcp_mssp.tools.policy_optimizer import (
+import scm_harbourmaster_mcp.tools.policy_optimizer as po_mod
+from scm_harbourmaster_mcp.tools.policy_optimizer import (
     _render_detail,
     _render_list,
     register_policy_optimizer_tools,

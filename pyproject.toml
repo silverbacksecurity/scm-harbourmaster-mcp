@@ -1,5 +1,5 @@
 [project]
-name = "scm-mcp-mssp"
+name = "scm-harbourmaster-mcp"
 dynamic = ["version"]
 description = "MCP server for Palo Alto Networks Strata Cloud Manager — MSSP multi-tenant edition"
 readme = "README.md"
@@ -27,11 +27,11 @@ dependencies = [
 ]
 
 [project.scripts]
-scm-mcp = "scm_mcp_mssp.server:main"
-scm-mcp-http = "scm_mcp_mssp.server_http:main"
-scm-mcp-cli = "scm_mcp_mssp.cli:main"
-scm-planner-nightly = "scm_mcp_mssp.planner.nightly:main"
-scm-planner-estate = "scm_mcp_mssp.planner.estate:main"
+scm-mcp = "scm_harbourmaster_mcp.server:main"
+scm-mcp-http = "scm_harbourmaster_mcp.server_http:main"
+scm-mcp-cli = "scm_harbourmaster_mcp.cli:main"
+scm-planner-nightly = "scm_harbourmaster_mcp.planner.nightly:main"
+scm-planner-estate = "scm_harbourmaster_mcp.planner.estate:main"
 
 [dependency-groups]
 dev = [
@@ -54,15 +54,15 @@ build-backend = "hatchling.build"
 source = "vcs"
 
 [tool.hatch.build.hooks.vcs]
-version-file = "src/scm_mcp_mssp/_version.py"
+version-file = "src/scm_harbourmaster_mcp/_version.py"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/scm_mcp_mssp"]
+packages = ["src/scm_harbourmaster_mcp"]
 
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-exclude = ["src/scm_mcp_mssp/_version.py"]
+exclude = ["src/scm_harbourmaster_mcp/_version.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
@@ -81,7 +81,7 @@ warn_unused_ignores = false
 # its ~90 _op_/_menu_ handlers take injected console/helper params where
 # annotations add churn without safety. Bodies are still type-checked.
 [[tool.mypy.overrides]]
-module = "scm_mcp_mssp.cli_menus"
+module = "scm_harbourmaster_mcp.cli_menus"
 disallow_untyped_defs = false
 disallow_incomplete_defs = false
 
@@ -89,15 +89,15 @@ disallow_incomplete_defs = false
 # ~16 errors to work through. All other modules are now fully type-checked.
 [[tool.mypy.overrides]]
 module = [
-    "scm_mcp_mssp.audit.asbuilt_report",
+    "scm_harbourmaster_mcp.audit.asbuilt_report",
 ]
 ignore_errors = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-addopts = "--cov=src/scm_mcp_mssp --cov-report=term-missing"
+addopts = "--cov=src/scm_harbourmaster_mcp --cov-report=term-missing"
 
 [tool.coverage.run]
-source = ["src/scm_mcp_mssp"]
+source = ["src/scm_harbourmaster_mcp"]
 omit = ["*/tests/*"]

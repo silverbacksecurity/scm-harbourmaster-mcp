@@ -1,9 +1,9 @@
-# scm-mcp-mssp
+# scm-harbourmaster-mcp
 
 [![CI](https://github.com/silverbacksecurity/scm-mcp-mssp/actions/workflows/ci.yml/badge.svg)](https://github.com/silverbacksecurity/scm-mcp-mssp/actions/workflows/ci.yml)
 [![Security Scan](https://github.com/silverbacksecurity/scm-mcp-mssp/actions/workflows/security-scan.yml/badge.svg)](https://github.com/silverbacksecurity/scm-mcp-mssp/actions/workflows/security-scan.yml)
 [![Docker Build](https://github.com/silverbacksecurity/scm-mcp-mssp/actions/workflows/docker-build.yml/badge.svg)](https://github.com/silverbacksecurity/scm-mcp-mssp/actions/workflows/docker-build.yml)
-[![PyPI](https://img.shields.io/pypi/v/scm-mcp-mssp)](https://pypi.org/project/scm-mcp-mssp/)
+[![PyPI](https://img.shields.io/pypi/v/scm-harbourmaster-mcp)](https://pypi.org/project/scm-harbourmaster-mcp/)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 
@@ -73,7 +73,7 @@ graph LR
         copilot["Microsoft\nCopilot Studio"]
     end
 
-    subgraph server["scm-mcp-mssp"]
+    subgraph server["scm-harbourmaster-mcp"]
         stdio["FastMCP\nstdio transport"]
         http["HTTP/SSE transport\nscm-mcp-http"]
         tools["93 MCP Tools\nobjects · policy · network\naudit · NCSC · NIST · DLP\nSD-WAN · MSSP · ops · AI advisor"]
@@ -172,7 +172,7 @@ Add to `~/.config/Claude/claude_desktop_config.json`:
 ```json
 {
   "mcpServers": {
-    "scm-mcp-mssp": {
+    "scm-harbourmaster-mcp": {
       "command": "uv",
       "args": ["run", "--directory", "/path/to/scm-mcp-mssp", "scm-mcp"]
     }
@@ -189,7 +189,7 @@ Add to `.cursor/mcp.json` or `.vscode/mcp.json`:
 ```json
 {
   "servers": {
-    "scm-mcp-mssp": {
+    "scm-harbourmaster-mcp": {
       "type": "stdio",
       "command": "uv",
       "args": ["run", "--directory", "/path/to/scm-mcp-mssp", "scm-mcp"]
@@ -595,7 +595,7 @@ List all tenants, their auth status, and which licences are expiring soonest.
 |------|-------------|
 | `scm_check_updates` | Check PyPI + GitHub for latest SDK and pan.dev SASE API updates |
 | `scm_restart` | Schedule a clean SIGTERM so Claude Desktop or a supervisor can auto-reconnect |
-| `scm_reload` | Hot-reload scm_mcp_mssp source modules without restarting the MCP server |
+| `scm_reload` | Hot-reload scm_harbourmaster_mcp source modules without restarting the MCP server |
 
 ---
 
@@ -697,7 +697,7 @@ sequenceDiagram
 ### Source layout
 
 ```
-src/scm_mcp_mssp/
+src/scm_harbourmaster_mcp/
 ├── server.py              # FastMCP entry point; tool/resource registration
 ├── server_http.py         # HTTP/SSE transport (Copilot Studio)
 ├── config/

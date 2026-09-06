@@ -4,8 +4,8 @@ SD-WAN topology mermaid IP annotation. Pure functions, no I/O.
 
 from __future__ import annotations
 
-from scm_mcp_mssp.audit.extractor import parse_ngfw_interface_ips
-from scm_mcp_mssp.audit.sdwan_topo import topology_to_mermaid
+from scm_harbourmaster_mcp.audit.extractor import parse_ngfw_interface_ips
+from scm_harbourmaster_mcp.audit.sdwan_topo import topology_to_mermaid
 
 _SAMPLE_XML = """<?xml version="1.0"?>
 <config version="10.2.0">
@@ -152,21 +152,21 @@ class TestAnnotateWanIpDrift:
         return base
 
     def test_matching_isp_and_geo_not_flagged(self) -> None:
-        from scm_mcp_mssp.audit.extractor import annotate_wan_ip_drift
+        from scm_harbourmaster_mcp.audit.extractor import annotate_wan_ip_drift
 
         rec = self._rec()  # "acme" token matches, IP ~1 km from site
         assert annotate_wan_ip_drift([rec]) == 0
         assert "drift" not in rec
 
     def test_isp_label_mismatch_flagged(self) -> None:
-        from scm_mcp_mssp.audit.extractor import annotate_wan_ip_drift
+        from scm_harbourmaster_mcp.audit.extractor import annotate_wan_ip_drift
 
         rec = self._rec(wan_network="Vodafone-MPLS", circuit_name="")
         assert annotate_wan_ip_drift([rec]) == 1
         assert any("isp_label" in r for r in rec["drift"])
 
     def test_geo_mismatch_flagged_beyond_500km(self) -> None:
-        from scm_mcp_mssp.audit.extractor import annotate_wan_ip_drift
+        from scm_harbourmaster_mcp.audit.extractor import annotate_wan_ip_drift
 
         rec = self._rec(site_location={"latitude": 40.4, "longitude": -3.7})  # Madrid
         assert annotate_wan_ip_drift([rec]) == 1
@@ -174,20 +174,20 @@ class TestAnnotateWanIpDrift:
         assert any("km from the site" in r for r in rec["drift"])
 
     def test_stopword_only_label_never_flags_isp(self) -> None:
-        from scm_mcp_mssp.audit.extractor import annotate_wan_ip_drift
+        from scm_harbourmaster_mcp.audit.extractor import annotate_wan_ip_drift
 
         # "Internet" is a stopword — no meaningful tokens, so no isp_label flag
         rec = self._rec(wan_network="Internet", circuit_name="")
         assert annotate_wan_ip_drift([rec]) == 0
 
     def test_unenriched_records_skipped(self) -> None:
-        from scm_mcp_mssp.audit.extractor import annotate_wan_ip_drift
+        from scm_harbourmaster_mcp.audit.extractor import annotate_wan_ip_drift
 
         rec = self._rec(enrichment=[])
         assert annotate_wan_ip_drift([rec]) == 0
 
     def test_missing_site_location_skips_geo_check(self) -> None:
-        from scm_mcp_mssp.audit.extractor import annotate_wan_ip_drift
+        from scm_harbourmaster_mcp.audit.extractor import annotate_wan_ip_drift
 
         rec = self._rec(site_location={})
         assert annotate_wan_ip_drift([rec]) == 0
@@ -195,8 +195,8 @@ class TestAnnotateWanIpDrift:
 
 class TestEnrichWanIpRecords:
     def test_attaches_enrichment_by_field(self, monkeypatch: object) -> None:
-        import scm_mcp_mssp.utils.ipenrich as ipenrich
-        from scm_mcp_mssp.audit.extractor import enrich_wan_ip_records
+        import scm_harbourmaster_mcp.utils.ipenrich as ipenrich
+        from scm_harbourmaster_mcp.audit.extractor import enrich_wan_ip_records
 
         def _fake_enrich(ips: object, provider: str = "", token: str = "") -> tuple[dict, list]:
             return {"8.8.8.8": {"ip": "8.8.8.8", "isp": "Example"}}, ["one warning"]
@@ -238,7 +238,7 @@ class _FakeSdwanClient:
 
 class TestExtractSdwanDetectedPublicIps:
     def test_maps_detected_ip_per_element(self) -> None:
-        from scm_mcp_mssp.audit.extractor import extract_sdwan_detected_public_ips
+        from scm_harbourmaster_mcp.audit.extractor import extract_sdwan_detected_public_ips
 
         sites = [{"id": "site-1", "name": "Branch-1"}]
         elements = [{"id": "elem-1", "site_id": "site-1", "name": "ION-1", "connected": True}]
@@ -258,7 +258,7 @@ class TestExtractSdwanDetectedPublicIps:
         ]
 
     def test_unassigned_site_id_marked(self) -> None:
-        from scm_mcp_mssp.audit.extractor import extract_sdwan_detected_public_ips
+        from scm_harbourmaster_mcp.audit.extractor import extract_sdwan_detected_public_ips
 
         elements = [{"id": "elem-2", "site_id": "1", "name": "ION-2", "connected": False}]
         client = _FakeSdwanClient({"elem-2": {"config_and_events_from": "203.0.113.9"}})
@@ -269,7 +269,7 @@ class TestExtractSdwanDetectedPublicIps:
         assert detected[0]["connected"] is False
 
     def test_element_status_error_collected_not_raised(self) -> None:
-        from scm_mcp_mssp.audit.extractor import extract_sdwan_detected_public_ips
+        from scm_harbourmaster_mcp.audit.extractor import extract_sdwan_detected_public_ips
 
         elements = [{"id": "elem-3", "site_id": "site-1", "name": "ION-3"}]
         client = _FakeSdwanClient({})  # element_status raises for unknown id
@@ -279,7 +279,7 @@ class TestExtractSdwanDetectedPublicIps:
         assert len(errors) == 1 and "elem-3" in errors[0]
 
     def test_missing_element_id_skipped(self) -> None:
-        from scm_mcp_mssp.audit.extractor import extract_sdwan_detected_public_ips
+        from scm_harbourmaster_mcp.audit.extractor import extract_sdwan_detected_public_ips
 
         detected, errors = extract_sdwan_detected_public_ips(_FakeSdwanClient({}), [], [{}])
         assert detected == []

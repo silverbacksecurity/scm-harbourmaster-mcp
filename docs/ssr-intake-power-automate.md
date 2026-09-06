@@ -10,7 +10,7 @@ stays a separate engineer-owned `scm_commit` step — the flow never commits.
 sequenceDiagram
     participant C as Customer (MS Forms)
     participant F as Power Automate flow
-    participant S as scm-mcp-mssp /webhook/ssr
+    participant S as scm-harbourmaster-mcp /webhook/ssr
     participant A as MSSP approver (Teams Approvals)
     participant E as MSSP engineer
 

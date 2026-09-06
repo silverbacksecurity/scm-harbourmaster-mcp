@@ -7,8 +7,8 @@ triage, and the rendered report's load-bearing content.
 
 from __future__ import annotations
 
-from scm_mcp_mssp.audit.asbuilt_verify import diff_snapshots
-from scm_mcp_mssp.audit.commit_preview import (
+from scm_harbourmaster_mcp.audit.asbuilt_verify import diff_snapshots
+from scm_harbourmaster_mcp.audit.commit_preview import (
     bpa_delta,
     build_address_index,
     find_shadowed_rules,
@@ -17,7 +17,7 @@ from scm_mcp_mssp.audit.commit_preview import (
     render_shadow_audit,
     unresolved_address_names,
 )
-from scm_mcp_mssp.audit.models import AuditSnapshot, Finding, Severity, Status
+from scm_harbourmaster_mcp.audit.models import AuditSnapshot, Finding, Severity, Status
 
 
 def _rule(name: str, **over: object) -> dict:

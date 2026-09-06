@@ -15,13 +15,13 @@ controls:
     description: Access to data and system components is restricted to authorized users.
     implementation:
       - control: OAuth2 client credentials per tenant
-        location: src/scm_mcp_mssp/auth/oauth.py
+        location: src/scm_harbourmaster_mcp/auth/oauth.py
         evidence: Each tenant has a unique client_id / client_secret; no shared credentials.
       - control: SecretStr for client_secret
-        location: src/scm_mcp_mssp/config/settings.py:29
+        location: src/scm_harbourmaster_mcp/config/settings.py:29
         evidence: Pydantic SecretStr prevents accidental logging of credentials.
       - control: Thread-safe per-tenant client cache
-        location: src/scm_mcp_mssp/auth/oauth.py (_lock, _clients)
+        location: src/scm_harbourmaster_mcp/auth/oauth.py (_lock, _clients)
         evidence: Tenant isolation enforced in memory; cross-tenant access raises TenantNotFoundError.
       - control: .secrets.toml git-ignored
         location: .gitignore
@@ -42,7 +42,7 @@ controls:
           New tenants require explicit configuration; there is no self-registration.
           Secrets are provisioned by the MSSP operator.
       - control: TenantConfig field validation
-        location: src/scm_mcp_mssp/config/settings.py (not_empty validator)
+        location: src/scm_harbourmaster_mcp/config/settings.py (not_empty validator)
         evidence: Empty tenant_id or client_id raises ValueError at startup.
     gaps:
       - No MFA on the MCP transport itself (stdio/SSE authenticated at OS/network layer).
@@ -56,7 +56,7 @@ controls:
         location: pan-scm-sdk (dependency)
         evidence: SDK enforces HTTPS for all Strata Cloud Manager API endpoints.
       - control: SSE transport binds to 127.0.0.1 by default
-        location: src/scm_mcp_mssp/server.py:148
+        location: src/scm_harbourmaster_mcp/server.py:148
         evidence: "--host default of 127.0.0.1 prevents unintended external exposure."
       - control: Nginx TLS proxy for external SSE
         location: security/config/tls/nginx-mcp-proxy.conf
@@ -69,7 +69,7 @@ controls:
     description: The entity monitors system components and the operation of controls to detect anomalies.
     implementation:
       - control: Structured JSON logging (structlog)
-        location: src/scm_mcp_mssp/utils/logging.py
+        location: src/scm_harbourmaster_mcp/utils/logging.py
         evidence: All events logged as JSON with timestamp, level, tenant_id context.
       - control: SIEM log forwarding (rsyslog)
         location: security/siem/rsyslog-scm-mcp.conf
@@ -95,7 +95,7 @@ controls:
         location: security/siem/detection-rules/tenant-abuse.sigma.yml
         evidence: Triggers on cross-tenant probing and bulk exfiltration patterns.
       - control: evict_tenant() for credential rotation
-        location: src/scm_mcp_mssp/auth/oauth.py:80
+        location: src/scm_harbourmaster_mcp/auth/oauth.py:80
         evidence: Operator can evict a compromised tenant's cached client without restart.
     gaps:
       - No documented incident response runbook for MCP-specific scenarios.

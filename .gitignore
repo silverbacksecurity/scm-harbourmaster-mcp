@@ -7,7 +7,7 @@ wheels/
 *.egg-info
 
 # hatch-vcs auto-generated version file (regenerated at build time)
-src/scm_mcp_mssp/_version.py
+src/scm_harbourmaster_mcp/_version.py
 
 # Virtual environments
 .venv

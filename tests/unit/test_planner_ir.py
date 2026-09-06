@@ -13,17 +13,17 @@ import time
 
 from mcp.server.fastmcp import FastMCP
 
-from scm_mcp_mssp.planner import PlanStore, load_manifest
-from scm_mcp_mssp.planner.ir import (
+from scm_harbourmaster_mcp.planner import PlanStore, load_manifest
+from scm_harbourmaster_mcp.planner.ir import (
     GENERIC_CLASS,
     INCIDENT_CLASSES,
     classify_alert,
     run_ir_trigger,
     triage_steps,
 )
-from scm_mcp_mssp.planner.schema import PlanStatus, TriggerType
-from scm_mcp_mssp.tools import planner_tools
-from scm_mcp_mssp.tools.planner_tools import register_planner_tools
+from scm_harbourmaster_mcp.planner.schema import PlanStatus, TriggerType
+from scm_harbourmaster_mcp.tools import planner_tools
+from scm_harbourmaster_mcp.tools.planner_tools import register_planner_tools
 
 
 class FakeBackend:

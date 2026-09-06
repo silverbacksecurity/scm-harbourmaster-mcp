@@ -9,7 +9,7 @@ absent (regenerated catalog without schemas), validation is a no-op —
 the functions return empty error lists so callers don't need to guard.
 
 Usage:
-    from scm_mcp_mssp.utils.validation import validate_body
+    from scm_harbourmaster_mcp.utils.validation import validate_body
     errors = validate_body("POST /insights/v2/query/connected_users", body)
     if errors:
         ...  # surface to caller, optionally abort

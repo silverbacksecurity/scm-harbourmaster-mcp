@@ -12,8 +12,8 @@ from typing import Any
 
 import pytest
 
-import scm_mcp_mssp.tools.csp_licensing as csp_mod
-from scm_mcp_mssp.config.settings import Settings
+import scm_harbourmaster_mcp.tools.csp_licensing as csp_mod
+from scm_harbourmaster_mcp.config.settings import Settings
 
 
 class FakeResponse:

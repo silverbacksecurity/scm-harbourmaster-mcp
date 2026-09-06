@@ -16,7 +16,7 @@ from unittest.mock import MagicMock
 import pytest
 from mcp.server.fastmcp import FastMCP
 
-import scm_mcp_mssp.tools.adem as adem_mod
+import scm_harbourmaster_mcp.tools.adem as adem_mod
 
 
 class FakeResponse:

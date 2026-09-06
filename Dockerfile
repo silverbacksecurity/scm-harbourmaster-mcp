@@ -1,4 +1,4 @@
-# Multi-stage build for scm-mcp-mssp
+# Multi-stage build for scm-harbourmaster-mcp
 # Stage 1: build the wheel with uv
 # Stage 2: minimal runtime image (no build tools, no uv)
 

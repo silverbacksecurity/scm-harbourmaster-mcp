@@ -16,8 +16,8 @@ import json
 from starlette.applications import Starlette
 from starlette.testclient import TestClient
 
-import scm_mcp_mssp.server_http as server_http
-from scm_mcp_mssp.server_http import process_ssr_webhook
+import scm_harbourmaster_mcp.server_http as server_http
+from scm_harbourmaster_mcp.server_http import process_ssr_webhook
 
 # ---------------------------------------------------------------------------
 # Stubs

@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 
-from scm_mcp_mssp.utils import ipenrich
+from scm_harbourmaster_mcp.utils import ipenrich
 
 
 @pytest.fixture(autouse=True)

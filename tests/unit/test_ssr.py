@@ -14,7 +14,7 @@ import json
 from typing import Any
 from unittest.mock import MagicMock
 
-from scm_mcp_mssp.tools.ssr import _validate_target, register_ssr_tools
+from scm_harbourmaster_mcp.tools.ssr import _validate_target, register_ssr_tools
 
 # ---------------------------------------------------------------------------
 # Canned SDK response data
@@ -115,11 +115,11 @@ def _get_client_fn(mock_client: Any, monkeypatch: Any) -> Any:
 
     # Patch config loading
     monkeypatch.setattr(
-        "scm_mcp_mssp.tools.ssr._get_ssr_config",
+        "scm_harbourmaster_mcp.tools.ssr._get_ssr_config",
         lambda _tid: mock_client._ssr_objects,
     )
     monkeypatch.setattr(
-        "scm_mcp_mssp.tools.ssr._resolve_default_folder",
+        "scm_harbourmaster_mcp.tools.ssr._resolve_default_folder",
         lambda _tid: mock_client._default_folder,
     )
     return get_client
@@ -211,7 +211,7 @@ def test_missing_ssr_config_errors() -> None:
         return client
 
     # Patch load_all_tenant_configs to return empty so _get_ssr_config returns {}
-    import scm_mcp_mssp.tools.ssr as ssr_mod
+    import scm_harbourmaster_mcp.tools.ssr as ssr_mod
 
     original = ssr_mod.load_all_tenant_configs
     ssr_mod.load_all_tenant_configs = lambda: {}  # type: ignore[assignment]
@@ -482,13 +482,15 @@ def test_unmatched_tenant_id_gets_no_other_tenants_ssr_config() -> None:
     tenant's allowlist (cross-tenant bleed)."""
     from unittest.mock import patch
 
-    from scm_mcp_mssp.tools.ssr import _get_ssr_config, _resolve_default_folder
+    from scm_harbourmaster_mcp.tools.ssr import _get_ssr_config, _resolve_default_folder
 
     fake_tc = MagicMock()
     fake_tc.tenant_id = "111"
     fake_tc.ssr_objects = {"url_allow_list": "Other-Tenant-List"}
     fake_tc.default_folder = "Other-Folder"
-    with patch("scm_mcp_mssp.tools.ssr.load_all_tenant_configs", return_value={"other": fake_tc}):
+    with patch(
+        "scm_harbourmaster_mcp.tools.ssr.load_all_tenant_configs", return_value={"other": fake_tc}
+    ):
         assert _get_ssr_config("999") == {}
         assert _resolve_default_folder("999") == ""
         # empty tenant_id keeps the single-tenant fallback

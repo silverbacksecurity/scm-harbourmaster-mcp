@@ -26,7 +26,7 @@ from pathlib import Path
 
 import pytest
 
-TOOLS_DIR = Path(__file__).parent.parent.parent / "src/scm_mcp_mssp/tools"
+TOOLS_DIR = Path(__file__).parent.parent.parent / "src/scm_harbourmaster_mcp/tools"
 
 # Parameters implying the tool serves more than one tenant, or can skip the
 # API entirely — both mean the client must stay lazily/conditionally resolved.

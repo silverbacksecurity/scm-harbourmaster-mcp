@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.scm_mcp_mssp.utils import validation
+from src.scm_harbourmaster_mcp.utils import validation
 
 # ---------------------------------------------------------------------------
 # Fixtures

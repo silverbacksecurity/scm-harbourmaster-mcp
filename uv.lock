@@ -1487,7 +1487,7 @@ wheels = [
 ]
 
 [[package]]
-name = "scm-mcp-mssp"
+name = "scm-harbourmaster-mcp"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },

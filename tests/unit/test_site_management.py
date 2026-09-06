@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 from mcp.server.fastmcp import FastMCP
 
-from src.scm_mcp_mssp.tools.site_management import register_site_management_tools
+from src.scm_harbourmaster_mcp.tools.site_management import register_site_management_tools
 
 # ---------------------------------------------------------------------------
 # Fake helpers
@@ -75,7 +75,7 @@ def tools() -> dict:
 
 def _patch_session(monkeypatch, session: FakeSession) -> None:
     monkeypatch.setattr(
-        "src.scm_mcp_mssp.tools.site_management._bearer_session_for",
+        "src.scm_harbourmaster_mcp.tools.site_management._bearer_session_for",
         lambda client: session,
     )
 

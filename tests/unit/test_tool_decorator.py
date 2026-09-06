@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 from mcp.server.fastmcp import FastMCP
 
-from scm_mcp_mssp.utils.tool_decorator import scm_tool
+from scm_harbourmaster_mcp.utils.tool_decorator import scm_tool
 
 
 def _register(mcp: FastMCP, get_client: Any) -> None:

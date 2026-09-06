@@ -13,11 +13,11 @@ import time
 
 from mcp.server.fastmcp import FastMCP
 
-from scm_mcp_mssp.planner import PlanStore
-from scm_mcp_mssp.planner.engine import PlanDraft, RevisionDraft, StepDraft
-from scm_mcp_mssp.tools import planner_tools
-from scm_mcp_mssp.tools.audit import register_audit_tools
-from scm_mcp_mssp.tools.planner_tools import register_planner_tools
+from scm_harbourmaster_mcp.planner import PlanStore
+from scm_harbourmaster_mcp.planner.engine import PlanDraft, RevisionDraft, StepDraft
+from scm_harbourmaster_mcp.tools import planner_tools
+from scm_harbourmaster_mcp.tools.audit import register_audit_tools
+from scm_harbourmaster_mcp.tools.planner_tools import register_planner_tools
 
 
 class FakeEngine:

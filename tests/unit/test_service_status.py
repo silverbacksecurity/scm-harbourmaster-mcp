@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 from mcp.server.fastmcp import FastMCP
 
-import scm_mcp_mssp.tools.service_status as ss_mod
+import scm_harbourmaster_mcp.tools.service_status as ss_mod
 
 
 def _iso(dt: datetime) -> str:
@@ -94,7 +94,7 @@ def tool(monkeypatch: pytest.MonkeyPatch) -> Any:
     from types import SimpleNamespace
 
     monkeypatch.setattr(
-        "scm_mcp_mssp.config.settings.load_all_tenant_configs",
+        "scm_harbourmaster_mcp.config.settings.load_all_tenant_configs",
         lambda: {
             "t-eu": SimpleNamespace(insights_region="eu"),
             "t-au": SimpleNamespace(insights_region="au"),
@@ -179,7 +179,7 @@ def test_status_banner_swallows_fetch_errors(monkeypatch: pytest.MonkeyPatch) ->
 
 
 def test_cli_status_light_degraded_and_cached(monkeypatch: pytest.MonkeyPatch) -> None:
-    import scm_mcp_mssp.cli as cli
+    import scm_harbourmaster_mcp.cli as cli
 
     calls = {"n": 0}
 
@@ -198,7 +198,7 @@ def test_cli_status_light_degraded_and_cached(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_cli_status_light_unreachable_grey(monkeypatch: pytest.MonkeyPatch) -> None:
-    import scm_mcp_mssp.cli as cli
+    import scm_harbourmaster_mcp.cli as cli
 
     def boom(path: str, timeout: Any = None) -> Any:
         raise OSError("down")

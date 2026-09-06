@@ -98,7 +98,11 @@ def _fmt_ts(ts: str | None) -> str:
         return ts[:16] if ts else "—"
 
 
-_SAAS_POSTURE_FORMAT = "scm-mcp-mssp/saas-posture@1"
+_SAAS_POSTURE_FORMAT = "scm-harbourmaster-mcp/saas-posture@1"
+# Pre-rebrand marker. Still accepted on load so snapshots exported before the
+# scm-mcp-mssp -> scm-harbourmaster-mcp rename stay readable.
+_SAAS_POSTURE_FORMAT_LEGACY = "scm-mcp-mssp/saas-posture@1"
+_SAAS_POSTURE_ACCEPTED = (_SAAS_POSTURE_FORMAT, _SAAS_POSTURE_FORMAT_LEGACY)
 
 
 def _render_saas_posture(data: dict[str, Any], source: str, include_catalog: bool) -> str:
@@ -562,7 +566,7 @@ def register_posture_tools(mcp: FastMCP, get_client: Any) -> None:
         try:
             if load_from:
                 data = json.loads(Path(load_from).read_text())
-                if data.get("format") != _SAAS_POSTURE_FORMAT:
+                if data.get("format") not in _SAAS_POSTURE_ACCEPTED:
                     return (
                         f"Error: {load_from} is not a saas-posture export "
                         f"(expected format marker {_SAAS_POSTURE_FORMAT!r})"

@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from scm_mcp_mssp.audit.asbuilt_report import _NA, _nested
-from scm_mcp_mssp.audit.asbuilt_report import AsBuiltReportBuilder as HLDReportBuilder
-from scm_mcp_mssp.audit.models import AuditSnapshot
+from scm_harbourmaster_mcp.audit.asbuilt_report import _NA, _nested
+from scm_harbourmaster_mcp.audit.asbuilt_report import AsBuiltReportBuilder as HLDReportBuilder
+from scm_harbourmaster_mcp.audit.models import AuditSnapshot
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 

@@ -9,13 +9,13 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from scm_mcp_mssp.audit.asbuilt_verify import diff_snapshots
-from scm_mcp_mssp.audit.incident_rca import (
+from scm_harbourmaster_mcp.audit.asbuilt_verify import diff_snapshots
+from scm_harbourmaster_mcp.audit.incident_rca import (
     collect_candidates,
     parse_any_ts,
     render_rca_report,
 )
-from scm_mcp_mssp.audit.models import AuditSnapshot
+from scm_harbourmaster_mcp.audit.models import AuditSnapshot
 
 INCIDENT = datetime(2026, 7, 15, 12, 0, tzinfo=UTC)
 

@@ -11,8 +11,8 @@ from docx import Document
 from docx.shared import Inches, Pt
 from dynaconf import Dynaconf
 
-from scm_mcp_mssp.audit.asbuilt_report import AsBuiltReportBuilder
-from scm_mcp_mssp.audit.extractor import (
+from scm_harbourmaster_mcp.audit.asbuilt_report import AsBuiltReportBuilder
+from scm_harbourmaster_mcp.audit.extractor import (
     extract_adem,
     extract_airs,
     extract_allocated_ips,
@@ -36,9 +36,9 @@ from scm_mcp_mssp.audit.extractor import (
     extract_traffic_steering,
     extract_ztna_connectors,
 )
-from scm_mcp_mssp.auth.oauth import get_scm_client
-from scm_mcp_mssp.auth.sdwan import get_sdwan_client
-from scm_mcp_mssp.config.settings import TenantConfig
+from scm_harbourmaster_mcp.auth.oauth import get_scm_client
+from scm_harbourmaster_mcp.auth.sdwan import get_sdwan_client
+from scm_harbourmaster_mcp.config.settings import TenantConfig
 
 os.environ.setdefault("SCM_MCP_MSSP_MODE", "true")
 

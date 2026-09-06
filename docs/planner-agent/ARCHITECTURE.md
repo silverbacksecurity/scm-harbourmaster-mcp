@@ -1,7 +1,7 @@
 # Planner Agent — Architecture
 
 > Status: **Phases 1–2 implemented** (2026-07-15). Phase 1: tool manifest +
-> safety rails (`scm_mcp_mssp.planner.manifest`, see
+> safety rails (`scm_harbourmaster_mcp.planner.manifest`, see
 > [TOOL_MANIFEST.md](TOOL_MANIFEST.md)). Phase 2: the loop core —
 > `planner/schema.py` (the persisted Plan below, as Pydantic models),
 > `planner/store.py` (atomic JSON per run under `plans/` + JSONL audit
@@ -17,7 +17,7 @@
 > [ROADMAP.md](../../ROADMAP.md) for remaining phases.
 
 The Planner Agent is an agentic orchestration layer above the existing
-125-tool scm-mcp-mssp MCP server. It follows the PANW "NetSec Agents on
+125-tool scm-harbourmaster-mcp MCP server. It follows the PANW "NetSec Agents on
 SCM" taxonomy, extended with an MSSP cross-tenant layer PANW's native
 single-tenant model does not cover. One Planner loop; three trigger
 surfaces (scheduled/cron, conversational NLQ, IR/webhook) as entry points

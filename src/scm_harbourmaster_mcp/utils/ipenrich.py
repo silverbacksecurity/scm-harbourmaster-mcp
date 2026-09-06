@@ -52,7 +52,7 @@ _disk_loaded = False
 
 def _cache_path() -> Path:
     base = os.environ.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")
-    return Path(base) / "scm-mcp-mssp" / "ipenrich.json"
+    return Path(base) / "scm-harbourmaster-mcp" / "ipenrich.json"
 
 
 def _load_disk_cache() -> None:

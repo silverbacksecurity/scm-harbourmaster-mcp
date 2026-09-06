@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 from mcp.server.fastmcp import FastMCP
 
-import scm_mcp_mssp.tools.mt_monitor as mtm
+import scm_harbourmaster_mcp.tools.mt_monitor as mtm
 
 
 class FakeResp:
@@ -34,7 +34,7 @@ def _tool(monkeypatch: pytest.MonkeyPatch, by_region: dict[str, list]) -> Any:
     from types import SimpleNamespace
 
     monkeypatch.setattr(
-        "scm_mcp_mssp.config.settings.load_all_tenant_configs",
+        "scm_harbourmaster_mcp.config.settings.load_all_tenant_configs",
         lambda: {"t1": SimpleNamespace(insights_region="eu")},
     )
     mcp = FastMCP("test")

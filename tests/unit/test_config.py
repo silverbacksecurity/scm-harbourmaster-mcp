@@ -6,7 +6,7 @@ import os
 
 import pytest
 
-from scm_mcp_mssp.config.settings import Settings, TenantConfig
+from scm_harbourmaster_mcp.config.settings import Settings, TenantConfig
 
 
 class TestTenantConfig:

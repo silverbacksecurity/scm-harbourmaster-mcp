@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from scm_mcp_mssp import history
+from scm_harbourmaster_mcp import history
 
 
 @pytest.fixture(autouse=True)

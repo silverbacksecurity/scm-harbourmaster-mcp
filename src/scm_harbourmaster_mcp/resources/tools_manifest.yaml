@@ -2,7 +2,7 @@
 #
 # Safety rail: access: write tools ALWAYS require explicit human approval
 # before execution, regardless of trigger type. The loader
-# (scm_mcp_mssp.planner.manifest) exposes no way to disable this in v1.
+# (scm_harbourmaster_mcp.planner.manifest) exposes no way to disable this in v1.
 #
 # Regenerate/verify coverage: tests/unit/test_planner_manifest.py fails
 # whenever a registered tool lacks an entry here (or vice versa).

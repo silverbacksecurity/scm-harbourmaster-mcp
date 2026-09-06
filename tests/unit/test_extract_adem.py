@@ -16,8 +16,8 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import MagicMock
 
-from scm_mcp_mssp.audit.extractor import extract_adem
-from scm_mcp_mssp.audit.models import AuditSnapshot
+from scm_harbourmaster_mcp.audit.extractor import extract_adem
+from scm_harbourmaster_mcp.audit.models import AuditSnapshot
 
 
 class FakeResponse:

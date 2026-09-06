@@ -7,12 +7,12 @@ live extraction failed, and the report verdicts — are pinned down here.
 
 from __future__ import annotations
 
-from scm_mcp_mssp.audit.asbuilt_verify import (
+from scm_harbourmaster_mcp.audit.asbuilt_verify import (
     SectionDiff,
     diff_snapshots,
     render_verification_report,
 )
-from scm_mcp_mssp.audit.models import AuditSnapshot
+from scm_harbourmaster_mcp.audit.models import AuditSnapshot
 
 
 def _snap(**fields: object) -> AuditSnapshot:

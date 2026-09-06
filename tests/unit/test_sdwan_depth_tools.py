@@ -14,7 +14,7 @@ from typing import Any
 import pytest
 from mcp.server.fastmcp import FastMCP
 
-import scm_mcp_mssp.tools.sdwan as sdwan_tools
+import scm_harbourmaster_mcp.tools.sdwan as sdwan_tools
 
 
 class FakeResp:
@@ -363,7 +363,7 @@ def test_sdwan_resolves_settings_key(
     # get_tenant_meta misses, but the settings key resolves via configs
     monkeypatch.setattr(sdwan_tools, "get_tenant_meta", lambda tid: None)
     monkeypatch.setattr(
-        "scm_mcp_mssp.config.settings.load_all_tenant_configs",
+        "scm_harbourmaster_mcp.config.settings.load_all_tenant_configs",
         lambda: {"lab-key": SimpleNamespace(tenant_id="999")},
     )
     data = json.loads(tools["sdwan_list_sites"](tenant_id="lab-key"))

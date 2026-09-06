@@ -1,9 +1,9 @@
 """
-Hot-reload tool for the scm-mcp-mssp server.
+Hot-reload tool for the scm-harbourmaster-mcp server.
 
-Reloads all scm_mcp_mssp submodules in-process without restarting the MCP
+Reloads all scm_harbourmaster_mcp submodules in-process without restarting the MCP
 server. After reloading it (1) patches stale `from X import Y` bindings in all
-other loaded scm_mcp_mssp modules, and (2) re-runs tool registration so tool
+other loaded scm_harbourmaster_mcp modules, and (2) re-runs tool registration so tool
 closures themselves are refreshed.
 
 Why both steps are needed
@@ -34,64 +34,64 @@ logger = get_logger(__name__)
 # reloaded its `from X import Y` statements pull in already-fresh modules.
 _RELOAD_ORDER = [
     # Utilities (no intra-package deps)
-    "scm_mcp_mssp.utils.logging",
-    "scm_mcp_mssp.utils.errors",
-    "scm_mcp_mssp.utils.ipenrich",
+    "scm_harbourmaster_mcp.utils.logging",
+    "scm_harbourmaster_mcp.utils.errors",
+    "scm_harbourmaster_mcp.utils.ipenrich",
     # NOTE: config.settings is intentionally excluded.  Reloading it creates a
     # new TenantConfig class object; existing cached instances (auth.oauth._tenant_configs)
     # are then instances of the OLD class and fail isinstance() checks in auth modules.
     # Auth modules
-    "scm_mcp_mssp.auth.sdwan",
+    "scm_harbourmaster_mcp.auth.sdwan",
     # Audit — leaves first
-    "scm_mcp_mssp.audit.models",
-    "scm_mcp_mssp.audit.pan_references",
-    "scm_mcp_mssp.audit.sdwan_topo",
-    "scm_mcp_mssp.audit.insights_extractor",
-    "scm_mcp_mssp.audit.asbuilt_report",
-    "scm_mcp_mssp.audit.bpa_checks",
-    "scm_mcp_mssp.audit.ncsc_controls",
-    "scm_mcp_mssp.audit.report",
-    "scm_mcp_mssp.audit.extractor",
-    "scm_mcp_mssp.audit.cloner",
+    "scm_harbourmaster_mcp.audit.models",
+    "scm_harbourmaster_mcp.audit.pan_references",
+    "scm_harbourmaster_mcp.audit.sdwan_topo",
+    "scm_harbourmaster_mcp.audit.insights_extractor",
+    "scm_harbourmaster_mcp.audit.asbuilt_report",
+    "scm_harbourmaster_mcp.audit.bpa_checks",
+    "scm_harbourmaster_mcp.audit.ncsc_controls",
+    "scm_harbourmaster_mcp.audit.report",
+    "scm_harbourmaster_mcp.audit.extractor",
+    "scm_harbourmaster_mcp.audit.cloner",
     # Tools — after all audit modules are fresh
-    "scm_mcp_mssp.tools.objects",
-    "scm_mcp_mssp.tools.security",
-    "scm_mcp_mssp.tools.network",
-    "scm_mcp_mssp.tools.deployment",
-    "scm_mcp_mssp.tools.dlp",
-    "scm_mcp_mssp.tools.dns_security",
-    "scm_mcp_mssp.tools.email_dlp",
-    "scm_mcp_mssp.tools.posture",
-    "scm_mcp_mssp.tools.compliance",
-    "scm_mcp_mssp.tools.config_cleanup",
-    "scm_mcp_mssp.tools.policy_optimizer",
-    "scm_mcp_mssp.tools.config_orch",
-    "scm_mcp_mssp.tools.site_management",
-    "scm_mcp_mssp.tools.cdl_logforwarding",
-    "scm_mcp_mssp.tools.insights",
-    "scm_mcp_mssp.tools.ssr",
-    "scm_mcp_mssp.tools.adnsr",
-    "scm_mcp_mssp.tools.aiops",
-    "scm_mcp_mssp.tools.audit",
-    "scm_mcp_mssp.tools.ops",
-    "scm_mcp_mssp.tools.mssp",
-    "scm_mcp_mssp.tools.mt_interconnect",
-    "scm_mcp_mssp.tools.pab",
-    "scm_mcp_mssp.tools.mt_monitor",
-    "scm_mcp_mssp.tools.pab_msp",
-    "scm_mcp_mssp.tools.service_status",
-    "scm_mcp_mssp.tools.sdwan",
-    "scm_mcp_mssp.tools.setup",
-    "scm_mcp_mssp.tools.ncsc_baseline",
-    "scm_mcp_mssp.tools.ai_advisor",
-    "scm_mcp_mssp.tools.msr",
+    "scm_harbourmaster_mcp.tools.objects",
+    "scm_harbourmaster_mcp.tools.security",
+    "scm_harbourmaster_mcp.tools.network",
+    "scm_harbourmaster_mcp.tools.deployment",
+    "scm_harbourmaster_mcp.tools.dlp",
+    "scm_harbourmaster_mcp.tools.dns_security",
+    "scm_harbourmaster_mcp.tools.email_dlp",
+    "scm_harbourmaster_mcp.tools.posture",
+    "scm_harbourmaster_mcp.tools.compliance",
+    "scm_harbourmaster_mcp.tools.config_cleanup",
+    "scm_harbourmaster_mcp.tools.policy_optimizer",
+    "scm_harbourmaster_mcp.tools.config_orch",
+    "scm_harbourmaster_mcp.tools.site_management",
+    "scm_harbourmaster_mcp.tools.cdl_logforwarding",
+    "scm_harbourmaster_mcp.tools.insights",
+    "scm_harbourmaster_mcp.tools.ssr",
+    "scm_harbourmaster_mcp.tools.adnsr",
+    "scm_harbourmaster_mcp.tools.aiops",
+    "scm_harbourmaster_mcp.tools.audit",
+    "scm_harbourmaster_mcp.tools.ops",
+    "scm_harbourmaster_mcp.tools.mssp",
+    "scm_harbourmaster_mcp.tools.mt_interconnect",
+    "scm_harbourmaster_mcp.tools.pab",
+    "scm_harbourmaster_mcp.tools.mt_monitor",
+    "scm_harbourmaster_mcp.tools.pab_msp",
+    "scm_harbourmaster_mcp.tools.service_status",
+    "scm_harbourmaster_mcp.tools.sdwan",
+    "scm_harbourmaster_mcp.tools.setup",
+    "scm_harbourmaster_mcp.tools.ncsc_baseline",
+    "scm_harbourmaster_mcp.tools.ai_advisor",
+    "scm_harbourmaster_mcp.tools.msr",
 ]
 
 
-def _patch_cross_module_refs(pkg: str = "scm_mcp_mssp") -> list[str]:
+def _patch_cross_module_refs(pkg: str = "scm_harbourmaster_mcp") -> list[str]:
     """
-    After reloading, walk every loaded scm_mcp_mssp module and update any
-    attribute whose ``__module__`` points to another scm_mcp_mssp module.
+    After reloading, walk every loaded scm_harbourmaster_mcp module and update any
+    attribute whose ``__module__`` points to another scm_harbourmaster_mcp module.
     This refreshes stale `from X import Y` bindings so existing closures
     see the new implementations.
 
@@ -144,9 +144,9 @@ def register_reload_tool(mcp: FastMCP, reregister: Callable[[], None] | None = N
 
     @mcp.tool()
     def scm_reload(modules: list[str] | None = None) -> str:
-        """Hot-reload scm_mcp_mssp source modules without restarting the MCP server.
+        """Hot-reload scm_harbourmaster_mcp source modules without restarting the MCP server.
 
-        Reloads all scm_mcp_mssp submodules in dependency order, patches
+        Reloads all scm_harbourmaster_mcp submodules in dependency order, patches
         cross-module references, then re-registers all tools so edits to a
         tool's own body take effect immediately.
 

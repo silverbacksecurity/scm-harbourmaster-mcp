@@ -235,7 +235,7 @@ def build_nist_snippet_templates(
         "name": TAG_NAME,
         "snippet": snippet_name,
         "color": "Blue",
-        "comments": "Managed by scm-mcp-mssp NIST baseline",
+        "comments": "Managed by scm-harbourmaster-mcp NIST baseline",
     }
 
     return NistSnippetTemplateSet(

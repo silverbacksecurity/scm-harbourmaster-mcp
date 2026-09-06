@@ -1,4 +1,4 @@
-# SCM MCP MSSP — Tool Reference
+# SCM Harbourmaster — Tool Reference
 
 > Auto-generated from source docstrings. Do not edit manually — run `uv run python scripts/gen_docs.py` to regenerate.
 
@@ -1505,7 +1505,7 @@ Args:
 | `snippet_name` | `str` | `'NCSC-Compliance'` |
 | `dry_run` | `bool` | `True` |
 | `syslog_profile` | `str` | `''` |
-| `description` | `str` | `'NCSC CAF v4.0 / CE v3.2 compliance baseline — managed by scm-mcp-mssp'` |
+| `description` | `str` | `'NCSC CAF v4.0 / CE v3.2 compliance baseline — managed by scm-harbourmaster-mcp'` |
 
 ### `scm_create_nist_snippet`
 
@@ -1544,7 +1544,7 @@ Args:
 | `snippet_name` | `str` | `'NIST-Compliance'` |
 | `dry_run` | `bool` | `True` |
 | `syslog_profile` | `str` | `''` |
-| `description` | `str` | `'NIST CSF v2.0 / SP 800-53 Rev 5 compliance baseline — managed by scm-mcp-mssp'` |
+| `description` | `str` | `'NIST CSF v2.0 / SP 800-53 Rev 5 compliance baseline — managed by scm-harbourmaster-mcp'` |
 
 ### `scm_attach_ncsc_profiles`
 
@@ -3835,10 +3835,10 @@ _Hot-reload and restart of the running MCP server._
 
 ### `scm_reload`
 
-Hot-reload scm_mcp_mssp source modules without restarting the MCP server.
+Hot-reload scm_harbourmaster_mcp source modules without restarting the MCP server.
 
 ```
-Reloads all scm_mcp_mssp submodules in dependency order, patches
+Reloads all scm_harbourmaster_mcp submodules in dependency order, patches
 cross-module references, then re-registers all tools so edits to a
 tool's own body take effect immediately.
 

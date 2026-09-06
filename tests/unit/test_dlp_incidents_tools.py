@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 import pytest
 from mcp.server.fastmcp import FastMCP
 
-from src.scm_mcp_mssp.tools.dlp import register_dlp_tools
+from src.scm_harbourmaster_mcp.tools.dlp import register_dlp_tools
 
 
 class FakeResp:

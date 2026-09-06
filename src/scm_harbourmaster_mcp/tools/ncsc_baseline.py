@@ -150,7 +150,7 @@ def register_ncsc_tools(mcp: FastMCP, get_client: Callable[..., Any]) -> None:
         snippet_name: str = "NCSC-Compliance",
         dry_run: bool = True,
         syslog_profile: str = "",
-        description: str = "NCSC CAF v4.0 / CE v3.2 compliance baseline — managed by scm-mcp-mssp",
+        description: str = "NCSC CAF v4.0 / CE v3.2 compliance baseline — managed by scm-harbourmaster-mcp",
     ) -> str:
         """
         Create an SCM snippet containing NCSC-compliant security profiles.
@@ -280,7 +280,7 @@ def register_ncsc_tools(mcp: FastMCP, get_client: Callable[..., Any]) -> None:
         snippet_name: str = "NIST-Compliance",
         dry_run: bool = True,
         syslog_profile: str = "",
-        description: str = "NIST CSF v2.0 / SP 800-53 Rev 5 compliance baseline — managed by scm-mcp-mssp",
+        description: str = "NIST CSF v2.0 / SP 800-53 Rev 5 compliance baseline — managed by scm-harbourmaster-mcp",
     ) -> str:
         """
         Create an SCM snippet containing NIST-compliant security profiles.

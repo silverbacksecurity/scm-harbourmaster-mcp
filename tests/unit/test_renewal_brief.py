@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from scm_mcp_mssp.tools.ops import (
+from scm_harbourmaster_mcp.tools.ops import (
     _consumption_signal,
     _licence_rows,
     _renewal_talking_points,

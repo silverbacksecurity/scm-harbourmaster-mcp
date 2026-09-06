@@ -114,7 +114,7 @@ class Manifest:
 @lru_cache(maxsize=1)
 def load_manifest() -> Manifest:
     """Load and validate the bundled manifest (cached for the process)."""
-    ref = importlib_resources.files("scm_mcp_mssp.resources") / "tools_manifest.yaml"
+    ref = importlib_resources.files("scm_harbourmaster_mcp.resources") / "tools_manifest.yaml"
     raw = yaml.safe_load(ref.read_text())
     if not isinstance(raw, dict) or not raw:
         raise ManifestError("tools_manifest.yaml is empty or not a mapping")

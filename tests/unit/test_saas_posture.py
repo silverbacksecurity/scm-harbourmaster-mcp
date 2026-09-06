@@ -12,8 +12,8 @@ from typing import Any
 import pytest
 from mcp.server.fastmcp import FastMCP
 
-import scm_mcp_mssp.audit.extractor as extractor_mod
-from scm_mcp_mssp.tools.posture import register_posture_tools
+import scm_harbourmaster_mcp.audit.extractor as extractor_mod
+from scm_harbourmaster_mcp.tools.posture import register_posture_tools
 
 APPS = [
     {
@@ -109,7 +109,7 @@ def test_export_and_import_round_trip(monkeypatch: pytest.MonkeyPatch, tmp_path:
     out = _tool()(tenant_id="t1", save_to=str(export))
     assert "Snapshot exported" in out
     data = json.loads(export.read_text())
-    assert data["format"] == "scm-mcp-mssp/saas-posture@1"
+    assert data["format"] == "scm-harbourmaster-mcp/saas-posture@1"
     assert data["tenant_id"] == "t1"
     assert len(data["apps"]) == 2
     assert calls == ["sspm", "identity"]

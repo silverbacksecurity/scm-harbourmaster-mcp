@@ -103,6 +103,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   — `focus` entries are now `(rulebase, name)` tuples. 32 new tests
   (18 → 41 in `test_commit_preview.py`, 9 new in `test_config_cleanup_tools.py`)
 
+### Changed
+- **Renamed the Python package and distribution** — `scm-mcp-mssp` is now
+  **`scm-harbourmaster-mcp`**, and the import package `scm_mcp_mssp` is now
+  `scm_harbourmaster_mcp`. A harbourmaster directs many independent vessels
+  through one port without owning any of them, which is the MSSP shape this
+  server has always had.
+  - **Breaking for anything that imports the package directly**: update
+    `import scm_mcp_mssp...` to `import scm_harbourmaster_mcp...`. Existing
+    installs must be reinstalled, since the distribution name changed.
+  - **Not breaking for MCP clients**: the console scripts keep their names
+    (`scm-mcp`, `scm-mcp-http`, `scm-mcp-cli`, `scm-planner-nightly`,
+    `scm-planner-estate`), so existing Claude Desktop / Cursor configs that
+    invoke `scm-mcp` continue to work unchanged.
+  - The `SCM_MCP_MSSP_MODE` environment variable is **unchanged**, so existing
+    `.env` files and deployed units keep working.
+  - SaaS-posture exports are now tagged `scm-harbourmaster-mcp/saas-posture@1`;
+    the previous `scm-mcp-mssp/saas-posture@1` marker is still accepted on
+    load, so older exports remain readable.
+  - The IP-enrichment cache moved to `~/.cache/scm-harbourmaster-mcp/`. The old
+    cache is not migrated and is simply re-populated on next use.
+  - The GitHub repository, Docker image name, and deployment paths under
+    `/opt` and `/etc` are unchanged by this release.
+
 ## [0.13.0] - 2026-07-31
 
 ### Added

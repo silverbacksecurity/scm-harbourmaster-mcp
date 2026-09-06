@@ -15,7 +15,7 @@ import json
 from typing import Any
 from unittest.mock import MagicMock
 
-from scm_mcp_mssp.tools.compliance import register_compliance_tools
+from scm_harbourmaster_mcp.tools.compliance import register_compliance_tools
 
 # ---------------------------------------------------------------------------
 # Canned response data (shapes from the API spec examples)

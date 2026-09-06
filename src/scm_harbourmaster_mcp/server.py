@@ -1,5 +1,5 @@
 """
-SCM MCP MSSP server entry point.
+SCM Harbourmaster server entry point.
 
 Exposes Palo Alto Networks Strata Cloud Manager operations as MCP tools
 and resources, with MSSP multi-tenant support via folder-based isolation.
@@ -63,7 +63,7 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-mcp = FastMCP(name="scm-mcp-mssp")
+mcp = FastMCP(name="scm-harbourmaster-mcp")
 
 
 def _build_client_resolver(settings: object) -> Callable[..., Any]:
@@ -239,7 +239,7 @@ def create_server() -> FastMCP:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="SCM MCP MSSP server")
+    parser = argparse.ArgumentParser(description="SCM Harbourmaster server")
     parser.add_argument(
         "--transport",
         choices=["stdio", "sse"],

@@ -1,5 +1,5 @@
 """
-CLI sub-menus and leaf operations for scm-mcp-mssp.
+CLI sub-menus and leaf operations for scm-harbourmaster-mcp.
 Merged into cli.py's namespace via exec in cli.py.
 """
 

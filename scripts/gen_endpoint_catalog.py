@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Regenerate src/scm_mcp_mssp/resources/endpoint_catalog.json from pan.dev.
+"""Regenerate src/scm_harbourmaster_mcp/resources/endpoint_catalog.json from pan.dev.
 
 The catalog is a compact index of every endpoint in the pan.dev OpenAPI specs
 (MIT-licensed) for the API trees this server talks to: sase, scm, access.
@@ -51,7 +51,11 @@ TREES = (
     "openapi-specs/email-dlp",
 )
 OUT_DEFAULT = (
-    Path(__file__).parent.parent / "src" / "scm_mcp_mssp" / "resources" / "endpoint_catalog.json"
+    Path(__file__).parent.parent
+    / "src"
+    / "scm_harbourmaster_mcp"
+    / "resources"
+    / "endpoint_catalog.json"
 )
 
 

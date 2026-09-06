@@ -30,7 +30,7 @@ paste error or log output here
 
 | Field | Value |
 |-------|-------|
-| scm-mcp-mssp version | <!-- `uv run python -c "from importlib.metadata import version; print(version('scm-mcp-mssp'))"` --> |
+| scm-harbourmaster-mcp version | <!-- `uv run python -c "from importlib.metadata import version; print(version('scm-harbourmaster-mcp'))"` --> |
 | pan-scm-sdk version | <!-- `uv run python -c "from importlib.metadata import version; print(version('pan-scm-sdk'))"` --> |
 | MCP client | <!-- Claude Desktop / Cursor / VS Code / Copilot Studio / other --> |
 | MCP client version | |

@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from scm_mcp_mssp.planner import PlanStore
-from scm_mcp_mssp.planner.nightly import (
+from scm_harbourmaster_mcp.planner import PlanStore
+from scm_harbourmaster_mcp.planner.nightly import (
     Finding,
     NightlyOpsRunner,
     TemplateEngine,

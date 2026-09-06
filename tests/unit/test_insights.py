@@ -14,7 +14,7 @@ from unittest.mock import MagicMock
 
 from mcp.server.fastmcp import FastMCP
 
-from scm_mcp_mssp.tools.insights import register_insights_tools
+from scm_harbourmaster_mcp.tools.insights import register_insights_tools
 
 
 class FakeResponse:
@@ -179,7 +179,7 @@ class TestDefaultTimeWindow:
         assert len(session.calls) == 1
 
     def test_extractor_shares_the_same_default_window(self) -> None:
-        from scm_mcp_mssp.tools.insights import DEFAULT_WINDOW_HOURS, default_time_window
+        from scm_harbourmaster_mcp.tools.insights import DEFAULT_WINDOW_HOURS, default_time_window
 
         window = default_time_window()
         rule = window["filter"]["rules"][0]

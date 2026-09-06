@@ -13,7 +13,7 @@ from typing import Any
 import pytest
 from mcp.server.fastmcp import FastMCP
 
-import scm_mcp_mssp.tools.pab as pab_mod
+import scm_harbourmaster_mcp.tools.pab as pab_mod
 
 USERS_P1 = {
     "pageInfo": {"hasNextPage": True, "cursor": "CUR2"},

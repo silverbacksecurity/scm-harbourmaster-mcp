@@ -245,7 +245,7 @@ def create_http_app() -> Starlette:
     sse = mcp.sse_app()
 
     async def health(_: Request) -> JSONResponse:
-        return JSONResponse({"status": "ok", "server": "scm-mcp-mssp"})
+        return JSONResponse({"status": "ok", "server": "scm-harbourmaster-mcp"})
 
     async def ir_webhook(request: Request) -> JSONResponse:
         """Planner Phase 3c: alert bridge → IR triage through the Planner loop.

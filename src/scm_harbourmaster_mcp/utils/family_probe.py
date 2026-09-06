@@ -6,7 +6,7 @@ code so we know whether the tenant is entitled, blocked by RBAC, or the API
 simply doesn't exist at that URL.
 
 Usage:
-    from scm_mcp_mssp.utils.family_probe import probe_family
+    from scm_harbourmaster_mcp.utils.family_probe import probe_family
     results = probe_family(base_url, client, paths=["/v1/some/endpoint"])
     # results = {"/v1/some/endpoint": 200, ...}
 """

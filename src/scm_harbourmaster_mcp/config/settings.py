@@ -112,7 +112,7 @@ class Settings(BaseSettings):
     )
 
     # ── Server ─────────────────────────────────────────────────────────────
-    server_name: str = Field("scm-mcp-mssp", description="MCP server name")
+    server_name: str = Field("scm-harbourmaster-mcp", description="MCP server name")
     log_level: str = Field("INFO", description="Logging level")
     log_json: bool = Field(True, description="Emit structured JSON logs")
 

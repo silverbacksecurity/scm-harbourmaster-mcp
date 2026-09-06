@@ -244,7 +244,7 @@ def build_templates(folder: str, syslog_profile: str | None = None) -> TemplateS
         "name": TAG_NAME,
         "folder": folder,
         "color": "Red",
-        "comments": "Managed by scm-mcp-mssp NCSC baseline",
+        "comments": "Managed by scm-harbourmaster-mcp NCSC baseline",
     }
 
     return TemplateSet(

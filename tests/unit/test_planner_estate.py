@@ -12,8 +12,8 @@ import threading
 import time
 from datetime import UTC, datetime, timedelta
 
-from scm_mcp_mssp.planner import PlanStore, load_manifest
-from scm_mcp_mssp.planner.estate import (
+from scm_harbourmaster_mcp.planner import PlanStore, load_manifest
+from scm_harbourmaster_mcp.planner.estate import (
     EstateRunner,
     TenantFacts,
     TenantSpec,

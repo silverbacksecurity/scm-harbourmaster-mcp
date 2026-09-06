@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from scm_mcp_mssp.planner import (
+from scm_harbourmaster_mcp.planner import (
     PlannerLoop,
     PlanStatus,
     PlanStore,
@@ -20,8 +20,8 @@ from scm_mcp_mssp.planner import (
     StepStatus,
     load_manifest,
 )
-from scm_mcp_mssp.planner.engine import PlanDraft, RevisionDraft, StepDraft
-from scm_mcp_mssp.planner.schema import Plan, PlanStep, TriggerType
+from scm_harbourmaster_mcp.planner.engine import PlanDraft, RevisionDraft, StepDraft
+from scm_harbourmaster_mcp.planner.schema import Plan, PlanStep, TriggerType
 
 
 def _draft(tool: str, domain: str = "operational_health", params: dict | None = None) -> StepDraft:

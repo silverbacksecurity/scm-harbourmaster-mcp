@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import pytest
 
-from scm_mcp_mssp.audit.models import Finding, Severity, Status
-from scm_mcp_mssp.audit.tiers import (
+from scm_harbourmaster_mcp.audit.models import Finding, Severity, Status
+from scm_harbourmaster_mcp.audit.tiers import (
     TIER_ORDER,
     TIERS,
     get_tier,
     score_findings_against_tier,
     upgrade_gap,
 )
-from scm_mcp_mssp.config.settings import TenantConfig
+from scm_harbourmaster_mcp.config.settings import TenantConfig
 
 
 def _finding(check_id: str, severity: Severity, status: Status) -> Finding:

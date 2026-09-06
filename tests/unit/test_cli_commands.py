@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 from pydantic import SecretStr
 
-from scm_mcp_mssp import cli, cli_commands, cli_ops, history
-from scm_mcp_mssp.config.settings import TenantConfig
+from scm_harbourmaster_mcp import cli, cli_commands, cli_ops, history
+from scm_harbourmaster_mcp.config.settings import TenantConfig
 
 
 def _tenant(key: str, label: str) -> TenantConfig:

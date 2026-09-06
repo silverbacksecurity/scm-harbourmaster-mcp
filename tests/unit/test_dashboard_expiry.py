@@ -8,7 +8,7 @@ run to 2027-2028.
 
 from __future__ import annotations
 
-from scm_mcp_mssp.tools.ops import _nearest_licence_expiry
+from scm_harbourmaster_mcp.tools.ops import _nearest_licence_expiry
 
 
 def _bundle(*expirations: str) -> list[dict]:

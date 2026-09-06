@@ -20,7 +20,7 @@ from .history import log_action, read_history
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="scm-mcp-cli",
-        description="scm-mcp-mssp CLI. Omit all arguments to launch the interactive menu.",
+        description="scm-harbourmaster-mcp CLI. Omit all arguments to launch the interactive menu.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 

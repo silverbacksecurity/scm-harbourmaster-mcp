@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 from mcp.server.fastmcp import FastMCP
 
-from src.scm_mcp_mssp.tools.email_dlp import register_email_dlp_tools
+from src.scm_harbourmaster_mcp.tools.email_dlp import register_email_dlp_tools
 
 # ---------------------------------------------------------------------------
 # Fake helpers
@@ -93,7 +93,7 @@ class TestEmailDlpIncidents:
             }
         )
         monkeypatch.setattr(
-            "src.scm_mcp_mssp.tools.email_dlp._bearer_session",
+            "src.scm_harbourmaster_mcp.tools.email_dlp._bearer_session",
             lambda client: session,
         )
 
@@ -111,7 +111,7 @@ class TestEmailDlpIncidents:
             }
         )
         monkeypatch.setattr(
-            "src.scm_mcp_mssp.tools.email_dlp._bearer_session",
+            "src.scm_harbourmaster_mcp.tools.email_dlp._bearer_session",
             lambda client: session,
         )
 
@@ -129,7 +129,7 @@ class TestEmailDlpIncidents:
             }
         )
         monkeypatch.setattr(
-            "src.scm_mcp_mssp.tools.email_dlp._bearer_session",
+            "src.scm_harbourmaster_mcp.tools.email_dlp._bearer_session",
             lambda client: session,
         )
 
@@ -148,7 +148,7 @@ class TestEmailDlpIncidents:
             }
         )
         monkeypatch.setattr(
-            "src.scm_mcp_mssp.tools.email_dlp._bearer_session",
+            "src.scm_harbourmaster_mcp.tools.email_dlp._bearer_session",
             lambda client: session,
         )
 
@@ -167,7 +167,7 @@ class TestEmailDlpIncidents:
             }
         )
         monkeypatch.setattr(
-            "src.scm_mcp_mssp.tools.email_dlp._bearer_session",
+            "src.scm_harbourmaster_mcp.tools.email_dlp._bearer_session",
             lambda client: session,
         )
 
@@ -178,7 +178,7 @@ class TestEmailDlpIncidents:
 
     def test_auth_failure(self, tools, monkeypatch) -> None:
         monkeypatch.setattr(
-            "src.scm_mcp_mssp.tools.email_dlp._bearer_session",
+            "src.scm_harbourmaster_mcp.tools.email_dlp._bearer_session",
             lambda client: (_ for _ in ()).throw(ValueError("No tenant configured")),
         )
 
@@ -198,7 +198,7 @@ class TestEmailDlpIncidents:
                 return FakeResp(200, [])
 
         monkeypatch.setattr(
-            "src.scm_mcp_mssp.tools.email_dlp._bearer_session",
+            "src.scm_harbourmaster_mcp.tools.email_dlp._bearer_session",
             lambda client: CaptureSession(),
         )
 

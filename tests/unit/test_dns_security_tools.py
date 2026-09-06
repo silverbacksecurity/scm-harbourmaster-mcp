@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 from mcp.server.fastmcp import FastMCP
 
-from src.scm_mcp_mssp.tools.dns_security import register_dns_security_tools
+from src.scm_harbourmaster_mcp.tools.dns_security import register_dns_security_tools
 
 # ---------------------------------------------------------------------------
 # Fake helpers
@@ -68,7 +68,7 @@ class TestDnsSecurityLookup:
         session.headers = {}
         session.post = MagicMock(return_value=FakeResp(200, canned))
         monkeypatch.setattr(
-            "src.scm_mcp_mssp.tools.dns_security._bearer_session",
+            "src.scm_harbourmaster_mcp.tools.dns_security._bearer_session",
             lambda client: session,
         )
 
@@ -82,7 +82,7 @@ class TestDnsSecurityLookup:
         session.headers = {}
         session.post = MagicMock(return_value=FakeResp(403))
         monkeypatch.setattr(
-            "src.scm_mcp_mssp.tools.dns_security._bearer_session",
+            "src.scm_harbourmaster_mcp.tools.dns_security._bearer_session",
             lambda client: session,
         )
 
@@ -123,7 +123,7 @@ class TestDnsSecurityLookup:
         session.headers = {}
         session.post = MagicMock(return_value=FakeResp(200, canned))
         monkeypatch.setattr(
-            "src.scm_mcp_mssp.tools.dns_security._bearer_session",
+            "src.scm_harbourmaster_mcp.tools.dns_security._bearer_session",
             lambda client: session,
         )
 
@@ -146,7 +146,7 @@ class TestDnsSecurityLookup:
 
     def test_auth_failure(self, tools, monkeypatch) -> None:
         monkeypatch.setattr(
-            "src.scm_mcp_mssp.tools.dns_security._bearer_session",
+            "src.scm_harbourmaster_mcp.tools.dns_security._bearer_session",
             lambda client: (_ for _ in ()).throw(ValueError("No tenant configured")),
         )
 
