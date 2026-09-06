@@ -33,6 +33,19 @@ updates:
       - python
 
   # GitHub Actions
+  #
+  # Every `uses:` in .github/workflows is pinned to a full 40-character commit
+  # SHA, with the human-readable version in a trailing comment. Dependabot
+  # reads that comment, so it still raises version-bump PRs and rewrites both
+  # the SHA and the comment together — pinning does not freeze us.
+  #
+  # Tag pins are NOT sufficient and were not left in place deliberately. In the
+  # TeamPCP compromise of aquasecurity/trivy-action (19 Mar 2026, GHSA-69fq-
+  # xp46-6x23) the attacker force-pushed 76 of 77 version tags to malicious
+  # commits, so `@v0.34.2` silently became attacker-controlled. A commit SHA is
+  # the only ref that cannot be moved under us. Keep it that way: review the
+  # diff of a Dependabot actions PR before merging, because the whole point is
+  # that the new SHA is the thing being trusted.
   - package-ecosystem: github-actions
     directory: /
     schedule:
@@ -49,3 +62,4 @@ updates:
     labels:
       - dependencies
       - github-actions
+      - supply-chain
