@@ -123,8 +123,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     load, so older exports remain readable.
   - The IP-enrichment cache moved to `~/.cache/scm-harbourmaster-mcp/`. The old
     cache is not migrated and is simply re-populated on next use.
-  - The GitHub repository, Docker image name, and deployment paths under
-    `/opt` and `/etc` are unchanged by this release.
+  - The GitHub repositories were renamed to `scm-harbourmaster-mcp` (public)
+    and `scm-harbourmaster-mcp-dev` (private). GitHub redirects the old URLs,
+    so existing clones and remotes keep working without changes.
+  - The Docker/GHCR image name and the deployment paths under `/opt` and
+    `/etc` are unchanged.
 
 ## [0.13.0] - 2026-07-31
 

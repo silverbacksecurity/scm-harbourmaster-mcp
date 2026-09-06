@@ -300,7 +300,7 @@ def _insights_spn_throughput(session: Any, tenant_id: str) -> dict[str, dict[str
 
 # ── Update-check helpers ──────────────────────────────────────────────────────
 
-_UA = "scm-harbourmaster-mcp/updatecheck (github.com/silverbacksecurity/scm-mcp-mssp)"
+_UA = "scm-harbourmaster-mcp/updatecheck (github.com/silverbacksecurity/scm-harbourmaster-mcp)"
 _PYPI_PACKAGES = [
     ("pan-scm-sdk", "pan-scm-sdk"),
     ("prisma-sase", "prisma-sase"),

@@ -52,6 +52,6 @@ CMD []
 EXPOSE 8000 8080
 
 # Metadata
-LABEL org.opencontainers.image.source="https://github.com/silverbacksecurity/scm-mcp-mssp"
+LABEL org.opencontainers.image.source="https://github.com/silverbacksecurity/scm-harbourmaster-mcp"
 LABEL org.opencontainers.image.description="MCP server for Palo Alto Networks Strata Cloud Manager — MSSP edition"
 LABEL org.opencontainers.image.licenses="Apache-2.0"

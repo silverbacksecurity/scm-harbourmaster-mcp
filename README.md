@@ -1,8 +1,8 @@
 # scm-harbourmaster-mcp
 
-[![CI](https://github.com/silverbacksecurity/scm-mcp-mssp/actions/workflows/ci.yml/badge.svg)](https://github.com/silverbacksecurity/scm-mcp-mssp/actions/workflows/ci.yml)
-[![Security Scan](https://github.com/silverbacksecurity/scm-mcp-mssp/actions/workflows/security-scan.yml/badge.svg)](https://github.com/silverbacksecurity/scm-mcp-mssp/actions/workflows/security-scan.yml)
-[![Docker Build](https://github.com/silverbacksecurity/scm-mcp-mssp/actions/workflows/docker-build.yml/badge.svg)](https://github.com/silverbacksecurity/scm-mcp-mssp/actions/workflows/docker-build.yml)
+[![CI](https://github.com/silverbacksecurity/scm-harbourmaster-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/silverbacksecurity/scm-harbourmaster-mcp/actions/workflows/ci.yml)
+[![Security Scan](https://github.com/silverbacksecurity/scm-harbourmaster-mcp/actions/workflows/security-scan.yml/badge.svg)](https://github.com/silverbacksecurity/scm-harbourmaster-mcp/actions/workflows/security-scan.yml)
+[![Docker Build](https://github.com/silverbacksecurity/scm-harbourmaster-mcp/actions/workflows/docker-build.yml/badge.svg)](https://github.com/silverbacksecurity/scm-harbourmaster-mcp/actions/workflows/docker-build.yml)
 [![PyPI](https://img.shields.io/pypi/v/scm-harbourmaster-mcp)](https://pypi.org/project/scm-harbourmaster-mcp/)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
@@ -20,8 +20,8 @@ This is a personal, community-driven open-source project maintained by the autho
 ## Quick start
 
 ```bash
-git clone https://github.com/silverbacksecurity/scm-mcp-mssp
-cd scm-mcp-mssp
+git clone https://github.com/silverbacksecurity/scm-harbourmaster-mcp
+cd scm-harbourmaster-mcp
 uv sync
 cp .env.example .env          # fill in your SCM credentials
 uv run scm-mcp                # starts stdio transport for Claude Desktop
@@ -112,8 +112,8 @@ Obtain credentials from: **PAN Customer Support Portal → Strata Cloud Manager 
 ### Install
 
 ```bash
-git clone https://github.com/silverbacksecurity/scm-mcp-mssp
-cd scm-mcp-mssp
+git clone https://github.com/silverbacksecurity/scm-harbourmaster-mcp
+cd scm-harbourmaster-mcp
 uv sync
 ```
 
@@ -174,7 +174,7 @@ Add to `~/.config/Claude/claude_desktop_config.json`:
   "mcpServers": {
     "scm-harbourmaster-mcp": {
       "command": "uv",
-      "args": ["run", "--directory", "/path/to/scm-mcp-mssp", "scm-mcp"]
+      "args": ["run", "--directory", "/path/to/scm-harbourmaster-mcp", "scm-mcp"]
     }
   }
 }
@@ -192,7 +192,7 @@ Add to `.cursor/mcp.json` or `.vscode/mcp.json`:
     "scm-harbourmaster-mcp": {
       "type": "stdio",
       "command": "uv",
-      "args": ["run", "--directory", "/path/to/scm-mcp-mssp", "scm-mcp"]
+      "args": ["run", "--directory", "/path/to/scm-harbourmaster-mcp", "scm-mcp"]
     }
   }
 }

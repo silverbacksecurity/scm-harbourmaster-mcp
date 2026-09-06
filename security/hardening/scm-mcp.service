@@ -8,7 +8,7 @@
 
 [Unit]
 Description=SCM MCP MSSP Server
-Documentation=https://github.com/silverbacksecurity/scm-mcp-mssp
+Documentation=https://github.com/silverbacksecurity/scm-harbourmaster-mcp
 After=network-online.target
 Wants=network-online.target
 

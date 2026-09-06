@@ -29,8 +29,8 @@ _SPEC = importlib.util.spec_from_file_location(
 guard = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(guard)
 
-PUB = "https://github.com/silverbacksecurity/scm-mcp-mssp.git"
-PRIV = "https://github.com/silverbacksecurity/scm-mcp-mssp-dev.git"
+PUB = "https://github.com/silverbacksecurity/scm-harbourmaster-mcp.git"
+PRIV = "https://github.com/silverbacksecurity/scm-harbourmaster-mcp-dev.git"
 
 
 # ── remote matching ────────────────────────────────────────────────────────
@@ -40,9 +40,9 @@ PRIV = "https://github.com/silverbacksecurity/scm-mcp-mssp-dev.git"
     "url",
     [
         PUB,
-        "https://github.com/silverbacksecurity/scm-mcp-mssp",  # no .git — gh / UI form
-        "https://github.com/silverbacksecurity/scm-mcp-mssp/",
-        "git@github.com:silverbacksecurity/scm-mcp-mssp.git",
+        "https://github.com/silverbacksecurity/scm-harbourmaster-mcp",  # no .git — gh / UI form
+        "https://github.com/silverbacksecurity/scm-harbourmaster-mcp/",
+        "git@github.com:silverbacksecurity/scm-harbourmaster-mcp.git",
     ],
 )
 def test_public_remote_recognised_in_every_url_form(url: str) -> None:
@@ -50,7 +50,7 @@ def test_public_remote_recognised_in_every_url_form(url: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "url", [PRIV, "https://github.com/silverbacksecurity/scm-mcp-mssp-dev", ""]
+    "url", [PRIV, "https://github.com/silverbacksecurity/scm-harbourmaster-mcp-dev", ""]
 )
 def test_private_remote_is_not_public(url: str) -> None:
     assert not guard.is_public_remote(url)

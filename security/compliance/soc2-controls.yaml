@@ -175,6 +175,6 @@ controls:
 
 evidence_collection:
   audit_logs: /var/log/scm-mcp/audit.log
-  ci_runs: https://github.com/silverbacksecurity/scm-mcp-mssp/actions
+  ci_runs: https://github.com/silverbacksecurity/scm-harbourmaster-mcp/actions
   vulnerability_reports: GitHub Security tab (SARIF uploads from trivy)
   dependency_audits: GitHub Actions artifacts (bandit-report)

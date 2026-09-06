@@ -24,8 +24,8 @@ master          ← stable, tagged releases only
 ## Quickstart
 
 ```bash
-git clone https://github.com/silverbacksecurity/scm-mcp-mssp
-cd scm-mcp-mssp
+git clone https://github.com/silverbacksecurity/scm-harbourmaster-mcp
+cd scm-harbourmaster-mcp
 uv sync
 git checkout develop
 git checkout -b feat/my-feature

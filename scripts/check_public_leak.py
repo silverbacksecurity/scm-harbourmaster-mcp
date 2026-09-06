@@ -47,8 +47,8 @@ SETTINGS_PATH = REPO_ROOT / "settings.toml"
 # remote, where tenant content is expected and fine. Compared after
 # normalising away a trailing ".git" / slash, since `gh` and the GitHub UI
 # hand out both forms and a missed match would silently disable the guard.
-PUBLIC_REPO_SUFFIX = "/scm-mcp-mssp"
-PRIVATE_REPO_SUFFIX = "/scm-mcp-mssp-dev"
+PUBLIC_REPO_SUFFIX = "/scm-harbourmaster-mcp"
+PRIVATE_REPO_SUFFIX = "/scm-harbourmaster-mcp-dev"
 
 # Identifiers shorter than this are too generic to grep safely (false-positive
 # noise) — tenant keys/labels in practice are always longer than this.

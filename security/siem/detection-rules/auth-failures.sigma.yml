@@ -8,7 +8,7 @@ description: >
 author: silverbacksec
 date: 2026-06-17
 references:
-  - https://github.com/silverbacksecurity/scm-mcp-mssp
+  - https://github.com/silverbacksecurity/scm-harbourmaster-mcp
 
 logsource:
   product: scm-mcp-mssp
