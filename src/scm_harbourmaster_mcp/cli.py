@@ -1310,9 +1310,7 @@ def _op_check_updates() -> None:
     # pan-scm-sdk GitHub release notes
     console.print()
     with console.status("[cyan]Fetching pan-scm-sdk release notes...[/cyan]"):
-        release = _gh_json(
-            "https://api.github.com/repos/PaloAltoNetworks/pan-scm-sdk/releases/latest"
-        )
+        release = _gh_json("https://api.github.com/repos/cdot65/pan-scm-sdk/releases/latest")
 
     if release:
         tag = release.get("tag_name", "?")
@@ -1330,16 +1328,16 @@ def _op_check_updates() -> None:
     else:
         console.print("[dim]pan-scm-sdk release info unavailable (GitHub rate-limited?).[/dim]")
 
-    # pan.dev SASE recent API changes
+    # pan.dev recent SCM API changes
     console.print()
-    with console.status("[cyan]Fetching pan.dev SASE API changes...[/cyan]"):
+    with console.status("[cyan]Fetching pan.dev SCM API changes...[/cyan]"):
         commits = _gh_json(
             "https://api.github.com/repos/PaloAltoNetworks/pan.dev"
-            "/commits?path=products/sase/api&per_page=8"
+            "/commits?path=openapi-specs/scm&per_page=8"
         )
 
     if commits and isinstance(commits, list):
-        ct = Table(title="Recent pan.dev SASE API Changes", box=box.SIMPLE_HEAD, border_style="dim")
+        ct = Table(title="Recent pan.dev SCM API Changes", box=box.SIMPLE_HEAD, border_style="dim")
         ct.add_column("Date", style="dim", width=11)
         ct.add_column("Author", style="cyan", width=22)
         ct.add_column("Message", style="white")

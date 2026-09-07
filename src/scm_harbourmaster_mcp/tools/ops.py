@@ -2220,7 +2220,7 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
         Queries PyPI for the latest published versions of all Python packages
         used by this server and compares them against installed versions.
         Also checks GitHub for the latest pan-scm-sdk release notes and
-        recent commits to the PAN SASE OpenAPI specs on pan.dev.
+        recent commits to the SCM OpenAPI specs on pan.dev.
 
         No credentials required — reads PyPI and public GitHub APIs only.
         Uses `urllib.request` from the standard library; no new dependencies.
@@ -2229,7 +2229,7 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
             Markdown report with:
               • Package version table (installed vs latest, update flag)
               • pan-scm-sdk latest release notes excerpt
-              • Recent pan.dev SASE OpenAPI spec commit log
+              • Recent pan.dev SCM OpenAPI spec commit log
         """
         lines: list[str] = ["# SDK & API Update Check", ""]
         now_str = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
@@ -2283,9 +2283,9 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
         else:
             lines += ["_GitHub API unavailable or rate-limited._", ""]
 
-        # ── 3. pan.dev SASE OpenAPI spec recent changes ───────────────────────
-        lines += ["## pan.dev — Recent SASE API Changes", ""]
-        commits = _gh_recent_commits("PaloAltoNetworks", "pan.dev", "products/sase/api", n=8)
+        # ── 3. pan.dev SCM OpenAPI spec recent changes ────────────────────────
+        lines += ["## pan.dev — Recent SCM API Changes", ""]
+        commits = _gh_recent_commits("PaloAltoNetworks", "pan.dev", "openapi-specs/scm", n=8)
         if commits:
             lines += [
                 "| Date | Author | Message |",
