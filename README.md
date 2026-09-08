@@ -54,7 +54,6 @@ Then ask Claude:
 | **AI compliance advisor** | Claude-powered executive summary + remediation playbook from NCSC/NIST gap findings |
 | **SD-WAN topology** | Queries the Prisma SD-WAN controller for VPN overlay maps and link health |
 | **Enterprise DLP** | List, backup, and restore Enterprise DLP patterns and SCM data-filtering profiles |
-| **MSSP tier management** | Gold / Silver / Bronze scoring, onboarding snippets, upgrade path analysis |
 | **Licensing & telemetry** | Subscription licence inventory, mobile user stats, job audit history |
 | **CASB / ZTNA / Browser / AIRS** | Inventory SaaS restrictions, ZTNA connectors, Prisma Browser, and AI Runtime Security |
 | **Operational visibility** | Certificate expiry scanner, licence forecast, SPN bandwidth allocation vs branch count, live GP/PA-Agent session count by country and compute node |
@@ -150,7 +149,6 @@ tenant_id          = "tsg-id-for-acme"
 client_id          = "svc-acme@iam.panserviceaccount.com"
 default_folder     = "Acme-Corp"
 label              = "Acme Corp"
-tier               = "gold"
 service_term_years = 3
 account_ref        = "CRM-12345"
 ```
@@ -403,14 +401,6 @@ Show me a dashboard of all loaded tenants and their compliance scores.
 ```
 
 ```
-Run a tier assessment for Acme Corp against their Gold service level.
-```
-
-```
-What does Acme Corp need to move from Silver to Gold tier?
-```
-
-```
 List all tenants, their auth status, and which licences are expiring soonest.
 ```
 
@@ -563,13 +553,7 @@ List all tenants, their auth status, and which licences are expiring soonest.
 | `scm_snippet_list` | List configuration snippets |
 | `mssp_list_tenants` | List all loaded tenant IDs and auth status |
 | `mssp_evict_tenant` | Evict a cached client (force re-auth after credential rotation) |
-| `mssp_tier_assess` | Score a folder against its contracted tier (Bronze / Silver / Gold) |
-| `mssp_tier_report` | Customer-facing Markdown compliance report with remediation |
-| `mssp_upgrade_path` | Gap analysis: what's needed to move between tiers |
-| `mssp_onboard_tenant` | Apply tier snippets to a new customer folder (dry-run by default) |
-| `mssp_tenant_dashboard` | Summary of all loaded tenants with compliance scores |
-| `mssp_snippet_catalogue` | Content specifications for all tier SCM snippets |
-| `mssp_tier_comparison` | Side-by-side Gold / Silver / Bronze feature comparison |
+| `mssp_tenant_dashboard` | Summary of all loaded tenants with folder and service term |
 | `scm_license_info` | List Prisma SASE subscription licences with SKU, seats, and expiry |
 | `scm_mobile_user_stats` | Live Prisma Access mobile user allocation and connected user count |
 | `scm_dlp_list` | List SCM inline DLP data-filtering profiles and data objects |
@@ -606,37 +590,6 @@ List all tenants, their auth status, and which licences are expiring soonest.
 | `scm://tenants` | Index of all loaded tenants |
 | `scm://tenants/{tenant_id}` | Authentication status for a tenant |
 | `scm://tenants/{tenant_id}/folders` | SCM folder list for a tenant |
-
----
-
-## Service tiers
-
-Tiers map commercial service packages to security requirements. Each tier is a strict superset of the one below — a Gold-compliant customer is always also Bronze and Silver compliant.
-
-| Feature | 🥉 Bronze | 🥈 Silver | 🥇 Gold |
-|---------|-----------|-----------|---------|
-| NCSC framework | CE v3.2 | CE v3.2 + 10 Steps | CAF v4.0 (full) |
-| BPA checks required | Critical only | Critical + High | All (incl. Medium/Low) |
-| Anti-spyware | Basic | With DNS sinkholing | With DNS sinkholing |
-| Vulnerability protection | ✅ | ✅ | ✅ |
-| WildFire analysis | ❌ | ✅ | ✅ |
-| DNS security profiles | ❌ | ✅ | ✅ |
-| URL filtering | ❌ | ❌ | ✅ |
-| File blocking | ❌ | ❌ | ✅ |
-| SSL/TLS decryption | ❌ | ❌ | ✅ |
-| Zone protection profiles | ❌ | ✅ | ✅ |
-| Log forwarding / SIEM | ❌ | ✅ | ✅ |
-| Compliance reporting | CE baseline | CE Plus | CAF v4.0 quarterly |
-
-```mermaid
-graph BT
-    bronze["🥉 Bronze\nCyber Essentials v3.2\nCritical BPA checks only\nBasic anti-spyware\nVulnerability protection"]
-    silver["🥈 Silver\n+ NCSC 10 Steps\n+ Critical & High BPA\n+ WildFire · DNS security\n+ Zone protection · SIEM"]
-    gold["🥇 Gold\n+ CAF v4.0 full\n+ All 37 BPA checks\n+ URL filtering · SSL decryption\n+ File blocking\n+ Quarterly CAF report"]
-
-    bronze -->|"superset"| silver
-    silver -->|"superset"| gold
-```
 
 ---
 
@@ -701,7 +654,7 @@ src/scm_harbourmaster_mcp/
 ├── server.py              # FastMCP entry point; tool/resource registration
 ├── server_http.py         # HTTP/SSE transport (Copilot Studio)
 ├── config/
-│   └── settings.py        # Pydantic-settings; TenantConfig with tier fields
+│   └── settings.py        # Pydantic-settings; per-tenant credentials and metadata
 ├── auth/
 │   └── oauth.py           # Thread-safe per-tenant Scm client cache
 ├── tools/
@@ -713,7 +666,7 @@ src/scm_harbourmaster_mcp/
 │   ├── audit.py           # Backup, BPA, NCSC, AS-BUILT report, diff, clone
 │   ├── ncsc_baseline.py   # NCSC/NIST gap analysis, baseline apply, snippets
 │   ├── sdwan.py           # SD-WAN topology, sites, elements, policies
-│   ├── mssp.py            # Tier assessment, onboarding, licensing, CASB/DLP/ZTNA/Browser/AIRS
+│   ├── mssp.py            # Tenant dashboard, licensing, CASB/DLP/ZTNA/Browser/AIRS
 │   ├── dlp.py             # Enterprise DLP list, backup, restore
 │   ├── ai_advisor.py      # AI-powered compliance advisor (Claude)
 │   └── reload.py          # Hot-reload source modules without restart
@@ -723,7 +676,6 @@ src/scm_harbourmaster_mcp/
 │   ├── bpa_checks.py      # 39 BPA check functions
 │   ├── ncsc_controls.py   # NCSC control catalogue + BPA→NCSC mapping
 │   ├── ncsc_templates.py  # NCSC-compliant config object templates
-│   ├── tiers.py           # Gold/Silver/Bronze definitions + scoring
 │   ├── asbuilt_report.py      # AS-BUILT Markdown builder
 │   ├── pan_references.py  # PAN reference architecture doc library
 │   ├── sdwan_topo.py      # SD-WAN VPN overlay topology builder

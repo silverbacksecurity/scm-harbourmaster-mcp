@@ -10,7 +10,6 @@ Flow:
 
 from .models import AuditSnapshot, Finding, Severity, Status
 from .report import ReportBuilder
-from .tiers import TIER_ORDER, TIERS, TierDefinition, get_tier, score_findings_against_tier
 
 __all__ = [
     "AuditSnapshot",
@@ -18,9 +17,4 @@ __all__ = [
     "ReportBuilder",
     "Severity",
     "Status",
-    "TIER_ORDER",
-    "TIERS",
-    "TierDefinition",
-    "get_tier",
-    "score_findings_against_tier",
 ]

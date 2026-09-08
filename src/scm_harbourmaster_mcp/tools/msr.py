@@ -2,7 +2,7 @@
 
 Assembles the per-tenant monthly customer deliverable from sources the
 server already produces: period-bounded incidents and config jobs, the
-SSR provenance ledger, compliance posture (tier-gated depth), licence
+SSR provenance ledger, compliance posture, licence
 expiry, and the Insights bandwidth snapshot. Every source degrades
 gracefully — a licence-API outage costs one section, not the pack.
 
@@ -71,8 +71,8 @@ def _insights_try(
         return -1, str(exc)
 
 
-def _resolve_tenant_meta(tenant_id: str) -> tuple[str, str, str, str]:
-    """Return (label, tsg_id, tier, insights_region) for *tenant_id*.
+def _resolve_tenant_meta(tenant_id: str) -> tuple[str, str, str]:
+    """Return (label, tsg_id, insights_region) for *tenant_id*.
 
     Same single-tenant fallback rule as the SSR tool: empty tenant_id maps
     to the first configured tenant; an explicit non-matching tenant_id
@@ -85,9 +85,8 @@ def _resolve_tenant_meta(tenant_id: str) -> tuple[str, str, str, str]:
     elif tenants:
         tc = next(iter(tenants.values()))
     if tc is None:
-        return "", tenant_id, "bronze", "eu"
-    tier = getattr(tc.tier, "value", None) or str(tc.tier)
-    return tc.label or tc.tenant_id, tc.tenant_id, tier.lower(), tc.insights_region
+        return "", tenant_id, "eu"
+    return tc.label or tc.tenant_id, tc.tenant_id, tc.insights_region
 
 
 def _gather_ssr_ledger(client: Any, tenant_id: str) -> list[dict[str, str]]:
@@ -119,11 +118,10 @@ def gather_msr_data(
 ) -> MsrData:
     """Gather every MSR source for the period, degrading per-source."""
     start, end, label = month_bounds(month)
-    tenant_label, tsg_id, tier, region = _resolve_tenant_meta(tenant_id)
+    tenant_label, tsg_id, region = _resolve_tenant_meta(tenant_id)
     data = MsrData(
         tenant_label=tenant_label,
         tenant_id=tsg_id,
-        tier=tier,
         mssp_name=mssp_name,
         period_start=start,
         period_end=end,
@@ -380,28 +378,26 @@ def gather_msr_data(
     except Exception as exc:
         data.errors["security_events"] = str(exc)
 
-    # ── Compliance (Silver+; Gold gets the trend annex) ────────────────
-    if tier != "bronze":
-        try:
-            raw = _compliance_get(client, "/summaries", {"product": "all"})
-            items = raw if isinstance(raw, list) else (raw or {}).get("data") or []
-            data.compliance_summaries = items
-            data.gathered.append(f"compliance — {len(items)} frameworks (Compliance Center API)")
-            if tier == "gold":
-                bench = next((i for i in items if i.get("benchmark")), None)
-                if bench:
-                    revisions = bench.get("revision_summary") or []
-                    data.compliance_framework_name = str(
-                        (revisions[0] if revisions else {}).get("name") or bench.get("id") or ""
-                    )
-                    tl = _compliance_get(
-                        client,
-                        f"/overall-compliance-timeline/{bench.get('id')}",
-                        {"product": "all"},
-                    )
-                    data.compliance_timeline = (tl or {}).get("timeline_30_days") or []
-        except Exception as exc:
-            data.errors["compliance"] = str(exc)
+    # ── Compliance (framework scores + 30-day trend annex) ────────────
+    try:
+        raw = _compliance_get(client, "/summaries", {"product": "all"})
+        items = raw if isinstance(raw, list) else (raw or {}).get("data") or []
+        data.compliance_summaries = items
+        data.gathered.append(f"compliance — {len(items)} frameworks (Compliance Center API)")
+        bench = next((i for i in items if i.get("benchmark")), None)
+        if bench:
+            revisions = bench.get("revision_summary") or []
+            data.compliance_framework_name = str(
+                (revisions[0] if revisions else {}).get("name") or bench.get("id") or ""
+            )
+            tl = _compliance_get(
+                client,
+                f"/overall-compliance-timeline/{bench.get('id')}",
+                {"product": "all"},
+            )
+            data.compliance_timeline = (tl or {}).get("timeline_30_days") or []
+    except Exception as exc:
+        data.errors["compliance"] = str(exc)
 
     return data
 
@@ -430,7 +426,7 @@ def register_msr_tools(mcp: FastMCP, get_client: Any) -> None:
              change failure rate, unique mobile users
           3. Incidents raised in the period (severity-ranked)
           4. Change record — config jobs in period + cumulative SSR ledger
-          5. Compliance posture — Silver+ (Gold adds the 30-day score trend)
+          5. Compliance posture — framework scores + 30-day score trend
           6. Licence & renewal posture — expiry countdown within 180 days
           7. Bandwidth vs allocation — per-RN-location usage over the month
              compared against the region's allocated bandwidth

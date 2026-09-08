@@ -3,13 +3,13 @@ Planner Phase 3a — the scheduled ops agent (nightly digest MVP).
 
 Trigger surface #1: cron. An external scheduler (cron/systemd timer) runs
 the `scm-planner-nightly` entrypoint; each tenant gets a deterministic
-template plan (tier assessment, cert scan, licence expiry, incident
-summary, job/change audit) executed through the SAME PlannerLoop as every
+template plan (cert scan, licence expiry, incident summary, job/change
+audit) executed through the SAME PlannerLoop as every
 other trigger — the template just replaces LLM plan generation with a
 fixed check set, because a nightly run's shape is policy, not reasoning.
 
-Output: one estate digest, findings ranked by severity then customer tier
-(Gold first), with per-tenant sections and pointers to each tenant's full
+Output: one estate digest, findings ranked by severity then tenant name,
+with per-tenant sections and pointers to each tenant's full
 plan report. Acceptance rules (from the epic) are computed mechanically
 from raw Subscription API rows so they can't be lost to output truncation:
 
@@ -41,7 +41,6 @@ from .store import PlanStore
 logger = get_logger(__name__)
 
 SEVERITY_ORDER = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3, "INFO": 4}
-TIER_ORDER = {"gold": 0, "silver": 1, "bronze": 2}
 _SEV_ICON = {"CRITICAL": "🔴", "HIGH": "🔴", "MEDIUM": "🟡", "LOW": "⚪", "INFO": "ℹ️"}
 _HORIZON_DAYS = 90
 _NFR_MARKERS = ("NFR", "EVAL", "TRIAL")
@@ -51,7 +50,6 @@ _NFR_MARKERS = ("NFR", "EVAL", "TRIAL")
 class TenantSpec:
     label: str
     tenant_id: str  # TSG id — what every tool's tenant_id param takes
-    tier: str = "bronze"
     folder: str = "Prisma Access"
 
 
@@ -61,7 +59,6 @@ class Finding:
     title: str
     detail: str
     tenant_label: str  # "" or "estate" for cross-tenant findings
-    tier: str = "bronze"
     source: str = ""
 
 
@@ -94,19 +91,12 @@ class TemplateEngine:
         return ""  # falsy → the loop uses its mechanical report, no audit noise
 
 
-def nightly_steps(spec: TenantSpec, include_tier_assess: bool = True) -> list[StepDraft]:
+def nightly_steps(spec: TenantSpec) -> list[StepDraft]:
     steps: list[StepDraft] = []
 
     def add(domain: str, tool: str, **params: Any) -> None:
         steps.append(StepDraft(domain=domain, tool=tool, params_json=json.dumps(params)))
 
-    if include_tier_assess:
-        add(
-            "posture_compliance",
-            "mssp_tier_assess",
-            folder=spec.folder,
-            tenant_id=spec.tenant_id,
-        )
     add("certificates", "scm_cert_scan", tenant_id=spec.tenant_id, warn_days=_HORIZON_DAYS)
     add("licensing", "scm_license_info", tenant_id=spec.tenant_id)
     add(
@@ -176,7 +166,6 @@ def licence_findings(
                 title=f"{len(expired)} licence SKU(s) expired within the last {horizon} days",
                 detail=f"worst {-worst} day(s) ago — {_skus(expired)}",
                 tenant_label=spec.label,
-                tier=spec.tier,
                 source="subscription API",
             )
         )
@@ -193,7 +182,6 @@ def licence_findings(
                 title=f"{len(expiring)} licence SKU(s) expiring within {horizon} days{nfr}",
                 detail=f"soonest in {soonest} day(s) — {_skus(expiring)}",
                 tenant_label=spec.label,
-                tier=spec.tier,
                 source="subscription API",
             )
         )
@@ -210,7 +198,6 @@ def licence_findings(
                     "every seat product — paying for capacity nobody uses"
                 ),
                 tenant_label=spec.label,
-                tier=spec.tier,
                 source="subscription API",
             )
         )
@@ -247,7 +234,6 @@ def estate_findings(
                 ),
                 detail=f"Affected tenants: {tenants}",
                 tenant_label="estate",
-                tier="gold",  # estate findings always rank first within severity
                 source="subscription API",
             )
         )
@@ -256,13 +242,12 @@ def estate_findings(
 
 def rank_findings(findings: list[Finding]) -> list[Finding]:
     """Severity first; estate-wide findings lead their severity band;
-    then customer tier (Gold first), then tenant name."""
+    then tenant name."""
     return sorted(
         findings,
         key=lambda f: (
             SEVERITY_ORDER.get(f.severity, 9),
             0 if f.tenant_label == "estate" else 1,
-            TIER_ORDER.get(f.tier, 9),
             f.tenant_label,
         ),
     )
@@ -286,29 +271,28 @@ def render_digest(
 
     if findings:
         lines += [
-            "## Top Findings (severity, then tier)",
+            "## Top Findings (severity, then tenant)",
             "",
-            "| # | Sev | Tenant | Tier | Finding |",
-            "|---|---|---|---|---|",
+            "| # | Sev | Tenant | Finding |",
+            "|---|---|---|---|",
         ]
         for i, f in enumerate(findings[:20], 1):
             icon = _SEV_ICON.get(f.severity, "")
             lines.append(
-                f"| {i} | {icon} {f.severity} | {f.tenant_label} | {f.tier} "
-                f"| **{f.title}** — {f.detail} |"
+                f"| {i} | {icon} {f.severity} | {f.tenant_label} | **{f.title}** — {f.detail} |"
             )
         if len(findings) > 20:
-            lines.append(f"| … | | | | +{len(findings) - 20} more |")
+            lines.append(f"| … | | | +{len(findings) - 20} more |")
         lines.append("")
     else:
         lines += ["🟢 **No findings** — every check came back clean.", ""]
 
-    lines += ["## Per-Tenant Checks (Gold first)", ""]
+    lines += ["## Per-Tenant Checks", ""]
     for r in results:
         counts = r.plan.counts
         status = "🟢" if counts.get("failed", 0) == 0 and counts.get("skipped", 0) == 0 else "🟡"
         lines.append(
-            f"### {status} {r.spec.label} ({r.spec.tier}) — "
+            f"### {status} {r.spec.label} — "
             f"{counts.get('ok', 0)} ok / {counts.get('failed', 0)} failed / "
             f"{counts.get('skipped', 0)} skipped"
         )
@@ -364,17 +348,16 @@ class NightlyOpsRunner:
     def run(
         self,
         specs: list[TenantSpec],
-        include_tier_assess: bool = True,
         slack_webhook: str = "",
     ) -> tuple[str, list[Finding]]:
         """Run the nightly sweep. Returns (digest path, ranked findings)."""
-        ordered = sorted(specs, key=lambda s: (TIER_ORDER.get(s.tier, 9), s.label))
+        ordered = sorted(specs, key=lambda s: s.label)
         results: list[TenantResult] = []
         findings: list[Finding] = []
         rows_by_tenant: dict[str, list[dict[str, Any]]] = {}
 
         for spec in ordered:
-            engine = TemplateEngine(nightly_steps(spec, include_tier_assess))
+            engine = TemplateEngine(nightly_steps(spec))
             # No approver: the nightly template is read-only by construction,
             # and any drift into a write tool is denied, not executed.
             executor = StepExecutor(self.manifest, self.backend, approve_write=None)
@@ -382,7 +365,7 @@ class NightlyOpsRunner:
             plan = loop.run(
                 goal=f"nightly scheduled-ops checks for {spec.label}",
                 trigger_type=TriggerType.SCHEDULED,
-                trigger_payload={"tenant": spec.label, "tier": spec.tier},
+                trigger_payload={"tenant": spec.label},
                 tenant_scope=spec.tenant_id,
                 persona="scheduled-ops",
             )
@@ -442,11 +425,6 @@ def main(argv: list[str] | None = None) -> int:
         help="Comma-separated tenant labels to include (default: all configured)",
     )
     parser.add_argument(
-        "--no-tier-assess",
-        action="store_true",
-        help="Skip the (slow) full tier assessment step",
-    )
-    parser.add_argument(
         "--slack-webhook",
         default=os.getenv("SCM_MCP_SLACK_WEBHOOK", ""),
         help="Slack incoming-webhook URL (or SCM_MCP_SLACK_WEBHOOK)",
@@ -477,7 +455,6 @@ def main(argv: list[str] | None = None) -> int:
             TenantSpec(
                 label=label,
                 tenant_id=tc.tenant_id,
-                tier=str(tc.tier),
                 folder="Prisma Access",
             )
         )
@@ -499,11 +476,7 @@ def main(argv: list[str] | None = None) -> int:
         store=PlanStore(),
         licence_fetcher=licence_fetcher,
     )
-    path, ranked = runner.run(
-        specs,
-        include_tier_assess=not args.no_tier_assess,
-        slack_webhook=args.slack_webhook,
-    )
+    path, ranked = runner.run(specs, slack_webhook=args.slack_webhook)
     print(f"digest: {path}")
     print(f"findings: {len(ranked)}")
     for f in ranked[:10]:

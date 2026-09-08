@@ -27,13 +27,13 @@ into the same loop.
 
 | PANW taxonomy layer | PANW meaning (NetSec Agents on SCM) | Our implementation |
 | --- | --- | --- |
-| **Persona** | The operator role the agent acts as (e.g. NetSec admin) | Service-account identity per run, recorded in the Plan (`persona`); MSSP operator personas map to tenant scope + tier-aware check depth |
+| **Persona** | The operator role the agent acts as (e.g. NetSec admin) | Service-account identity per run, recorded in the Plan (`persona`); MSSP operator personas map to tenant scope |
 | **Planner** | Decomposes intent into a dynamic plan, revises as results arrive | The Planner loop: Trigger → Intent parse → Plan generation → Execute step → Observe → Revise → Synthesis → Report. Claude via the Anthropic API (tool-use) as the reasoning engine |
 | **Expert Agents** | Domain specialists (deployment, threat coverage, operational health, posture…) | Domain-scoped sub-plan executors — the Planner delegates a sub-plan to an executor loaded with only that domain's ~15–20 tools (per the tool manifest `domain` field) |
 | **Plan** | The persisted, auditable decomposition of intent | Persisted Plan JSON (schema below), stored per run, resumable after MCP server restart |
 | **Actions** | The concrete API operations an Expert Agent performs | The existing 125 MCP tools over Streamable transport (reusing the Copilot Studio transport work); `access: write` tools always gated on explicit human approval |
 | **Triggers** | What starts a run | Three surfaces into the same loop: (3a) scheduled/cron ops runs, (3b) conversational NLQ via Slack/Teams, (3c) IR webhooks from MT Monitor alerts with pre-built triage templates |
-| *(no PANW equivalent)* **MSSP cross-tenant layer** | — (PANW's model is single-tenant) | Estate fan-out (per-tenant sub-plans with bounded concurrency), tier-aware planning (Gold/Silver/Bronze check depth), cross-tenant anomaly rules |
+| *(no PANW equivalent)* **MSSP cross-tenant layer** | — (PANW's model is single-tenant) | Estate fan-out (per-tenant sub-plans with bounded concurrency), cross-tenant anomaly rules |
 
 ## Plan schema (persisted per run)
 

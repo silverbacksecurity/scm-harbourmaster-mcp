@@ -4,7 +4,7 @@
 
 All tools authenticate via Bearer-token OAuth (SASE client credentials) configured in `settings.toml` / `.secrets.toml`.
 
-**167 tools** across 35 modules.
+**161 tools** across 35 modules.
 
 ## Table of Contents
 
@@ -1385,6 +1385,11 @@ Typical use-cases
 - POV → Prod promotion (clone lab folder to production folder)
 - Multi-site rollout (one branch config → N sites with same structure)
 
+PAN predefined content (objects sourced from a predefined snippet —
+the PAN EDLs, default services and default security profiles) is
+listed in the report and never pushed: it already exists in every
+tenant and cannot be created inside a folder.
+
 PSK safety
 ----------
 Pre-shared keys in IKE gateways are ALWAYS replaced with
@@ -1815,129 +1820,15 @@ Returns:
 
 ## MSSP Multi-Tenant
 
-_Tier assessment, onboarding, dashboard, licensing, CDL, CASB, ZTNA, Browser, NGFW, AIRS._
-
-### `mssp_tier_assess`
-
-Score a tenant folder against its contracted MSSP service tier.
-
-```
-Pulls live SCM configuration, runs all BPA checks, then scores results
-against the tier requirements:
-  Bronze — Critical checks must pass (CE baseline)
-  Silver — Critical + High checks must pass (CE Plus)
-  Gold   — All checks must pass (CAF v4.0)
-
-Args:
-    folder: SCM folder to assess.
-    tier: Service tier to assess against (gold/silver/bronze).
-          If omitted, uses the tenant's configured tier.
-    tenant_id: SCM tenant ID (MSSP mode).
-
-Returns:
-    JSON tier compliance result with breach list and score percentage.
-```
-
-| Parameter | Type | Default |
-|-----------|------|---------|
-| `tenant_id` | `str` | `''` |
-| `folder` | `str` | `—` |
-| `tier` | `str` | `''` |
-
-### `mssp_tier_report`
-
-Generate a Markdown tier compliance report for a customer folder.
-
-```
-Produces a customer-facing document showing:
-- Service tier description and included features
-- Compliance score against tier requirements
-- Breach findings with remediation steps
-- Advisory findings (higher tier, for upsell context)
-- Upgrade path to next tier
-
-Args:
-    folder: SCM folder to assess.
-    tier: Service tier (gold/silver/bronze).
-    tenant_id: SCM tenant ID.
-    save_to: Optional file path to write the report.
-
-Returns:
-    Markdown compliance report.
-```
-
-| Parameter | Type | Default |
-|-----------|------|---------|
-| `tenant_id` | `str` | `''` |
-| `folder` | `str` | `—` |
-| `tier` | `str` | `—` |
-| `save_to` | `str` | `''` |
-
-### `mssp_upgrade_path`
-
-Show what's needed to upgrade a tenant from one tier to another.
-
-```
-Analyses the live configuration against the target tier requirements
-and returns:
-- Blocking findings that must be resolved before upgrading
-- Additional NCSC controls that become mandatory
-- New SCM snippets that need to be applied
-- New features included in the target tier
-
-Args:
-    folder: SCM folder to assess.
-    from_tier: Current contracted tier (gold/silver/bronze).
-    to_tier: Target tier (gold/silver/bronze).
-    tenant_id: SCM tenant ID.
-
-Returns:
-    JSON upgrade gap analysis.
-```
-
-| Parameter | Type | Default |
-|-----------|------|---------|
-| `tenant_id` | `str` | `''` |
-| `folder` | `str` | `—` |
-| `from_tier` | `str` | `—` |
-| `to_tier` | `str` | `—` |
-
-### `mssp_onboard_tenant`
-
-Onboard a new customer tenant with the correct tier snippet set.
-
-```
-Checks whether required tier snippets exist in SCM and reports which
-are present vs missing. With dry_run=False, associates existing snippets
-with the target folder.
-
-Args:
-    folder: Customer SCM folder name.
-    tier: Service tier to apply (gold/silver/bronze).
-    tenant_id: SCM tenant ID.
-    create_folder: If True, create the folder if it doesn't exist.
-    dry_run: If True (default), report actions without executing.
-             Set to False to apply snippet associations.
-
-Returns:
-    Onboarding plan or execution result with snippet status.
-```
-
-| Parameter | Type | Default |
-|-----------|------|---------|
-| `tenant_id` | `str` | `''` |
-| `folder` | `str` | `—` |
-| `tier` | `str` | `—` |
-| `create_folder` | `bool` | `False` |
-| `dry_run` | `bool` | `True` |
+_Tenant dashboard, licensing, CDL, CASB, ZTNA, Browser, NGFW, AIRS._
 
 ### `mssp_tenant_dashboard`
 
-Show a summary dashboard of all loaded MSSP tenants and their tier status.
+Show a summary dashboard of all loaded MSSP tenants.
 
 ```
 Lists every tenant currently cached in the server, showing their
-configured tier, folder, label, and service term.
+folder, label, and service term.
 
 Args:
     tenant_id: Not used for filtering — returns all loaded tenants.
@@ -1949,25 +1840,6 @@ Returns:
 | Parameter | Type | Default |
 |-----------|------|---------|
 | `tenant_id` | `str` | `''` |
-
-### `mssp_snippet_catalogue`
-
-List MSSP tier snippet templates and their content specifications.
-
-```
-Shows what each tier's SCM snippets should contain, enabling
-engineers to create the correct snippets in SCM before onboarding.
-
-Args:
-    tier: Filter to a specific tier (gold/silver/bronze) or omit for all.
-
-Returns:
-    Markdown catalogue of snippet templates by tier.
-```
-
-| Parameter | Type | Default |
-|-----------|------|---------|
-| `tier` | `str` | `''` |
 
 ### `scm_license_info`
 
@@ -2099,18 +1971,6 @@ Returns:
 | Parameter | Type | Default |
 |-----------|------|---------|
 | `tenant_id` | `str` | `''` |
-
-### `mssp_tier_comparison`
-
-Return a side-by-side comparison of Gold / Silver / Bronze tiers.
-
-```
-Useful for sales and customer conversations — shows what each tier
-includes, which NCSC frameworks it covers, and the check requirements.
-
-Returns:
-    Markdown comparison table.
-```
 
 ### `scm_ngfw_device_list`
 
@@ -3266,7 +3126,7 @@ Check for SDK, dependency, and pan.dev API documentation updates.
 Queries PyPI for the latest published versions of all Python packages
 used by this server and compares them against installed versions.
 Also checks GitHub for the latest pan-scm-sdk release notes and
-recent commits to the PAN SASE OpenAPI specs on pan.dev.
+recent commits to the SCM OpenAPI specs on pan.dev.
 
 No credentials required — reads PyPI and public GitHub APIs only.
 Uses `urllib.request` from the standard library; no new dependencies.
@@ -3275,7 +3135,7 @@ Returns:
     Markdown report with:
       • Package version table (installed vs latest, update flag)
       • pan-scm-sdk latest release notes excerpt
-      • Recent pan.dev SASE OpenAPI spec commit log
+      • Recent pan.dev SCM OpenAPI spec commit log
 ```
 
 ### `scm_device_summary`
@@ -4813,21 +4673,21 @@ Returns:
 
 ### `scm_estate_check`
 
-Run the tier-aware estate check across every configured tenant.
+Run the estate check across every configured tenant.
 
 ```
 One trigger fans out per-tenant sub-plans with bounded concurrency
-through the Planner loop. Each tenant's contracted tier scopes its
-check depth — Bronze: licensing + certs + connectivity basics;
-Silver: + BPA posture + change audit; Gold: + NCSC CAF + ISO 27001 +
-DLP/SSPM posture. Cross-tenant anomaly rules then flag patterns
-invisible per-tenant (SD-WAN topology with zero licences, duplicate
-NFR licence sets, provisioned-but-idle tenants).
+through the Planner loop. Every tenant gets the same check set:
+licensing + certs + connectivity basics, BPA posture + change audit,
+NCSC CAF + ISO 27001, and DLP/SSPM posture. Cross-tenant anomaly
+rules then flag patterns invisible per-tenant (SD-WAN topology with
+zero licences, duplicate NFR licence sets, provisioned-but-idle
+tenants).
 
 Fully read-only: the estate executor has no approver, so no write
-tool can run. Gold-depth tenants take ~2-3 minutes each (one shared
-snapshot extraction feeds all three assessments); the run continues
-in the background and writes plans/estate-<stamp>.md.
+tool can run. Each tenant takes ~2-3 minutes (one shared snapshot
+extraction feeds all three assessments); the run continues in the
+background and writes plans/estate-<stamp>.md.
 
 Args:
     tenants: Comma-separated tenant labels to include (default: all

@@ -18,7 +18,6 @@ def _tenant(key: str, label: str) -> TenantConfig:
         client_secret=SecretStr("s3cr3t"),
         default_folder="Shared",
         label=label,
-        tier="gold",
     )
 
 

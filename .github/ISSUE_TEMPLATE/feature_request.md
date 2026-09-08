@@ -17,10 +17,6 @@ labels: enhancement
 <!-- Link to the relevant pan.dev API page or SDK method, if known.
      e.g. https://pan.dev/scm/api/config/gp-agent-profiles/ -->
 
-## Service tier relevance
-
-<!-- Which tier(s) benefit most? Bronze / Silver / Gold / all -->
-
 ## Proposed approach
 
 <!-- Optional: API endpoints, SDK objects, or implementation ideas -->

@@ -6,7 +6,7 @@ Covers:
   - SSR provenance-note parsing (all three note shapes, legacy prefixes)
   - compute_service_stats (MTTR from closed incidents, change failure rate,
     honest n/a when resolution timestamps are absent)
-  - render_msr_report tier gating (bronze/silver/gold compliance depth)
+  - render_msr_report compliance section (framework scores + 30-day trend)
   - renderer degradation notes (§8 coverage disclosure)
   - gather_msr_data period filtering + per-source degradation with a mock client
 """
@@ -170,11 +170,10 @@ class TestServiceStats:
 # ---------------------------------------------------------------------------
 
 
-def _base_data(tier: str = "gold") -> MsrData:
+def _base_data() -> MsrData:
     return MsrData(
         tenant_label="Test Customer",
         tenant_id="t-1",
-        tier=tier,
         period_label="2026-06",
         compliance_summaries=[
             {
@@ -193,23 +192,17 @@ def _base_data(tier: str = "gold") -> MsrData:
 
 
 class TestRenderer:
-    def test_bronze_gates_compliance(self) -> None:
-        md = render_msr_report(_base_data(tier="bronze"))
-        assert "included at Silver tier" in md
-        assert "CE Plus" not in md
-
-    def test_silver_gets_summary_not_trend(self) -> None:
-        md = render_msr_report(_base_data(tier="silver"))
+    def test_compliance_summary_renders(self) -> None:
+        md = render_msr_report(_base_data())
         assert "| CE Plus |" in md
-        assert "30-day score trend" not in md
 
-    def test_gold_gets_trend_annex(self) -> None:
-        md = render_msr_report(_base_data(tier="gold"))
+    def test_trend_annex_renders(self) -> None:
+        md = render_msr_report(_base_data())
         assert "30-day score trend" in md
         assert "Compliance score declined" in md  # 85 → 82 in exec summary
 
     def test_quiet_month_has_green_summary(self) -> None:
-        md = render_msr_report(MsrData(tenant_label="T", tier="bronze", period_label="2026-06"))
+        md = render_msr_report(MsrData(tenant_label="T", period_label="2026-06"))
         assert "🟢 No critical incidents" in md
 
     def test_incident_and_change_sections_render(self) -> None:
@@ -246,7 +239,7 @@ class TestRenderer:
         assert "1 SKU group(s) expired more than 90 days ago (omitted)." in md
 
     def test_unassessed_framework_score_is_not_a_percentage(self) -> None:
-        data = _base_data(tier="silver")
+        data = _base_data()
         data.compliance_summaries = [
             {
                 "id": "fw-x",
@@ -355,7 +348,7 @@ class TestGather:
                 ),
                 patch(
                     "scm_harbourmaster_mcp.tools.msr._resolve_tenant_meta",
-                    return_value=("T", "t-1", "gold", "uk"),
+                    return_value=("T", "t-1", "uk"),
                 ),
                 patch("scm_harbourmaster_mcp.tools.msr._get_ssr_config", return_value={}),
                 *self._ext_patches(),
@@ -372,26 +365,28 @@ class TestGather:
         assert "Monthly Service Review — T" in md
         assert "licence boom" in md
 
-    def test_bronze_skips_compliance_entirely(self) -> None:
+    def test_compliance_is_gathered_for_every_tenant(self) -> None:
         from scm_harbourmaster_mcp.tools.msr import gather_msr_data
 
         client = self._client([], [])
         import contextlib
 
         with contextlib.ExitStack() as stack:
-            comp = stack.enter_context(patch("scm_harbourmaster_mcp.tools.msr._compliance_get"))
+            comp = stack.enter_context(
+                patch("scm_harbourmaster_mcp.tools.msr._compliance_get", return_value=[])
+            )
             for p in [
                 patch("scm_harbourmaster_mcp.tools.msr.fetch_licenses", return_value=[]),
                 patch(
                     "scm_harbourmaster_mcp.tools.msr._resolve_tenant_meta",
-                    return_value=("T", "t-1", "bronze", "eu"),
+                    return_value=("T", "t-1", "eu"),
                 ),
                 patch("scm_harbourmaster_mcp.tools.msr._get_ssr_config", return_value={}),
                 *self._ext_patches(),
             ]:
                 stack.enter_context(p)
             data = gather_msr_data(client, month="2026-06", include_insights=False)
-        comp.assert_not_called()
+        comp.assert_called()
         assert "compliance" not in data.errors
 
     def test_ssr_ledger_gathered_from_object_descriptions(self) -> None:
@@ -410,7 +405,7 @@ class TestGather:
                 patch("scm_harbourmaster_mcp.tools.msr.fetch_licenses", return_value=[]),
                 patch(
                     "scm_harbourmaster_mcp.tools.msr._resolve_tenant_meta",
-                    return_value=("T", "t-1", "bronze", "eu"),
+                    return_value=("T", "t-1", "eu"),
                 ),
                 patch(
                     "scm_harbourmaster_mcp.tools.msr._get_ssr_config",
@@ -531,7 +526,7 @@ class TestNewSectionsRender:
     def _base(self, **kwargs):
         from scm_harbourmaster_mcp.audit.msr_report import MsrData
 
-        return MsrData(tenant_label="T", tier="gold", period_label="2026-06", **kwargs)
+        return MsrData(tenant_label="T", period_label="2026-06", **kwargs)
 
     def test_bw_month_table_with_utilisation_flags(self) -> None:
         from scm_harbourmaster_mcp.audit.msr_report import render_msr_report
@@ -644,7 +639,7 @@ class TestGatherMonthAdditions:
             patch("scm_harbourmaster_mcp.tools.msr.fetch_licenses", return_value=[]),
             patch(
                 "scm_harbourmaster_mcp.tools.msr._resolve_tenant_meta",
-                return_value=("T", "t-1", "bronze", "uk"),
+                return_value=("T", "t-1", "uk"),
             ),
             patch("scm_harbourmaster_mcp.tools.msr._get_ssr_config", return_value={}),
             patch("scm_harbourmaster_mcp.tools.msr._refresh_token", return_value=None),
@@ -829,7 +824,7 @@ class TestInsightsTryGuard:
                 patch("scm_harbourmaster_mcp.tools.msr.fetch_licenses", return_value=[]),
                 patch(
                     "scm_harbourmaster_mcp.tools.msr._resolve_tenant_meta",
-                    return_value=("T", "t-1", "bronze", "uk"),
+                    return_value=("T", "t-1", "uk"),
                 ),
                 patch("scm_harbourmaster_mcp.tools.msr._get_ssr_config", return_value={}),
                 patch("scm_harbourmaster_mcp.tools.msr._refresh_token", return_value=None),

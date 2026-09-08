@@ -272,7 +272,8 @@ Planner API-key smoke testing._
 - ✅ **Monthly Service Review pack generator** — shipped 2026-07-17 as
   `scm_msr_report` (`tools/msr.py` + `audit/msr_report.py`): period-bounded
   incidents + config jobs, cumulative SSR provenance ledger, tier-gated
-  compliance depth (Gold gets the 30d trend annex), licence/renewal posture,
+  compliance depth (Gold gets the 30d trend annex — tier gating since
+  removed; every tenant now gets the full annex), licence/renewal posture,
   Insights bandwidth snapshot, mechanical MTTR/ack-rate/change-failure stats,
   ranked executive summary, per-section degradation with coverage disclosure,
   markdown/DOCX output. Live-validated bronze + gold paths incl. real DOCX.
@@ -354,8 +355,8 @@ dynamic, persisted, auditable plans executed against the existing MCP tools.
 trigger surfaces (scheduled/cron, conversational NLQ, IR/webhook) as entry
 points into the same loop. Do not build three separate agents.
 
-**Differentiation (do not cut)** — cross-tenant fan-out, tier-aware planning
-(Gold/Silver/Bronze check depth), and customer-specific reporting are the
+**Differentiation (do not cut)** — cross-tenant fan-out, cross-tenant anomaly
+rules, and customer-specific reporting are the
 defensible layer versus PANW's roadmap. Single-tenant planning polish is
 secondary.
 
@@ -389,7 +390,7 @@ has no bypass; unknown tools raise) — the loop that calls it is Phase 2.
     MSSP-specific ones)
   - `scope: tenant | cross_tenant` — cross_tenant: `mssp_tenant_dashboard`,
     `mssp_list_tenants`, `scm_cert_lifecycle`, `scm_mt_analytics`,
-    `scm_incident_summary`, `mssp_tier_comparison`, `scm_discover_tenants`,
+    `scm_incident_summary`, `scm_discover_tenants`,
     `scm_licence_forecast`, `scm_service_maintenance`, `scm_spn_bandwidth`
     (all_tenants mode)
   - `idempotent: true | false` and `retry_policy: retry | fallback |
@@ -451,7 +452,8 @@ in .secrets.toml (same credential as scm_ai_compliance_advisor).
   `scm_licence_forecast`), incident summary (`scm_incident_search`),
   job/change audit (`scm_list_jobs`). Output: ranked Markdown digest per
   tenant plus an estate-level summary, delivered via email/Slack. Findings
-  ranked by severity then customer tier (Gold first). Acceptance test: the
+  ranked by severity then customer tier (Gold first — tier ranking since
+  removed; findings now rank by severity then tenant name). Acceptance test: the
   agent must autonomously surface a finding of the class "NFR licences
   expiring within 90 days across multiple tenants" and "licensed-but-unused
   tenant shell".
@@ -485,17 +487,18 @@ in .secrets.toml (same credential as scm_ai_compliance_advisor).
 Delivered as `planner/estate.py` + `scm_estate_check` + the
 `scm-planner-estate` console script: bounded-concurrency per-tenant
 sub-plans at tier depth (bronze ⊂ silver ⊂ gold; Gold's BPA/NCSC/ISO
-share one snapshot via the extractor TTL cache), plus the three
+share one snapshot via the extractor TTL cache) — tier depth since removed;
+every tenant now runs the full check set — plus the three
 cross-tenant anomaly rules from the spec. Read-only by construction.
 
 - [x] Estate fan-out: a single trigger (e.g. "morning estate check")
   generates per-tenant sub-plans across all loaded tenants
   (`mssp_list_tenants`), executes with bounded concurrency, aggregates
   results.
-- [x] Tier-aware planning: read contracted tier per tenant
-  (`mssp_tenant_dashboard`) and scope check depth accordingly — Bronze:
-  licensing + cert + connectivity basics; Silver: + posture/compliance +
-  change audit; Gold: full BPA/NCSC/ISO27001 assessments + DLP/SSPM posture.
+- [x] ~~Tier-aware planning: read contracted tier per tenant and scope check
+  depth accordingly.~~ Removed — every tenant now runs the full check set:
+  licensing + cert + connectivity basics, posture/compliance + change audit,
+  BPA/NCSC/ISO27001 assessments + DLP/SSPM posture.
 - [x] Cross-tenant anomaly rules: flag inconsistencies invisible to
   per-tenant analysis (e.g. tenant with SD-WAN topology but zero licences;
   duplicate NFR licence sets expiring across tenants; tenants with zero
@@ -525,36 +528,33 @@ MSSP-helpful SCM snippet templates beyond the existing NCSC/NIST pair
 (`scm_create_ncsc_snippet` / `scm_create_nist_snippet` in
 `tools/ncsc_baseline.py`), ranked by value ÷ effort:
 
-1. **Tier snippet builder (Bronze/Silver/Gold)** — wire up the already-written
-   `SNIPPET_TEMPLATES` spec in `audit/tiers.py` as real `client.snippet.create()`
-   calls; lowest effort, content is fully specified already.
-2. **ISO 27001:2022 snippet** — parity with NCSC/NIST; `audit/iso27001_controls.py`
+1. **ISO 27001:2022 snippet** — parity with NCSC/NIST; `audit/iso27001_controls.py`
    already has the Annex A catalogue + BPA mappings.
-3. **NHS DSPT snippet** — same parity gap; `audit/dspt_controls.py` already maps
+2. **NHS DSPT snippet** — same parity gap; `audit/dspt_controls.py` already maps
    Standards 7–10 to BPA checks.
-4. **PCI DSS v4.0 CDE snippet** — net-new framework: zone protection + decryption
+3. **PCI DSS v4.0 CDE snippet** — net-new framework: zone protection + decryption
    exclusions for card-data flows, strict egress logging, no-decrypt rule for
    payment processors.
-5. **Ransomware-readiness snippet** — WildFire ransomware detonation signatures,
+4. **Ransomware-readiness snippet** — WildFire ransomware detonation signatures,
    DNS Security C2/DGA sinkholing, decryption coverage for SMB lateral movement,
    backup-traffic isolation guidance.
-6. **Zero Trust segmentation baseline snippet** — App-ID default-deny
+5. **Zero Trust segmentation baseline snippet** — App-ID default-deny
    microsegmentation + dynamic-address-group tagging convention (NIST SP 800-207).
-7. **Standalone SSL/TLS decryption best-practice snippet** — promote the
-   unbuilt `MSSP-Gold-Decryption*` tier spec to its own reusable snippet.
-8. **Standalone DNS Security / sinkhole snippet** — split out of anti-spyware
+6. **Standalone SSL/TLS decryption best-practice snippet** — forward-proxy and
+   inbound-inspection profiles plus a no-decrypt exclusion list, as one snippet.
+7. **Standalone DNS Security / sinkhole snippet** — split out of anti-spyware
    so it's a shared building block across the frameworks above.
-9. **GlobalProtect / remote-access hardening snippet** — HIP-based posture +
+8. **GlobalProtect / remote-access hardening snippet** — HIP-based posture +
    MFA-enforcement checks; no existing snippet touches remote access today.
-10. **"Day-1 Fast Start" onboarding snippet** — minimal safe-by-default bundle
-    for a brand-new tenant before full tier assignment completes.
+9. **"Day-1 Fast Start" onboarding snippet** — minimal safe-by-default bundle
+    for a brand-new tenant before its full baseline is applied.
 
 **Do this before framework #3**: extract a shared `build_and_create_snippet()`
 helper — NCSC/NIST already duplicate ~130 lines of create/dry-run/error-handling
 logic nearly verbatim; a third framework copying it verbatim is the point to
 parameterize by a `TemplateSet`-like dataclass instead.
 
-**Standing caveat for all 10**: `client.snippet.associate_folder()` /
+**Standing caveat for all 9**: `client.snippet.associate_folder()` /
 `disassociate_folder()` raise `NotImplementedError` in the installed SDK
 (0.15.1) — every future `scm_create_*_snippet` tool can create and populate a
 snippet but cannot attach it to a tenant folder programmatically; that stays a

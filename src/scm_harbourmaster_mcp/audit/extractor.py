@@ -135,8 +135,8 @@ def extract_snapshot(
 
     A single extraction fans out ~30 parallel API calls and can take a couple
     of minutes on a large tenant. Several independent tools (BPA, NCSC/DSPT/
-    ISO27001 gap checks, decrypt-policy audit, tier assess/report, the AS-BUILT
-    report) each pull a snapshot for the same (tenant, folder); a short-TTL
+    ISO27001 gap checks, decrypt-policy audit, the AS-BUILT report) each pull
+    a snapshot for the same (tenant, folder); a short-TTL
     cache lets a back-to-back compliance sweep reuse one extraction instead of
     repeating the full API fan-out per tool.
 

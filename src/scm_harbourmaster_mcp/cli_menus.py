@@ -492,7 +492,7 @@ def _menu_sse_dlp(
 def _menu_mssp_ops(
     tenant: TenantConfig, console, _print_banner, _menu_table, _section, _pause
 ) -> None:
-    """MSSP dashboards, licences, tiers, certificates, and session monitoring."""
+    """MSSP dashboards, licences, certificates, and session monitoring."""
 
     def _draw() -> None:
         _print_banner(tenant)
@@ -539,16 +539,11 @@ def _menu_mssp_ops(
             )
         )
         console.print()
-        _section("TIERS & MIGRATION")
+        _section("TENANTS")
         console.print(
             _menu_table(
                 [
-                    ("11", "Tier Assessment", "Score tenant against contracted tier"),
-                    ("12", "Tier Report", "Markdown tier compliance report"),
-                    ("13", "Tier Comparison", "Side-by-side Gold/Silver/Bronze"),
-                    ("14", "Upgrade Path", "What's needed to upgrade tiers"),
-                    ("15", "Snippet Catalogue", "List MSSP tier snippet templates"),
-                    ("16", "Discover Tenants", "Discover managed sub-tenants"),
+                    ("11", "Discover Tenants", "Discover managed sub-tenants"),
                 ]
             )
         )
@@ -558,12 +553,12 @@ def _menu_mssp_ops(
             _menu_table(
                 [
                     (
-                        "17",
+                        "12",
                         "PAN Service Status",
                         "Upcoming maintenance + incidents per tenant region",
                     ),
                     (
-                        "18",
+                        "13",
                         "Cross-Tenant Analytics",
                         "Apps/threats/connectivity/incidents across tenants",
                     ),
@@ -600,20 +595,10 @@ def _menu_mssp_ops(
         elif choice == "10":
             _op_cert_scan(tenant, console, _pause)
         elif choice == "11":
-            _op_tier_assess(tenant, console, _pause)
-        elif choice == "12":
-            _op_tier_report(tenant, console, _pause)
-        elif choice == "13":
-            _op_tier_comparison(tenant, console, _pause)
-        elif choice == "14":
-            _op_upgrade_path(tenant, console, _pause)
-        elif choice == "15":
-            _op_snippet_catalogue(tenant, console, _pause)
-        elif choice == "16":
             _op_discover_tenants(tenant, console, _pause)
-        elif choice == "17":
+        elif choice == "12":
             _op_service_maintenance(tenant, console, _pause)
-        elif choice == "18":
+        elif choice == "13":
             _op_mt_analytics(tenant, console, _pause)
 
 
@@ -2264,107 +2249,6 @@ def _op_cert_lifecycle(tenant, console, _pause) -> None:
 
 def _op_cert_scan(tenant, console, _pause) -> None:
     _op_cert_lifecycle(tenant, console, _pause)
-
-
-def _op_tier_assess(tenant, console, _pause) -> None:
-    from .audit.bpa_checks import run_all_checks
-    from .audit.extractor import extract_snapshot
-    from .audit.tiers import get_tier, score_findings_against_tier
-    from .auth.oauth import get_scm_client
-
-    client = get_scm_client(tenant)
-    folder = tenant.default_folder or "Shared"
-    tier = (tenant.tier or "bronze").strip()
-    with console.status(f"[cyan]Assessing {folder} against {tier} tier...[/cyan]"):
-        try:
-            snap = extract_snapshot(client, folder, tenant.tenant_id)
-            findings = run_all_checks(snap)
-            tier_def = get_tier(tier)
-            result = score_findings_against_tier(findings, tier_def)
-            compliant = result["tier_compliant"]
-            console.print(
-                Panel(
-                    f"[bold]{tenant.label}[/bold] — Tier: [bold]{tier.upper()}[/bold]  "
-                    f"Compliance: [bold]{result['compliance_score_pct']:.0f}%[/bold]  "
-                    f"Status: [{'green' if compliant else 'red'}]{'● COMPLIANT' if compliant else '✗ NOT COMPLIANT'}[/{'green' if compliant else 'red'}]",
-                    title="Tier Assessment",
-                )
-            )
-        except Exception as exc:
-            console.print(f"[red]Error: {exc}[/red]")
-    _pause()
-
-
-def _op_tier_report(tenant, console, _pause) -> None:
-    _op_tier_assess(tenant, console, _pause)
-
-
-def _op_tier_comparison(tenant, console, _pause) -> None:
-    t = Table(title="MSSP Tier Comparison", box=box.SIMPLE_HEAD)
-    t.add_column("Property", style="cyan")
-    t.add_column("Gold", style="yellow")
-    t.add_column("Silver", style="bright_white")
-    t.add_column("Bronze", style="#cd7f32")
-    for row in [
-        ("Severities Required", "Critical + High + Medium", "Critical + High", "Critical only"),
-        ("NCSC Frameworks", "CAF v4.0 + CE + 10 Steps", "CE v3.2 + 10 Steps", "CE v3.2"),
-        ("Compliance Score Target", "≥95%", "≥85%", "≥75%"),
-        ("Snippets / Profiles", "Comprehensive", "Standard", "Essential"),
-    ]:
-        t.add_row(*row)
-    console.print(t)
-    _pause()
-
-
-def _op_upgrade_path(tenant, console, _pause) -> None:
-    from .audit.bpa_checks import run_all_checks
-    from .audit.extractor import extract_snapshot
-    from .audit.tiers import get_tier, score_findings_against_tier, upgrade_gap
-    from .auth.oauth import get_scm_client
-
-    client = get_scm_client(tenant)
-    folder = tenant.default_folder or "Shared"
-    current_tier = (tenant.tier or "bronze").strip()
-    console.print(f"Current tier: [bold]{current_tier.upper()}[/bold]")
-    target = Prompt.ask(
-        "Target tier", default="silver" if current_tier == "bronze" else "gold"
-    ).strip()
-    with console.status(f"[cyan]Analysing upgrade path {current_tier} → {target}...[/cyan]"):
-        try:
-            snap = extract_snapshot(client, folder, tenant.tenant_id)
-            findings = run_all_checks(snap)
-            current = score_findings_against_tier(findings, get_tier(current_tier))
-            target_result = score_findings_against_tier(findings, get_tier(target))
-            gaps = upgrade_gap(findings, current_tier, target)
-            console.print(
-                Panel(
-                    f"Current: [bold]{current_tier.upper()}[/bold] — {current['compliance_score_pct']:.0f}%\n"
-                    f"Target:  [bold]{target.upper()}[/bold] — {target_result['compliance_score_pct']:.0f}%\n"
-                    f"Gap:     {gaps['blocking_count']} blocking finding(s), "
-                    f"{len(gaps['snippets_to_apply'])} new snippet(s) required",
-                    title="Upgrade Path",
-                )
-            )
-            for s in gaps["snippets_to_apply"]:
-                console.print(f"  [yellow]→[/yellow] {s}")
-        except Exception as exc:
-            console.print(f"[red]Error: {exc}[/red]")
-    _pause()
-
-
-def _op_snippet_catalogue(tenant, console, _pause) -> None:
-    from .audit.tiers import TIERS
-
-    for tier_name, tier_def in TIERS.items():
-        t = Table(title=f"MSSP Tier Snippets — {tier_name.upper()}", box=box.SIMPLE_HEAD)
-        t.add_column("NCSC Frameworks", style="cyan")
-        t.add_column("Onboarding Snippets")
-        t.add_row(
-            ", ".join(tier_def.ncsc_frameworks) or "—",
-            ", ".join(tier_def.scm_snippets) or "—",
-        )
-        console.print(t)
-    _pause()
 
 
 def _op_discover_tenants(tenant, console, _pause) -> None:

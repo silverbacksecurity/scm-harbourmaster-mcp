@@ -48,7 +48,7 @@ SECTION_MAP: dict[str, tuple[str, str]] = {
     "dlp.py": ("Enterprise DLP", "Enterprise DLP profile listing, backup, and restore."),
     "mssp.py": (
         "MSSP Multi-Tenant",
-        "Tier assessment, onboarding, dashboard, licensing, CDL, CASB, ZTNA, Browser, NGFW, AIRS.",
+        "Tenant dashboard, licensing, CDL, CASB, ZTNA, Browser, NGFW, AIRS.",
     ),
     "sdwan.py": (
         "Prisma SD-WAN",

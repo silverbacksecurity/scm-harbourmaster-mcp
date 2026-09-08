@@ -32,7 +32,6 @@ EXPECTED_WRITE_TOOLS = {
     "scm_config_rollback",
     "scm_config_push_track",
     "scm_config_clone",
-    "mssp_onboard_tenant",
     "mssp_evict_tenant",
     "scm_cert_import",
     "scm_tls_profile_manager",

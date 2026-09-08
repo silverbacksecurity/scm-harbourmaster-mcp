@@ -112,13 +112,10 @@ def _print_banner(active_tenant: TenantConfig | None = None) -> None:
     console.print()
 
     if active_tenant:
-        tier_colour = {"gold": "yellow", "silver": "bright_white", "bronze": "#cd7f32"}.get(
-            active_tenant.tier or "", "white"
-        )
         info = (
             f"[bold]Tenant:[/bold] {active_tenant.label}  "
             f"[dim]│[/dim]  [bold]TSG:[/bold] {active_tenant.tenant_id}  "
-            f"[dim]│[/dim]  [bold]Tier:[/bold] [{tier_colour}]{(active_tenant.tier or '').upper()}[/{tier_colour}]"
+            f"[dim]│[/dim]  [bold]Folder:[/bold] {active_tenant.default_folder}"
         )
         console.print(Panel(info, box=box.ROUNDED, border_style="cyan"), justify="center")
     else:
@@ -311,7 +308,7 @@ def _print_main_menu(tenant: TenantConfig | None) -> None:
             [
                 ("3", "SD-WAN", "Sites, elements, WAN networks, topology diagrams..."),
                 ("4", "SSE, DLP & CASB", "DLP profiles, CASB, ZTNA connectors, Browser, AIRS..."),
-                ("5", "MSSP Operations", "Dashboards, licences, tiers, certs, GP sessions, SPN..."),
+                ("5", "MSSP Operations", "Dashboards, licences, certs, GP sessions, SPN..."),
                 (
                     "6",
                     "Posture & Incidents",
@@ -429,7 +426,6 @@ def _op_add_tenant() -> tuple[str, TenantConfig] | None:
         return None
 
     default_folder = Prompt.ask("Default folder", default="Shared").strip() or "Shared"
-    tier = Prompt.ask("Service tier", choices=["gold", "silver", "bronze"], default="gold")
     term_raw = Prompt.ask("Service term (years)", choices=["1", "2", "3"], default="1")
     service_term_years = int(term_raw)
     account_ref = Prompt.ask("Account / CRM reference (optional)", default="").strip()
@@ -445,7 +441,6 @@ def _op_add_tenant() -> tuple[str, TenantConfig] | None:
     t.add_row("Client ID", client_id)
     t.add_row("Client Secret", "[dim]●●●●●●●●●●●●[/dim]")
     t.add_row("Default Folder", default_folder)
-    t.add_row("Tier", tier.upper())
     t.add_row("Service Term", f"{service_term_years} year(s)")
     if account_ref:
         t.add_row("Account Ref", account_ref)
@@ -461,7 +456,6 @@ def _op_add_tenant() -> tuple[str, TenantConfig] | None:
     settings_block += f'client_id          = "{client_id}"\n'
     settings_block += f'default_folder     = "{default_folder}"\n'
     settings_block += f'label              = "{label}"\n'
-    settings_block += f'tier               = "{tier}"\n'
     settings_block += f"service_term_years = {service_term_years}\n"
     if account_ref:
         settings_block += f'account_ref        = "{account_ref}"\n'
@@ -499,7 +493,6 @@ def _op_add_tenant() -> tuple[str, TenantConfig] | None:
                 client_secret=_SecretStr(client_secret),
                 default_folder=default_folder,
                 label=label,
-                tier=tier,  # type: ignore[arg-type,unused-ignore]
                 service_term_years=service_term_years,
                 account_ref=account_ref,
             )
@@ -520,7 +513,6 @@ def _op_add_tenant() -> tuple[str, TenantConfig] | None:
         client_secret=_SecretStr(client_secret),
         default_folder=default_folder,
         label=label,
-        tier=tier,  # type: ignore[arg-type]
         service_term_years=service_term_years,
         account_ref=account_ref,
     )
@@ -534,17 +526,15 @@ def _op_list_tenants(tenants: dict[str, TenantConfig]) -> None:
     t.add_column("#", style="dim", width=3)
     t.add_column("Key", style="cyan")
     t.add_column("Tenant ID", style="white")
-    t.add_column("Tier", justify="center")
+    t.add_column("Folder", style="white")
     t.add_column("Label", style="white")
 
-    tier_colours = {"gold": "yellow", "silver": "bright_white", "bronze": "#cd7f32"}
     for i, (k, tc) in enumerate(sorted(tenants.items()), 1):
-        colour = tier_colours.get(tc.tier or "", "white")
         t.add_row(
             str(i),
             k,
             tc.tenant_id,
-            f"[{colour}]{(tc.tier or '—').upper()}[/{colour}]",
+            tc.default_folder or "—",
             tc.label,
         )
     console.print(t)
@@ -556,11 +546,9 @@ def _op_select_tenant(tenants: dict[str, TenantConfig]) -> TenantConfig | None:
     keys = sorted(tenants.keys())
     for i, k in enumerate(keys, 1):
         tc = tenants[k]
-        tier_colours = {"gold": "yellow", "silver": "bright_white", "bronze": "#cd7f32"}
-        colour = tier_colours.get(tc.tier or "", "white")
         console.print(
             f"  [cyan][{i}][/cyan]  {tc.label}  "
-            f"[dim]│[/dim]  [{colour}]{(tc.tier or '').upper()}[/{colour}]  "
+            f"[dim]│[/dim]  {tc.default_folder or '—'}  "
             f"[dim]{tc.tenant_id}[/dim]"
         )
     console.print()

@@ -1,447 +1,40 @@
 """
-MCP tools for MSSP Gold / Silver / Bronze tier management.
+MCP tools for MSSP tenant estate management.
 
 Tools:
-    mssp_tier_assess        — score a tenant against their contracted tier
-    mssp_tier_report        — full Markdown tier compliance report
-    mssp_upgrade_path       — what's needed to move from current to next tier
-    mssp_onboard_tenant     — apply tier snippets to a new customer folder
-    mssp_tenant_dashboard   — summary of all tenants and their tier compliance
-    mssp_snippet_catalogue  — list tier snippet templates and their contents
+    mssp_tenant_dashboard   — summary of every tenant loaded in the server
+    scm_license_info        — subscription licences and expiry per tenant
+    scm_mobile_user_stats   — allocation and logged-in mobile-user counts
+    scm_discover_tenants    — discover sub-tenants managed from this tenant
 """
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from ..audit.bpa_checks import run_all_checks
-from ..audit.extractor import extract_snapshot
-from ..audit.models import Status
-from ..audit.tiers import (
-    SNIPPET_TEMPLATES,
-    TIER_ORDER,
-    TIERS,
-    get_tier,
-    score_findings_against_tier,
-    upgrade_gap,
-)
 from ..auth.oauth import get_tenant_meta, list_loaded_tenants
-from ..utils.errors import handle_scm_exception
 from ..utils.logging import get_logger
 from ..utils.tool_decorator import scm_tool
 
 logger = get_logger(__name__)
 
-_TIER_ICON = {"gold": "🥇", "silver": "🥈", "bronze": "🥉"}
 _STATUS_ICON = {"compliant": "✅", "non-compliant": "❌", "gap": "⚠️"}
 
 
 def register_mssp_tools(mcp: FastMCP, get_client: Any, get_settings: Any) -> None:
-    """Register all MSSP tier management tools."""
+    """Register the MSSP tenant estate, licensing, and discovery tools."""
     tool = scm_tool(get_client)
-    tool = scm_tool(get_client)
-
-    # ── Tier Assessment ───────────────────────────────────────────────────────
-
-    @mcp.tool()
-    @tool
-    def mssp_tier_assess(client: Any, tenant_id: str, folder: str, tier: str = "") -> str:
-        """Score a tenant folder against its contracted MSSP service tier.
-
-        Pulls live SCM configuration, runs all BPA checks, then scores results
-        against the tier requirements:
-          Bronze — Critical checks must pass (CE baseline)
-          Silver — Critical + High checks must pass (CE Plus)
-          Gold   — All checks must pass (CAF v4.0)
-
-        Args:
-            folder: SCM folder to assess.
-            tier: Service tier to assess against (gold/silver/bronze).
-                  If omitted, uses the tenant's configured tier.
-            tenant_id: SCM tenant ID (MSSP mode).
-
-        Returns:
-            JSON tier compliance result with breach list and score percentage.
-        """
-        snap = extract_snapshot(client, folder=folder, tenant_id=tenant_id or "default")
-        findings = run_all_checks(snap)
-
-        # Resolve tier — argument overrides tenant config
-        resolved_tier = tier.lower() if tier else "bronze"
-        if not tier:
-            # Try to resolve from dynaconf tenant config
-            try:
-                settings = get_settings()
-                if hasattr(settings, "scm_tier"):
-                    resolved_tier = settings.scm_tier
-            except Exception:
-                pass
-
-        tier_def = get_tier(resolved_tier)
-        result = score_findings_against_tier(findings, tier_def)
-        result["folder"] = folder
-        result["extraction_errors"] = len(snap.extraction_errors)
-
-        # Attach upgrade path if not compliant
-        if not result["tier_compliant"] and resolved_tier != "gold":
-            idx = TIER_ORDER.index(resolved_tier)
-            if idx + 1 < len(TIER_ORDER):
-                next_tier = TIER_ORDER[idx + 1]
-                result["next_tier"] = next_tier
-                result["upgrade_gap_count"] = len(
-                    [
-                        f
-                        for f in findings
-                        if f.severity in get_tier(next_tier).required_severities
-                        and f.status in (Status.FAIL, Status.WARN)
-                        and f.severity not in tier_def.required_severities
-                    ]
-                )
-
-        return json.dumps(result, indent=2)
-
-    # ── Tier Report ───────────────────────────────────────────────────────────
-
-    @mcp.tool()
-    @tool
-    def mssp_tier_report(
-        client: Any, tenant_id: str, folder: str, tier: str, save_to: str = ""
-    ) -> str:
-        """Generate a Markdown tier compliance report for a customer folder.
-
-        Produces a customer-facing document showing:
-        - Service tier description and included features
-        - Compliance score against tier requirements
-        - Breach findings with remediation steps
-        - Advisory findings (higher tier, for upsell context)
-        - Upgrade path to next tier
-
-        Args:
-            folder: SCM folder to assess.
-            tier: Service tier (gold/silver/bronze).
-            tenant_id: SCM tenant ID.
-            save_to: Optional file path to write the report.
-
-        Returns:
-            Markdown compliance report.
-        """
-        snap = extract_snapshot(client, folder=folder, tenant_id=tenant_id or "default")
-        findings = run_all_checks(snap)
-        tier_def = get_tier(tier)
-        score = score_findings_against_tier(findings, tier_def)
-
-        from datetime import UTC, datetime
-
-        lines: list[str] = []
-
-        def h(n: int, t: str) -> None:
-            lines.append(f"{'#' * n} {t}\n")
-
-        def ln(t: str = "") -> None:
-            lines.append(t)
-
-        icon = _TIER_ICON.get(tier, "")
-        compliant = score["tier_compliant"]
-        status_str = "**COMPLIANT** ✅" if compliant else "**NON-COMPLIANT** ❌"
-
-        h(1, f"{icon} MSSP {tier_def.label} Tier — Service Compliance Report")
-        ln(f"**Customer folder:** `{folder}`")
-        ln(f"**Generated:** {datetime.now(UTC).isoformat()}")
-        ln(f"**Tier:** {tier_def.label} — {tier_def.description}")
-        ln(f"**Overall status:** {status_str}")
-        ln()
-
-        # Compliance score
-        h(2, "Compliance Score")
-        pct = score["compliance_score_pct"]
-        bar_filled = int(pct / 5)
-        bar = "█" * bar_filled + "░" * (20 - bar_filled)
-        ln(f"`{bar}` **{pct}%**")
-        ln()
-        ln("| Metric | Count |")
-        ln("|--------|-------|")
-        ln(f"| Required checks ({tier_def.label} tier) | {score['required_checks']} |")
-        ln(f"| Passed | {score['passed_required']} |")
-        ln(f"| **Breaches (must fix)** | **{score['breach_count']}** |")
-        ln(f"| Advisory (above tier scope) | {score['advisory_count']} |")
-        ln()
-
-        # Service description
-        h(2, "Service Tier Description")
-        ln(tier_def.service_description)
-        ln()
-        h(3, "Included in this tier")
-        for feature in tier_def.included_features:
-            ln(f"- ✅ {feature}")
-        ln()
-        if tier_def.excluded_features:
-            h(3, "Not included (available in higher tiers)")
-            for feature in tier_def.excluded_features:
-                ln(f"- ➖ {feature}")
-            ln()
-
-        # Breach findings
-        if score["breaches"]:
-            h(2, "🔴 Tier Breaches — Action Required")
-            ln(
-                f"The following {score['breach_count']} finding(s) must be resolved "
-                f"to meet {tier_def.label} tier requirements.\n"
-            )
-            for f in score["breaches"]:
-                sev = f["severity"].upper()
-                h(3, f"[{f['check_id']}] {f['title']} — {sev}")
-                ln(f"**Issue:** {f['description']}")
-                ln()
-                if f["affected_objects"]:
-                    objs = f["affected_objects"][:8]
-                    more = (
-                        f" _(+{len(f['affected_objects']) - 8} more)_"
-                        if len(f["affected_objects"]) > 8
-                        else ""
-                    )
-                    ln(f"**Affected:** `{'`, `'.join(objs)}`{more}")
-                    ln()
-                ln(f"**Remediation:** {f['remediation']}")
-                ln()
-                if f["ncsc_refs"]:
-                    ln(f"**NCSC controls:** {', '.join(f'`{r}`' for r in f['ncsc_refs'])}")
-                ln()
-        else:
-            h(2, "✅ No Tier Breaches")
-            ln(f"All {tier_def.label} tier requirements are satisfied.")
-            ln()
-
-        # Advisory findings (out of tier scope — upsell context)
-        if score["advisory"] and tier != "gold":
-            next_idx = TIER_ORDER.index(tier) + 1
-            next_tier_label = (
-                TIERS[TIER_ORDER[next_idx]].label if next_idx < len(TIER_ORDER) else None
-            )
-            if next_tier_label:
-                h(2, f"⚠️ Advisory — {next_tier_label} Tier Gaps")
-                ln(
-                    f"The following findings are outside your current {tier_def.label} scope "
-                    f"but would be required under a {next_tier_label} tier contract.\n"
-                )
-                for f in score["advisory"][:5]:
-                    ln(f"- `{f['check_id']}` **{f['title']}** ({f['severity']})")
-                if len(score["advisory"]) > 5:
-                    ln(f"- _...and {len(score['advisory']) - 5} more_")
-                ln()
-
-        # Upgrade path
-        if tier != "gold":
-            next_idx = TIER_ORDER.index(tier) + 1
-            if next_idx < len(TIER_ORDER):
-                next_name = TIER_ORDER[next_idx]
-                next_def = TIERS[next_name]
-                gap = upgrade_gap(findings, tier, next_name)
-                h(2, f"⬆️ Upgrade Path: {tier_def.label} → {next_def.label}")
-                if gap["upgrade_ready"]:
-                    ln(
-                        f"✅ All {next_def.label} tier checks are currently passing. "
-                        f"Upgrade requires applying {len(gap['snippets_to_apply'])} additional snippets."
-                    )
-                else:
-                    ln(f"{gap['blocking_count']} additional check(s) must pass before upgrading.")
-                ln()
-                if gap["new_features"]:
-                    ln(f"**New features in {next_def.label}:**")
-                    for feat in gap["new_features"][:6]:
-                        ln(f"- {feat}")
-                    ln()
-                if gap["snippets_to_apply"]:
-                    ln(f"**Snippets to apply:** `{'`, `'.join(gap['snippets_to_apply'])}`")
-                    ln()
-
-        # NCSC framework table
-        h(2, "NCSC Framework Coverage")
-        ln("| Framework | Status |")
-        ln("|-----------|--------|")
-        for fw in ("CAF v4.0", "CE v3.2", "10 Steps", "NSF"):
-            covered = fw in tier_def.ncsc_frameworks
-            ln(f"| {fw} | {'✅ In scope' if covered else '➖ Not in scope'} |")
-        ln()
-
-        report = "\n".join(lines)
-        if save_to:
-            from pathlib import Path
-
-            Path(save_to).write_text(report)
-            logger.info("tier_report_saved", path=save_to, folder=folder, tier=tier)
-            return f"Report saved to: {save_to}\n\n{report}"
-        return report
-
-    # ── Upgrade Path ──────────────────────────────────────────────────────────
-
-    @mcp.tool()
-    @tool
-    def mssp_upgrade_path(
-        client: Any, tenant_id: str, folder: str, from_tier: str, to_tier: str
-    ) -> str:
-        """Show what's needed to upgrade a tenant from one tier to another.
-
-        Analyses the live configuration against the target tier requirements
-        and returns:
-        - Blocking findings that must be resolved before upgrading
-        - Additional NCSC controls that become mandatory
-        - New SCM snippets that need to be applied
-        - New features included in the target tier
-
-        Args:
-            folder: SCM folder to assess.
-            from_tier: Current contracted tier (gold/silver/bronze).
-            to_tier: Target tier (gold/silver/bronze).
-            tenant_id: SCM tenant ID.
-
-        Returns:
-            JSON upgrade gap analysis.
-        """
-        try:
-            if from_tier == to_tier:
-                return json.dumps({"error": "from_tier and to_tier are the same"})
-            if TIER_ORDER.index(from_tier) >= TIER_ORDER.index(to_tier):
-                return json.dumps({"error": "to_tier must be higher than from_tier"})
-
-            snap = extract_snapshot(client, folder=folder, tenant_id=tenant_id or "default")
-            findings = run_all_checks(snap)
-
-            result = upgrade_gap(findings, from_tier, to_tier)
-            result["folder"] = folder
-            return json.dumps(result, indent=2)
-        except Exception as exc:
-            return f"Error: {handle_scm_exception(exc)}"
-
-    # ── Tenant Onboarding ─────────────────────────────────────────────────────
-
-    @mcp.tool()
-    @tool
-    def mssp_onboard_tenant(
-        client: Any, folder: str, tier: str, create_folder: bool = False, dry_run: bool = True
-    ) -> str:
-        """Onboard a new customer tenant with the correct tier snippet set.
-
-        Checks whether required tier snippets exist in SCM and reports which
-        are present vs missing. With dry_run=False, associates existing snippets
-        with the target folder.
-
-        Args:
-            folder: Customer SCM folder name.
-            tier: Service tier to apply (gold/silver/bronze).
-            tenant_id: SCM tenant ID.
-            create_folder: If True, create the folder if it doesn't exist.
-            dry_run: If True (default), report actions without executing.
-                     Set to False to apply snippet associations.
-
-        Returns:
-            Onboarding plan or execution result with snippet status.
-        """
-        tier_def = get_tier(tier)
-
-        # Check folder exists
-        folder_exists = False
-        try:
-            client.folder.fetch(name=folder)
-            folder_exists = True
-        except Exception:
-            pass
-
-        # Check which tier snippets exist in SCM
-        try:
-            existing_snippets_raw = client.snippet.list()
-            existing_snippet_names = {
-                s.name if hasattr(s, "name") else s.get("name", "") for s in existing_snippets_raw
-            }
-        except Exception:
-            existing_snippet_names = set()
-
-        snippets_present = [s for s in tier_def.scm_snippets if s in existing_snippet_names]
-        snippets_missing = [s for s in tier_def.scm_snippets if s not in existing_snippet_names]
-
-        plan: dict[str, Any] = {
-            "folder": folder,
-            "tier": tier,
-            "tier_label": tier_def.label,
-            "dry_run": dry_run,
-            "folder_exists": folder_exists,
-            "create_folder": create_folder and not folder_exists,
-            "snippets_required": list(tier_def.scm_snippets),
-            "snippets_present": snippets_present,
-            "snippets_missing": snippets_missing,
-            "actions": [],
-            "warnings": [],
-        }
-
-        # Build action list
-        if not folder_exists:
-            if create_folder:
-                plan["actions"].append(f"CREATE folder '{folder}'")
-            else:
-                plan["warnings"].append(
-                    f"Folder '{folder}' does not exist. Set create_folder=True to create it."
-                )
-
-        for snippet in snippets_present:
-            plan["actions"].append(f"ASSOCIATE snippet '{snippet}' → folder '{folder}'")
-
-        for snippet in snippets_missing:
-            plan["warnings"].append(
-                f"Snippet '{snippet}' not found in SCM. "
-                f"Create it with the content defined in SNIPPET_TEMPLATES['{snippet}']. "
-                "Run mssp_snippet_catalogue for content specifications."
-            )
-
-        if dry_run:
-            plan["result"] = "DRY RUN — no changes made"
-            return json.dumps(plan, indent=2)
-
-        # Execute
-        executed: list[str] = []
-        errors: list[str] = []
-
-        if not folder_exists and create_folder:
-            try:
-                client.folder.create({"name": folder})
-                executed.append(f"Created folder '{folder}'")
-                logger.info("folder_created", folder=folder, tier=tier)
-            except Exception as exc:
-                errors.append(f"Failed to create folder: {exc}")
-
-        # Associate snippets — SCM snippet association is done via folder update
-        # or snippet.associate() depending on SDK version
-        for snippet_name in snippets_present:
-            try:
-                # Attempt association — SDK may vary; log outcome
-                snippet_obj = next(
-                    (
-                        s
-                        for s in existing_snippets_raw
-                        if (s.name if hasattr(s, "name") else s.get("name")) == snippet_name
-                    ),
-                    None,
-                )
-                if snippet_obj:
-                    executed.append(f"Associated snippet '{snippet_name}' with '{folder}'")
-                    logger.info("snippet_associated", snippet=snippet_name, folder=folder)
-            except Exception as exc:
-                errors.append(f"Failed to associate '{snippet_name}': {exc}")
-
-        plan["result"] = "EXECUTED"
-        plan["executed"] = executed
-        plan["execution_errors"] = errors
-        return json.dumps(plan, indent=2)
 
     # ── Tenant Dashboard ──────────────────────────────────────────────────────
 
     @mcp.tool()
     def mssp_tenant_dashboard(tenant_id: str = "") -> str:
-        """Show a summary dashboard of all loaded MSSP tenants and their tier status.
+        """Show a summary dashboard of all loaded MSSP tenants.
 
         Lists every tenant currently cached in the server, showing their
-        configured tier, folder, label, and service term.
+        folder, label, and service term.
 
         Args:
             tenant_id: Not used for filtering — returns all loaded tenants.
@@ -457,57 +50,20 @@ def register_mssp_tools(mcp: FastMCP, get_client: Any, get_settings: Any) -> Non
             "# MSSP Tenant Dashboard\n",
             f"**Loaded tenants:** {len(loaded)}\n",
             "",
-            "| Tenant ID | Label | Tier | Folder | Term | Account Ref |",
-            "|-----------|-------|------|--------|------|-------------|",
+            "| Tenant ID | Label | Folder | Term | Account Ref |",
+            "|-----------|-------|--------|------|-------------|",
         ]
 
         for tid in loaded:
             cfg = get_tenant_meta(tid)
             if cfg:
-                tier: str = cfg.tier or "—"
-                tier_icon = (_TIER_ICON.get(tier, "") + " ") if tier in _TIER_ICON else ""
                 label = cfg.label or "—"
                 folder = cfg.default_folder or "—"
                 term = f"{cfg.service_term_years}yr" if cfg.service_term_years else "—"
                 ref = cfg.account_ref or "—"
             else:
-                tier_icon, label, tier, folder, term, ref = "", "—", "—", "—", "—", "—"
-            lines.append(f"| `{tid}` | {label} | {tier_icon}{tier} | {folder} | {term} | {ref} |")
-
-        return "\n".join(lines)
-
-    # ── Snippet Catalogue ─────────────────────────────────────────────────────
-
-    @mcp.tool()
-    def mssp_snippet_catalogue(tier: str = "") -> str:
-        """List MSSP tier snippet templates and their content specifications.
-
-        Shows what each tier's SCM snippets should contain, enabling
-        engineers to create the correct snippets in SCM before onboarding.
-
-        Args:
-            tier: Filter to a specific tier (gold/silver/bronze) or omit for all.
-
-        Returns:
-            Markdown catalogue of snippet templates by tier.
-        """
-        lines: list[str] = ["# MSSP Snippet Catalogue\n"]
-
-        tiers_to_show = [tier.lower()] if tier else TIER_ORDER
-        for t in tiers_to_show:
-            tier_def = get_tier(t)
-            icon = _TIER_ICON.get(t, "")
-            lines.append(f"## {icon} {tier_def.label} Tier\n")
-            lines.append(f"_{tier_def.description}_\n")
-            for snippet_name in tier_def.scm_snippets:
-                template = SNIPPET_TEMPLATES.get(snippet_name)
-                lines.append(f"### `{snippet_name}`")
-                if template:
-                    lines.append(f"**Purpose:** {template['description']}")
-                    lines.append(f"**Content:** {template['contains']}")
-                else:
-                    lines.append("_No template specification available._")
-                lines.append("")
+                label, folder, term, ref = "—", "—", "—", "—"
+            lines.append(f"| `{tid}` | {label} | {folder} | {term} | {ref} |")
 
         return "\n".join(lines)
 
@@ -1228,56 +784,6 @@ def register_casb_dlp_tools(mcp: FastMCP, get_client: Any) -> None:
                 )
         else:
             lines.append("_No plugins configured._\n")
-
-        return "\n".join(lines)
-
-    # ── Tier Comparison ───────────────────────────────────────────────────────
-
-    @mcp.tool()
-    def mssp_tier_comparison() -> str:
-        """Return a side-by-side comparison of Gold / Silver / Bronze tiers.
-
-        Useful for sales and customer conversations — shows what each tier
-        includes, which NCSC frameworks it covers, and the check requirements.
-
-        Returns:
-            Markdown comparison table.
-        """
-        lines: list[str] = [
-            "# MSSP Service Tier Comparison\n",
-            "| Feature | 🥉 Bronze | 🥈 Silver | 🥇 Gold |",
-            "|---------|-----------|-----------|---------|",
-        ]
-
-        rows: list[tuple[str, str, str, str]] = [
-            ("NCSC framework", "CE v3.2", "CE v3.2 + 10 Steps", "CAF v4.0 (full)"),
-            ("BPA checks required", "Critical only", "Critical + High", "All (incl. Medium/Low)"),
-            ("Anti-spyware", "Basic", "With DNS sinkholing", "With DNS sinkholing"),
-            ("Vulnerability protection", "✅", "✅", "✅"),
-            ("WildFire analysis", "❌", "✅", "✅"),
-            ("DNS security profiles", "❌", "✅", "✅"),
-            ("URL filtering", "❌", "❌", "✅"),
-            ("File blocking", "❌", "❌", "✅"),
-            ("SSL/TLS decryption", "❌", "❌", "✅"),
-            ("Zone protection profiles", "❌", "✅", "✅"),
-            ("Log forwarding / SIEM", "❌", "✅", "✅"),
-            ("SOC monitoring", "❌", "Business hours", "24/7"),
-            ("Compliance reporting", "CE baseline", "CE Plus", "CAF v4.0 quarterly"),
-        ]
-
-        for label, bronze_val, silver_val, gold_val in rows:
-            lines.append(f"| {label} | {bronze_val} | {silver_val} | {gold_val} |")
-
-        lines.append("")
-        lines.append("## Snippet Requirements\n")
-        for t in TIER_ORDER:
-            tier_def = TIERS[t]
-            icon = _TIER_ICON.get(t, "")
-            lines.append(
-                f"**{icon} {tier_def.label}:** "
-                + ", ".join(f"`{s}`" for s in tier_def.scm_snippets)
-            )
-        lines.append("")
 
         return "\n".join(lines)
 

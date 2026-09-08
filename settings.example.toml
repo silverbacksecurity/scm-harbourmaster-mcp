@@ -18,17 +18,11 @@ scm_default_folder = "Shared"
 # Uncomment and duplicate for each managed customer tenant.
 # Secrets (client_secret) should live in .secrets.toml under the same key path.
 #
-# Service tiers:
-#   bronze — CE baseline   (Critical BPA checks; CE v3.2 reporting)
-#   silver — CE Plus       (Critical + High BPA checks; CE + 10 Steps reporting)
-#   gold   — CAF v4.0 full (All BPA checks; full CAF v4.0 + CE + 10 Steps + NSF reporting)
-#
 # [tenants.customer-a]
 # tenant_id              = "tsg-id-for-customer-a"
 # client_id              = "svc-account@iam.panserviceaccount.com"
 # default_folder         = "Customer-A"
 # label                  = "Customer A Corp"
-# tier                   = "gold"          # gold | silver | bronze
 # service_term_years     = 3               # 1 | 2 | 3
 # account_ref            = "CRM-12345"     # CRM / ticketing system reference
 # prisma_access_api_key  = "..."           # Optional — Prisma Access admin portal:
@@ -41,6 +35,5 @@ scm_default_folder = "Shared"
 # client_id          = "svc-account-b@iam.panserviceaccount.com"
 # default_folder     = "Customer-B"
 # label              = "Customer B Ltd"
-# tier               = "silver"
 # service_term_years = 1
 # account_ref        = "CRM-67890"

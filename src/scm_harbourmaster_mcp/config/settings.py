@@ -11,7 +11,7 @@ Priority (highest to lowest):
 from __future__ import annotations
 
 import functools
-from typing import Any, Literal
+from typing import Any
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -20,11 +20,9 @@ from ..utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-ServiceTier = Literal["gold", "silver", "bronze"]
-
 
 class TenantConfig(BaseSettings):
-    """Per-tenant SCM credentials, folder context, and MSSP service tier."""
+    """Per-tenant SCM credentials, folder context, and MSSP commercial metadata."""
 
     model_config = SettingsConfigDict(populate_by_name=True)
 
@@ -36,12 +34,6 @@ class TenantConfig(BaseSettings):
     label: str = Field("", description="Human-readable customer name")
 
     # ── MSSP commercial fields ──────────────────────────────────────────────
-    tier: ServiceTier = Field(
-        "bronze",
-        description=(
-            "MSSP service tier: gold (full CAF v4.0), silver (CE Plus), bronze (CE baseline)"
-        ),
-    )
     service_term_years: int = Field(
         1,
         description="Contract term in years (1, 2, or 3)",
@@ -225,7 +217,7 @@ def load_all_tenant_configs() -> dict[str, TenantConfig]:
 
     Secrets overlay base settings key-by-key per tenant so a customer's OAuth2
     credentials in the git-ignored .secrets.toml can be layered onto its
-    non-secret metadata (folder, tier, label, ...) in the checked-in
+    non-secret metadata (folder, label, ...) in the checked-in
     settings.toml. A tenant block that fails validation is skipped rather than
     aborting the whole load.
     """

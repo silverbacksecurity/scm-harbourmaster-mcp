@@ -57,48 +57,12 @@ mssp_list_tenants:
   idempotent: true
   retry_policy: retry
   scope: cross_tenant
-mssp_onboard_tenant:
-  access: write
-  domain: identity
-  idempotent: false
-  retry_policy: fail_fast
-  scope: tenant
-mssp_snippet_catalogue:
-  access: read
-  domain: config_change
-  idempotent: true
-  retry_policy: retry
-  scope: cross_tenant
 mssp_tenant_dashboard:
   access: read
   domain: operational_health
   idempotent: true
   retry_policy: retry
   scope: cross_tenant
-mssp_tier_assess:
-  access: read
-  domain: posture_compliance
-  idempotent: true
-  retry_policy: retry
-  scope: tenant
-mssp_tier_comparison:
-  access: read
-  domain: posture_compliance
-  idempotent: true
-  retry_policy: retry
-  scope: cross_tenant
-mssp_tier_report:
-  access: read
-  domain: posture_compliance
-  idempotent: true
-  retry_policy: retry
-  scope: tenant
-mssp_upgrade_path:
-  access: read
-  domain: posture_compliance
-  idempotent: true
-  retry_policy: retry
-  scope: tenant
 scm_address_create:
   access: write
   domain: config_change
@@ -466,10 +430,10 @@ scm_estate_check:
   scope: cross_tenant
   idempotent: true
   retry_policy: fail_fast
-  known_failure_modes: 'Launches a background estate-wide fan-out (per-tenant
-    sub-plans at tier depth) and returns immediately - re-invoking spawns a
-    duplicate sweep. Read-only by construction (no approver wired). Gold-depth
-    tenants take ~2-3 min each; digest lands at plans/estate-<stamp>.md.'
+  known_failure_modes: 'Launches a background estate-wide fan-out (one sub-plan
+    per tenant) and returns immediately - re-invoking spawns a duplicate sweep.
+    Read-only by construction (no approver wired). Each tenant takes ~2-3 min;
+    digest lands at plans/estate-<stamp>.md.'
 scm_folder_get:
   access: read
   domain: deployment
@@ -602,7 +566,7 @@ scm_msr_report:
   domain: operational_health
   idempotent: true
   known_failure_modes: Every source degrades per-section (disclosed in §8) — Insights
-    bandwidth may 400/403 on some tenants, compliance needs Silver+ tier and licence,
+    bandwidth may 400/403 on some tenants, compliance needs a Compliance Center licence,
     SSR ledger empty when ssr_objects unconfigured. Incident resolution timestamps
     absent → MTTR reported n/a.
   retry_policy: retry

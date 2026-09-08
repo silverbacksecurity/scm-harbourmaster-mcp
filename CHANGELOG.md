@@ -103,6 +103,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   — `focus` entries are now `(rulebase, name)` tuples. 32 new tests
   (18 → 41 in `test_commit_preview.py`, 9 new in `test_config_cleanup_tools.py`)
 
+### Removed
+- **Gold / Silver / Bronze service tiers** — the whole tier subsystem is gone as
+  redundant with the compliance tooling that already reports the same posture
+  per tenant (`scm_bpa_assess`, `scm_ncsc_assess`, `scm_iso27001_assess`,
+  `scm_compliance_center`). Deleted `audit/tiers.py` (tier definitions, severity
+  scoring, upgrade-gap analysis, `SNIPPET_TEMPLATES`) and its tests.
+  - **Six MCP tools removed** (161 tools, down from 167): `mssp_tier_assess`,
+    `mssp_tier_report`, `mssp_tier_comparison`, `mssp_upgrade_path`,
+    `mssp_onboard_tenant`, `mssp_snippet_catalogue`. The last two were entirely
+    defined by the tier snippet spec, so they had no content left once it went;
+    `scm_folder_get` + `scm_snippet_list` cover what onboarding actually checked.
+    `mssp_onboard_tenant` was also the only write tool in the MSSP domain, so the
+    planner manifest's write-tool set shrinks by one.
+  - **Breaking config change**: `TenantConfig.tier` is removed. `TenantConfig`
+    is `extra="forbid"`, so a leftover `tier = "..."` line in `settings.toml`
+    makes that whole tenant block fail validation and silently drop out of
+    `load_all_tenant_configs()` — **delete the `tier` key from every
+    `[tenants.*]` block** when upgrading.
+  - **MSR pack**: compliance depth is no longer tier-gated. Every tenant now gets
+    the framework score table *and* the 30-day trend annex; Bronze tenants
+    previously got neither and an upsell note instead.
+  - **Planner**: `estate.py`'s `tier_steps()` becomes `estate_steps()` — one
+    uniform check set per tenant (licensing, certs, connectivity, BPA, change
+    audit, NCSC CAF, ISO 27001, DLP/SSPM) rather than bronze ⊂ silver ⊂ gold
+    depth, so previously-Bronze tenants now run the full sweep (~2-3 min each;
+    the BPA/NCSC/ISO steps still share one snapshot via the extractor TTL cache).
+    Nightly digests drop the `mssp_tier_assess` step and the `--no-tier-assess`
+    flag, and rank findings by severity then tenant name rather than tier.
+  - **CLI**: the MSSP Operations menu loses its "TIERS & MIGRATION" section
+    (options 11-15 removed; Discover Tenants / PAN Service Status / Cross-Tenant
+    Analytics renumber to 11/12/13). Tenant banners, listings, and
+    `list-tenants` show the default folder where they showed the tier.
+
 ### Changed
 - **Renamed the Python package and distribution** — `scm-mcp-mssp` is now
   **`scm-harbourmaster-mcp`**, and the import package `scm_mcp_mssp` is now

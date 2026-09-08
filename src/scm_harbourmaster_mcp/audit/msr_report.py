@@ -312,7 +312,6 @@ class MsrData:
 
     tenant_label: str = ""
     tenant_id: str = ""
-    tier: str = "bronze"
     mssp_name: str = "MSSP"
     period_start: datetime = field(default_factory=lambda: datetime.now(UTC))
     period_end: datetime = field(default_factory=lambda: datetime.now(UTC))
@@ -339,7 +338,7 @@ class MsrData:
     threat_summary: dict[str, Any] = field(default_factory=dict)  # blocked-event counts
 
     # source name → error string; sources absent from BOTH this and `gathered`
-    # were not attempted (e.g. compliance below gold tier)
+    # were not attempted
     errors: dict[str, str] = field(default_factory=dict)
     gathered: list[str] = field(default_factory=list)
 
@@ -418,11 +417,7 @@ def _exec_summary(data: MsrData, stats: dict[str, Any]) -> list[str]:
         bullets.append(
             f"🟠 **{len(expiring)} licence group(s) expire within 90 days** — see Renewal Posture."
         )
-    if (
-        data.tier.lower() != "bronze"
-        and data.compliance_timeline
-        and len(data.compliance_timeline) >= 2
-    ):
+    if data.compliance_timeline and len(data.compliance_timeline) >= 2:
         first = data.compliance_timeline[0].get("overall_score")
         last = data.compliance_timeline[-1].get("overall_score")
         if isinstance(first, int | float) and isinstance(last, int | float) and last < first:
@@ -465,15 +460,14 @@ def _exec_summary(data: MsrData, stats: dict[str, Any]) -> list[str]:
 
 
 def render_msr_report(data: MsrData) -> str:  # noqa: C901
-    """Render the MSR pack as markdown. Tier controls compliance-annex depth."""
+    """Render the MSR pack as markdown."""
     stats = compute_service_stats(data.incidents, data.jobs)
-    tier = data.tier.lower()
     generated = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
 
     lines: list[str] = [
         f"# Monthly Service Review — {data.tenant_label or data.tenant_id}",
         "",
-        f"**Period:** {data.period_label}  |  **Service tier:** {tier.title()}  |  "
+        f"**Period:** {data.period_label}  |  "
         f"**Prepared by:** {data.mssp_name}  |  **Generated:** {generated}",
         "",
         "## 1. Executive Summary",
@@ -568,14 +562,9 @@ def render_msr_report(data: MsrData) -> str:  # noqa: C901
                 f"| {e['object']} | {e['kind']} | {e['action']} | {e['target']} | {e['ticket_ref']} |"
             )
 
-    # ── 5. Compliance (tier-gated depth) ────────────────────────────────
+    # ── 5. Compliance ───────────────────────────────────────────────────
     lines += ["", "## 5. Compliance Posture", ""]
-    if tier == "bronze":
-        lines.append(
-            "_Compliance reporting is included at Silver tier and above."
-            " Contact your service manager to upgrade._"
-        )
-    elif "compliance" in data.errors:
+    if "compliance" in data.errors:
         lines.append(f"> ⚠️ Compliance data unavailable: {data.errors['compliance']}")
     elif data.compliance_summaries:
         lines += ["| Framework | Category | Benchmark | Score | State |", "|---|---|---|---|---|"]
@@ -593,7 +582,7 @@ def render_msr_report(data: MsrData) -> str:  # noqa: C901
                 f"| {name} | {item.get('category') or '—'} | {bench} "
                 f"| {score_s} | {latest.get('state') or '—'} |"
             )
-        if tier == "gold" and data.compliance_timeline:
+        if data.compliance_timeline:
             lines += [
                 "",
                 f"### 30-day score trend — {data.compliance_framework_name or 'benchmarked framework'}",
@@ -787,8 +776,6 @@ def render_msr_report(data: MsrData) -> str:  # noqa: C901
         lines.append(f"- ✅ {src}")
     for src, err in data.errors.items():
         lines.append(f"- ⚠️ {src} — {err}")
-    if tier == "bronze":
-        lines.append("- ➖ compliance — not included at Bronze tier")
     lines += [
         "",
         "---",

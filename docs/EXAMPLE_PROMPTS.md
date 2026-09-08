@@ -157,7 +157,7 @@ _Apply compliant profiles, create reusable snippets, gap analysis._
 
 69. "Show me what would be created if I applied the NCSC baseline to Acme Corp's Shared folder — dry run first."
 70. "Apply the NCSC-compliant security baseline to Contoso Ltd's Customer-A folder for real, and attach our syslog profile `Syslog-EU-01`."
-71. "Create an NCSC-compliant snippet called `NCSC-Gold-Baseline` that I can reuse across our Gold-tier customers."
+71. "Create an NCSC-compliant snippet called `NCSC-Baseline` that I can reuse across our managed customers."
 72. "Create a NIST-compliant snippet named `NIST-CSF-Baseline` with description 'NIST CSF v2.0 baseline for US customers'."
 73. "Attach the NCSC baseline profile group to every allow rule in Acme Corp's Prisma Access folder that's currently missing one — dry run first, please."
 74. "Now actually apply that NCSC profile attachment for real, not just a dry run."
@@ -179,15 +179,15 @@ _ML-based DLP patterns/profiles, inline data-filtering backup/restore, DLP incid
 
 ## 9. MSSP Multi-Tenant
 
-_Tier assessment, onboarding, dashboard, licensing, CASB, ZTNA, Browser, NGFW, AIRS._
+_Tenant dashboard, licensing, CASB, ZTNA, Browser, NGFW, AIRS._
 
-85. "Score Acme Corp's Prisma Access folder against their contracted Gold tier and show me the breach list."
-86. "Generate a customer-facing tier compliance report for Contoso Ltd, save it to `reports/contoso-tier-report.md`."
-87. "What would Customer-A need to fix to upgrade from Silver to Gold tier?"
-88. "Onboard a new customer `Customer-E` at Bronze tier — dry run first to check which snippets already exist."
-89. "Now actually onboard Customer-E for real, creating the folder if it doesn't exist."
-90. "Show me the dashboard of every MSSP tenant currently loaded, with their tier and service term."
-91. "List the MSSP tier snippet catalogue so I know what Gold tier is supposed to include before I onboard the next customer."
+85. "Run a BPA assessment on Acme Corp's Prisma Access folder and show me the failing checks."
+86. "Generate a customer-facing NCSC compliance report for Contoso Ltd, save it to `reports/contoso-ncsc-report.md`."
+87. "What would Customer-A need to fix to close their outstanding NCSC CAF gaps?"
+88. "List the configuration snippets already in SCM before I onboard a new customer folder."
+89. "Apply the NCSC baseline to the new `Customer-E` folder — dry run first, then for real."
+90. "Show me the dashboard of every MSSP tenant currently loaded, with their folder and service term."
+91. "List the NCSC snippet templates so I know what the baseline includes before I onboard the next customer."
 92. "List all Prisma SASE subscription licences for Acme Corp with their expiry dates."
 93. "Show me Contoso Ltd's mobile user allocation vs current logged-in user count."
 94. "Discover every sub-tenant visible to our super-user SP account."
@@ -195,7 +195,7 @@ _Tier assessment, onboarding, dashboard, licensing, CASB, ZTNA, Browser, NGFW, A
 96. "List the CASB SaaS tenant restriction policies configured for Acme Corp."
 97. "Show me the ZTNA connector inventory for Contoso Ltd — is ZTNA Connector even licensed for them?"
 98. "List Prisma Browser (RBI) configuration for Customer-A, including device and user groups."
-99. "Give me a side-by-side comparison of Gold, Silver, and Bronze tiers — I'm on a sales call in ten minutes."
+99. "Compare NCSC CAF coverage across Acme Corp and Contoso Ltd — I'm on a sales call in ten minutes."
 100. "List NGFW managed devices onboarded to SCM for Acme Corp, and separately check if AI Runtime Security (AIRS) is licensed for them."
 
 ## 10. Prisma SD-WAN
@@ -422,10 +422,10 @@ _Conversational goal-to-plan execution, incident triage, estate-wide checks._
 218. "Check the status of the Planner run I kicked off a minute ago."
 219. "Fetch the final report from that Planner run once it's done."
 220. "Trigger incident-response triage for this alert: an IPSec tunnel just went down on branch-12 for Acme Corp — here's the raw alert JSON: {\"message\": \"IPSec tunnel down on branch-12\"}."
-221. "Run the tier-aware estate check across every configured tenant."
+221. "Run the estate check across every configured tenant."
 222. "Run the estate check but limit it to just `acme-corp` and `contoso-ltd`, concurrency 2."
 223. "Ask the Planner to investigate why Contoso Ltd's mobile users can't connect and, if it finds a fix that needs a commit, don't apply it — just report back what it would do."
-224. "Run a Planner goal: 'audit every Gold-tier tenant for NCSC CAF gaps and rank them by how many critical findings each has' — read-only, no write tools approved."
+224. "Run a Planner goal: 'audit every tenant for NCSC CAF gaps and rank them by how many critical findings each has' — read-only, no write tools approved."
 
 ## 31. Service Status
 
@@ -454,19 +454,19 @@ _Multi-step requests that chain several tools together — the kind of thing an 
 235. "Run a BPA assessment for Acme Corp, then use the AI compliance advisor to turn the worst findings into a remediation playbook I can send them."
 236. "Check Contoso Ltd's certificate expiry, licence forecast, and SD-WAN software status together — I want one combined risk picture before their renewal call."
 237. "Capture a drift baseline for every tenant tonight, then email me a summary tomorrow of what changed — for now just run the baseline and the check back-to-back so I can see the diff mechanics work."
-238. "Onboard Customer-F at Silver tier: check the folder doesn't already exist, dry-run the tier snippet onboarding, then apply the NCSC baseline as a dry run too — don't commit anything yet."
+238. "Onboard Customer-F: check the folder doesn't already exist, then apply the NCSC baseline as a dry run — don't commit anything yet."
 239. "Pull Acme Corp's SD-WAN topology, generate the Mermaid diagram, and also generate the HTML site map — I want both for the AS-BUILT appendix."
 240. "Investigate a reported outage at Contoso Ltd's Manchester branch: check SD-WAN events, link health, and WAN IP status for that site, then tell me what's most likely wrong."
 241. "Run the full compliance trio for Meridian Health — NCSC CAF, NHS DSPT standards 7-10, and ISO 27001 — and tell me which framework they're weakest against."
-242. "Before this quarter's QBR with Acme Corp, pull their renewal brief, MSR for last month, and tier compliance report into one package."
+242. "Before this quarter's QBR with Acme Corp, pull their renewal brief, MSR for last month, and NCSC compliance report into one package."
 243. "Check whether Customer-A's remote networks in SCM config match what the site-onboarding API shows — flag any discrepancy."
 244. "Compare BPA findings between Acme Corp and Contoso Ltd and tell me which tenant is in worse shape and why."
 245. "Run a decrypt policy audit and an NCSC gap analysis together for Customer-A, then tell me if the SSL decryption gaps are also NCSC control failures."
-246. "For every Gold-tier tenant, run mssp_tier_assess and flag anyone who's fallen below 100% compliance since onboarding."
+246. "For every tenant, run scm_bpa_assess and flag anyone who's fallen below 100% compliance since onboarding."
 247. "Pull SD-WAN events and audit logs for the last 24 hours across Acme Corp and correlate — did a config change cause the tunnel flap?"
 248. "Check licence forecast and mobile user stats together for Contoso Ltd — are we about to run out of GlobalProtect seats before the licence renews?"
 249. "Do a pre-change risk check for Acme Corp: commit preview on the pending changes, plus a fresh drift check, before I let the engineer commit."
-250. "Build a one-page exec summary combining the NOC dashboard, incident summary, and any tenants currently breaching their contracted tier."
+250. "Build a one-page exec summary combining the NOC dashboard, incident summary, and any tenants with critical BPA findings."
 251. "Cross-check PAB posture compliance against SSPM findings for Customer-A — are the same risky devices showing up in both?"
 252. "Kick off AS-BUILT generation for every tenant that doesn't have one on file yet, one at a time, and let me know as each finishes."
 

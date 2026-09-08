@@ -7,11 +7,10 @@ The differentiator over PANW's single-tenant model:
     per-tenant sub-plan for every loaded tenant and executes them with
     bounded concurrency through the same PlannerLoop; results aggregate
     into one estate digest.
-  * Tier-aware depth — each tenant's contracted tier scopes its checks.
-    Bronze: licensing + certs + connectivity basics. Silver: + posture
-    (BPA) + change audit. Gold: + NCSC CAF + ISO 27001 + DLP/SSPM posture.
+  * One check set per tenant — licensing, certs, connectivity, BPA
+    posture, change audit, NCSC CAF, ISO 27001, and DLP/SSPM posture.
     (The BPA/NCSC/ISO steps share one snapshot per tenant via the
-    extractor's short-TTL cache, so Gold depth costs one extraction.)
+    extractor's short-TTL cache, so the whole set costs one extraction.)
   * Cross-tenant anomaly rules — patterns invisible per-tenant: SD-WAN
     topology with zero licences, duplicate NFR licence sets expiring
     across tenants (observed live on this estate), and
@@ -50,22 +49,18 @@ from .store import PlanStore
 
 logger = get_logger(__name__)
 
-TIERS = ("bronze", "silver", "gold")
+
+# ── the per-tenant check template ────────────────────────────────────────────
 
 
-# ── tier-aware templates ─────────────────────────────────────────────────────
-
-
-def tier_steps(spec: TenantSpec) -> list[StepDraft]:
-    """The tier-scoped check template: bronze ⊂ silver ⊂ gold."""
+def estate_steps(spec: TenantSpec) -> list[StepDraft]:
+    """The per-tenant check template — the same depth for every tenant."""
     steps: list[StepDraft] = []
 
     def add(domain: str, tool: str, **params: Any) -> None:
         steps.append(StepDraft(domain=domain, tool=tool, params_json=json.dumps(params)))
 
-    tier = spec.tier.lower()
-
-    # Bronze — licensing + certs + connectivity basics (every tenant)
+    # Licensing + certs + connectivity basics
     add("licensing", "scm_license_info", tenant_id=spec.tenant_id)
     add("licensing", "scm_licence_forecast", tenant_id=spec.tenant_id, warn_days=_HORIZON_DAYS)
     add("certificates", "scm_cert_scan", tenant_id=spec.tenant_id, warn_days=_HORIZON_DAYS)
@@ -76,23 +71,21 @@ def tier_steps(spec: TenantSpec) -> list[StepDraft]:
         tenant_id=spec.tenant_id,
     )
 
-    # Silver — + posture (BPA) + change audit
-    if tier in ("silver", "gold"):
-        add("posture_compliance", "scm_bpa_assess", folder=spec.folder, tenant_id=spec.tenant_id)
-        add("operational_health", "scm_list_jobs", tenant_id=spec.tenant_id, limit=50)
+    # Posture (BPA) + change audit
+    add("posture_compliance", "scm_bpa_assess", folder=spec.folder, tenant_id=spec.tenant_id)
+    add("operational_health", "scm_list_jobs", tenant_id=spec.tenant_id, limit=50)
 
-    # Gold — + full compliance assessments + DLP/SSPM posture
+    # Full compliance assessments + DLP/SSPM posture
     # (BPA/NCSC/ISO share one snapshot via the extractor's TTL cache.)
-    if tier == "gold":
-        add("posture_compliance", "scm_ncsc_assess", folder=spec.folder, tenant_id=spec.tenant_id)
-        add(
-            "posture_compliance",
-            "scm_iso27001_assess",
-            folder=spec.folder,
-            tenant_id=spec.tenant_id,
-        )
-        add("dlp", "scm_dlp_list", folder="All", tenant_id=spec.tenant_id)
-        add("posture_compliance", "scm_saas_posture", tenant_id=spec.tenant_id)
+    add("posture_compliance", "scm_ncsc_assess", folder=spec.folder, tenant_id=spec.tenant_id)
+    add(
+        "posture_compliance",
+        "scm_iso27001_assess",
+        folder=spec.folder,
+        tenant_id=spec.tenant_id,
+    )
+    add("dlp", "scm_dlp_list", folder="All", tenant_id=spec.tenant_id)
+    add("posture_compliance", "scm_saas_posture", tenant_id=spec.tenant_id)
 
     return steps
 
@@ -136,7 +129,6 @@ def anomaly_findings(facts: list[TenantFacts], horizon: int = _HORIZON_DAYS) -> 
                         "line — running unlicensed or the entitlement moved elsewhere"
                     ),
                     tenant_label=f.spec.label,
-                    tier=f.spec.tier,
                     source="cross-tenant anomaly rules",
                 )
             )
@@ -167,7 +159,6 @@ def anomaly_findings(facts: list[TenantFacts], horizon: int = _HORIZON_DAYS) -> 
                         "likely cloned demo entitlements; renew or retire together"
                     ),
                     tenant_label="estate",
-                    tier="gold",
                     source="cross-tenant anomaly rules",
                 )
             )
@@ -191,7 +182,6 @@ def anomaly_findings(facts: list[TenantFacts], horizon: int = _HORIZON_DAYS) -> 
                         "recorded — paying for a tenant nobody operates"
                     ),
                     tenant_label=f.spec.label,
-                    tier=f.spec.tier,
                     source="cross-tenant anomaly rules",
                 )
             )
@@ -229,13 +219,13 @@ class EstateRunner:
         self.concurrency = max(1, concurrency)
 
     def _run_tenant(self, spec: TenantSpec) -> EstateResult:
-        engine = TemplateEngine(tier_steps(spec))
+        engine = TemplateEngine(estate_steps(spec))
         executor = StepExecutor(self.manifest, self.backend, approve_write=None)
         loop = PlannerLoop(self.manifest, engine, executor, self.store)
         plan = loop.run(
-            goal=f"estate check ({spec.tier} depth) for {spec.label}",
+            goal=f"estate check for {spec.label}",
             trigger_type=TriggerType.SCHEDULED,
-            trigger_payload={"surface": "estate", "tier": spec.tier},
+            trigger_payload={"surface": "estate"},
             tenant_scope=spec.tenant_id,
             persona="estate-check",
         )
@@ -249,7 +239,7 @@ class EstateRunner:
 
     def run(self, specs: list[TenantSpec]) -> tuple[str, list[Finding]]:
         """Fan out, gather facts, apply anomaly rules, write the digest."""
-        ordered = sorted(specs, key=lambda s: ({"gold": 0, "silver": 1}.get(s.tier, 2), s.label))
+        ordered = sorted(specs, key=lambda s: s.label)
 
         with ThreadPoolExecutor(max_workers=self.concurrency) as pool:
             results = list(pool.map(self._run_tenant, ordered))
@@ -293,28 +283,28 @@ class EstateRunner:
         ]
         if findings:
             lines += [
-                "## Top Findings (severity, estate first, then tier)",
+                "## Top Findings (severity, estate first, then tenant)",
                 "",
-                "| # | Sev | Tenant | Tier | Finding |",
-                "|---|---|---|---|---|",
+                "| # | Sev | Tenant | Finding |",
+                "|---|---|---|---|",
             ]
             for i, f in enumerate(findings[:20], 1):
                 lines.append(
                     f"| {i} | {_SEV_ICON.get(f.severity, '')} {f.severity} | {f.tenant_label} "
-                    f"| {f.tier} | **{f.title}** — {f.detail} |"
+                    f"| **{f.title}** — {f.detail} |"
                 )
             if len(findings) > 20:
-                lines.append(f"| … | | | | +{len(findings) - 20} more |")
+                lines.append(f"| … | | | +{len(findings) - 20} more |")
             lines.append("")
         else:
-            lines += ["🟢 **No findings** — the estate is clean at every tier's depth.", ""]
+            lines += ["🟢 **No findings** — the estate is clean.", ""]
 
-        lines += ["## Per-Tenant Checks (tier depth; Gold first)", ""]
+        lines += ["## Per-Tenant Checks", ""]
         for r in results:
             counts = r.plan.counts
             ok_all = counts.get("failed", 0) == 0 and counts.get("skipped", 0) == 0
             lines.append(
-                f"### {'🟢' if ok_all else '🟡'} {r.spec.label} ({r.spec.tier} depth) — "
+                f"### {'🟢' if ok_all else '🟡'} {r.spec.label} — "
                 f"{counts.get('ok', 0)} ok / {counts.get('failed', 0)} failed / "
                 f"{counts.get('skipped', 0)} skipped"
             )
@@ -377,7 +367,7 @@ def main(argv: list[str] | None = None) -> int:
     import argparse
     import os
 
-    parser = argparse.ArgumentParser(description="Tier-aware estate check digest")
+    parser = argparse.ArgumentParser(description="Estate check digest")
     parser.add_argument("--tenants", default="", help="Comma-separated labels (default: all)")
     parser.add_argument("--concurrency", type=int, default=3, help="Parallel tenants (default 3)")
     parser.add_argument(
@@ -403,7 +393,7 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as exc:
             logger.warning("estate_tenant_auth_failed", tenant=label, error=str(exc))
             continue
-        specs.append(TenantSpec(label=label, tenant_id=tc.tenant_id, tier=str(tc.tier)))
+        specs.append(TenantSpec(label=label, tenant_id=tc.tenant_id))
     if not specs:
         print("No tenants available (auth failures or filter matched nothing).")
         return 1

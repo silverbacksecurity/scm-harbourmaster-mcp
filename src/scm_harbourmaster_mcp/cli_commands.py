@@ -125,7 +125,7 @@ def dispatch(args: argparse.Namespace) -> int:
     if args.command == "list-tenants":
         tenants = _load_all_tenants()
         for key, tc in sorted(tenants.items()):
-            print(f"{key}\t{tc.tenant_id}\t{(tc.tier or '').upper()}\t{tc.label}")
+            print(f"{key}\t{tc.tenant_id}\t{tc.default_folder}\t{tc.label}")
         return 0
 
     if args.command == "history":
