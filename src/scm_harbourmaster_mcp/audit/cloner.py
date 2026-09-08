@@ -26,11 +26,14 @@ Deploy  IKE gateways, IPSec tunnels, remote networks, service connections
 from __future__ import annotations
 
 import copy
+import inspect
 import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from pydantic import BaseModel
 
 from ..utils.logging import get_logger
 
@@ -50,7 +53,12 @@ _SYSTEM_FIELDS = frozenset(
         "created_by",
         "last_modified_by",
         "etag",
+        # Provenance injected by the extractor, and read-only fields the API
+        # returns but every *CreateModel rejects (extra="forbid").
         "_position",
+        "_folder",
+        "policy_type",
+        "rulebase",
     }
 )
 
@@ -91,13 +99,21 @@ _PUSH_ORDER: list[tuple[str, str, str]] = [
     ("zones", "security_zone", "customer"),
 ]
 
-_RULE_ORDER: list[tuple[str, str, str | None]] = [
-    ("security_rules_pre", "security_rule", "pre"),
-    ("security_rules_post", "security_rule", "post"),
-    ("nat_rules", "nat_rule", None),
-    ("decryption_rules", "decryption_rule", None),
-    ("app_override_rules", "app_override_rule", None),
+# The rulebase selector is a create() kwarg, never a payload field — and the
+# SDK spells it differently per rule type: security, decryption and
+# app-override take `rulebase=`, NAT takes `position=`.
+_RULE_ORDER: list[tuple[str, str, dict[str, str]]] = [
+    ("security_rules_pre", "security_rule", {"rulebase": "pre"}),
+    ("security_rules_post", "security_rule", {"rulebase": "post"}),
+    ("nat_rules_pre", "nat_rule", {"position": "pre"}),
+    ("nat_rules_post", "nat_rule", {"position": "post"}),
+    ("decryption_rules", "decryption_rule", {"rulebase": "pre"}),
+    ("app_override_rules", "app_override_rule", {"rulebase": "pre"}),
 ]
+
+# Backups written before the extractor split NAT rules by rulebase put them all
+# under one flat key; replay those as pre-rules.
+_LEGACY_NAT_ORDER: tuple[str, str, dict[str, str]] = ("nat_rules", "nat_rule", {"position": "pre"})
 
 _DEPLOY_ORDER: list[tuple[str, str, str]] = [
     ("ike_gateways", "ike_gateway", _FOLDER_REMOTE_NETWORKS),
@@ -106,6 +122,10 @@ _DEPLOY_ORDER: list[tuple[str, str, str]] = [
     ("service_connections", "service_connection", _FOLDER_SERVICE_CONNECTIONS),
     ("bandwidth_allocations", "bandwidth_allocation", _FOLDER_REMOTE_NETWORKS),
 ]
+
+# PAN-supplied content lives in the predefined snippets. It is already present
+# in every tenant and cannot be created inside a folder, so it is never cloned.
+_PREDEFINED_FIELDS = ("snippet", "override_loc")
 
 _IP_RE = re.compile(
     r"\b((?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?))"
@@ -117,7 +137,8 @@ _IP_RE = re.compile(
 class PushResult:
     resource_type: str
     name: str
-    status: str  # "created" | "skipped" | "overwritten" | "dry_run" | "failed"
+    # "created" | "skipped" | "overwritten" | "dry_run" | "failed" | "predefined"
+    status: str
     detail: str = ""
 
 
@@ -147,6 +168,10 @@ class CloneReport:
     def failed(self) -> int:
         return sum(1 for r in self.results if r.status == "failed")
 
+    @property
+    def predefined(self) -> int:
+        return sum(1 for r in self.results if r.status == "predefined")
+
     def to_markdown(self) -> str:
         lines: list[str] = []
         mode = "DRY RUN PREVIEW" if self.dry_run else "PUSH COMPLETE"
@@ -163,6 +188,8 @@ class CloneReport:
         lines.append("|---|---|")
         lines.append(f"| {action} | {self.created} |")
         lines.append(f"| Skipped (conflict) | {self.skipped} |")
+        if self.predefined:
+            lines.append(f"| Skipped (PAN predefined) | {self.predefined} |")
         if not self.dry_run:
             lines.append(f"| Overwritten | {self.overwritten} |")
         lines.append(f"| Failed | {self.failed} |")
@@ -203,6 +230,25 @@ class CloneReport:
 
 def _strip_system_fields(obj: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in obj.items() if k not in _SYSTEM_FIELDS}
+
+
+def _is_predefined(obj: dict[str, Any]) -> bool:
+    """True for PAN-supplied objects — those sourced from a predefined snippet."""
+    return any(str(obj.get(f) or "").startswith("predefined") for f in _PREDEFINED_FIELDS)
+
+
+def _drop_nulls(value: Any) -> Any:
+    """Drop null fields, recursively.
+
+    SCM response models serialise every unset field as null, but the create
+    models reject null where they expect a value or their own default — an
+    app-override rule read back with "application": null cannot be replayed.
+    """
+    if isinstance(value, dict):
+        return {k: _drop_nulls(v) for k, v in value.items() if v is not None}
+    if isinstance(value, list):
+        return [_drop_nulls(v) for v in value]
+    return value
 
 
 def _anonymise_ips(obj: dict[str, Any], ip_map: dict[str, str]) -> dict[str, Any]:
@@ -256,7 +302,11 @@ def _sanitise(
     """
     Returns (sanitised_obj, psk_warning_or_None).
     """
-    o = _strip_system_fields(copy.deepcopy(obj))
+    o = _drop_nulls(_strip_system_fields(copy.deepcopy(obj)))
+    # SCM models accept exactly one container, so the source snippet/device has
+    # to go before the target folder is set.
+    o.pop("snippet", None)
+    o.pop("device", None)
     o["folder"] = target_folder
 
     psk_warning: str | None = None
@@ -275,6 +325,25 @@ def _sanitise(
     return o, psk_warning
 
 
+def _to_update_model(resource: Any, payload: dict[str, Any]) -> Any:
+    """Wrap *payload* in whatever update model this resource's update() takes.
+
+    Every SDK resource types its update() first argument as its own
+    ``*UpdateModel``; passing a bare dict raises inside the SDK.
+    """
+    try:
+        # eval_str resolves the annotation when the defining module uses
+        # postponed evaluation, where it would otherwise arrive as a string.
+        sig = inspect.signature(resource.update, eval_str=True)
+    except Exception:
+        sig = inspect.signature(resource.update)
+    params = [p for n, p in sig.parameters.items() if n != "self"]
+    annotation = params[0].annotation if params else None
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        return annotation(**payload)
+    return payload
+
+
 def _push_one(
     client: Any,
     sdk_attr: str,
@@ -282,15 +351,18 @@ def _push_one(
     on_conflict: str,
     dry_run: bool,
     resource_type: str,
+    create_kwargs: dict[str, str] | None = None,
 ) -> PushResult:
     name = payload.get("name", "<unknown>")
+    create_kwargs = create_kwargs or {}
     if dry_run:
-        return PushResult(
-            resource_type, name, "dry_run", f"would create in folder '{payload.get('folder', '')}'"
-        )
+        detail = f"would create in folder '{payload.get('folder', '')}'"
+        if create_kwargs:
+            detail += " (" + ", ".join(f"{k}={v}" for k, v in create_kwargs.items()) + ")"
+        return PushResult(resource_type, name, "dry_run", detail)
     try:
         resource = getattr(client, sdk_attr)
-        resource.create(payload)
+        resource.create(payload, **create_kwargs)
         logger.info("clone_object_created", type=resource_type, name=name)
         return PushResult(resource_type, name, "created")
     except Exception as exc:
@@ -307,11 +379,13 @@ def _push_one(
         if is_conflict and on_conflict == "overwrite":
             try:
                 resource = getattr(client, sdk_attr)
-                existing = resource.fetch(name=name, folder=payload.get("folder", ""))
+                existing = resource.fetch(
+                    name=name, folder=payload.get("folder", ""), **create_kwargs
+                )
                 payload_with_id = dict(payload)
                 if hasattr(existing, "id"):
                     payload_with_id["id"] = str(existing.id)
-                resource.update(payload_with_id)
+                resource.update(_to_update_model(resource, payload_with_id), **create_kwargs)
                 return PushResult(resource_type, name, "overwritten")
             except Exception as upd_exc:
                 return PushResult(resource_type, name, "failed", str(upd_exc)[:120])
@@ -366,7 +440,7 @@ def clone_config(
         folder: str,
         *,
         is_ike_gateway: bool = False,
-        position: str | None = None,
+        create_kwargs: dict[str, str] | None = None,
     ) -> None:
         if resource_filter and snap_key not in resource_filter:
             return
@@ -374,6 +448,18 @@ def clone_config(
         if not objects:
             return
         for obj in objects:
+            # Checked before sanitising, which drops the source container the
+            # predefined marker lives in.
+            if _is_predefined(obj):
+                report.results.append(
+                    PushResult(
+                        snap_key,
+                        obj.get("name", "<unknown>"),
+                        "predefined",
+                        "PAN predefined content — already present in every tenant",
+                    )
+                )
+                continue
             obj_folder = folder if folder != "customer" else target_folder
             o, psk_w = _sanitise(
                 obj,
@@ -385,9 +471,9 @@ def clone_config(
             )
             if psk_w:
                 report.psk_warnings.append(psk_w)
-            if position:
-                o["position"] = position
-            result = _push_one(client, sdk_attr, o, on_conflict, dry_run, snap_key)
+            result = _push_one(
+                client, sdk_attr, o, on_conflict, dry_run, snap_key, create_kwargs=create_kwargs
+            )
             report.results.append(result)
 
     # ── Standard objects in dependency order ─────────────────────────────
@@ -396,8 +482,11 @@ def clone_config(
 
     # ── Policy rules ─────────────────────────────────────────────────────
     if not skip_rules:
-        for snap_key, sdk_attr, position in _RULE_ORDER:
-            _process_batch(snap_key, sdk_attr, "customer", position=position)
+        rule_order = list(_RULE_ORDER)
+        if not resources.get("nat_rules_pre") and not resources.get("nat_rules_post"):
+            rule_order.append(_LEGACY_NAT_ORDER)
+        for snap_key, sdk_attr, rule_kwargs in rule_order:
+            _process_batch(snap_key, sdk_attr, "customer", create_kwargs=rule_kwargs)
 
     # ── Deployment objects (opt-in) ───────────────────────────────────────
     if include_deployment:

@@ -358,6 +358,10 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
                 "syslog_profiles": snap.syslog_profiles,
                 "security_rules_pre": snap.security_rules_pre,
                 "security_rules_post": snap.security_rules_post,
+                # Pre/post are the live keys; the flat "nat_rules" field is
+                # the legacy shape, kept for readers that predate the split.
+                "nat_rules_pre": snap.nat_rules_pre,
+                "nat_rules_post": snap.nat_rules_post,
                 "nat_rules": snap.nat_rules,
                 "decryption_rules": snap.decryption_rules,
                 "app_override_rules": snap.app_override_rules,
@@ -2499,6 +2503,11 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
         - MSSP takeover migration → move config from old MSSP to new tenant
         - POV → Prod promotion (clone lab folder to production folder)
         - Multi-site rollout (one branch config → N sites with same structure)
+
+        PAN predefined content (objects sourced from a predefined snippet —
+        the PAN EDLs, default services and default security profiles) is
+        listed in the report and never pushed: it already exists in every
+        tenant and cannot be created inside a folder.
 
         PSK safety
         ----------

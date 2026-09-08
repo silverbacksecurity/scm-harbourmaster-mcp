@@ -127,6 +127,10 @@ def run_backup(tenant: TenantConfig, on_progress: OnProgress = None) -> BackupRe
             "syslog_profiles": snap.syslog_profiles,
             "security_rules_pre": snap.security_rules_pre,
             "security_rules_post": snap.security_rules_post,
+            # Pre/post are the live keys; the flat "nat_rules" field is the
+            # legacy shape, kept for readers that predate the split.
+            "nat_rules_pre": snap.nat_rules_pre,
+            "nat_rules_post": snap.nat_rules_post,
             "nat_rules": snap.nat_rules,
             "decryption_rules": snap.decryption_rules,
             "app_override_rules": snap.app_override_rules,
