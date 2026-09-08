@@ -253,7 +253,35 @@ def register_deployment_tools(mcp: FastMCP, get_client: Any) -> None:
                 f"Running versions: {running_summary}"
             )
 
-        col_w = (12, 24, 10, 40)
+        _DESC_W = 40
+        entries: list[tuple[str, str, str, str, str]] = []
+        for v in versions:
+            # `id` is the config version number — the one /running reports and the
+            # one scm_config_rollback loads. The `version` field is the PAN-OS
+            # content release ("192-external"), identical across long runs of
+            # commits, so it must not be shown here.
+            ver = str(v.get("id") or v.get("version") or "?")
+            ts = _age(v.get("created_at") or v.get("timestamp") or v.get("date"))
+            admin = str(v.get("created_by") or v.get("admin") or v.get("uname") or "—")
+            desc = str(v.get("description") or "—")[:_DESC_W]
+            # `scope` is a comma-separated list ("Mobile Users,Remote Networks,...")
+            # and the NGFW scope arrives separately as a serial in `ngfw_scope`,
+            # so a plain dict lookup on the raw string never matched.
+            scopes = [s.strip() for s in str(v.get("scope") or "").split(",") if s.strip()]
+            if v.get("ngfw_scope"):
+                scopes.append(str(v["ngfw_scope"]))
+            flag = " ◀ running" if any(str(running_by_scope.get(s)) == ver for s in scopes) else ""
+            entries.append((ver, ts, admin, desc, flag))
+
+        # Size the first three columns to their content rather than to fixed
+        # widths. Admin in particular was clipped to 10 chars, which rendered
+        # every account on a shared domain as the same label.
+        col_w = (
+            max(len("Version"), *(len(e[0]) for e in entries)),
+            max(len("Committed"), *(len(e[1]) for e in entries)),
+            max(len("Admin"), *(len(e[2]) for e in entries)),
+            _DESC_W,
+        )
         header = (
             f"{'Version':<{col_w[0]}}  {'Committed':<{col_w[1]}}  "
             f"{'Admin':<{col_w[2]}}  {'Description':<{col_w[3]}}"
@@ -261,17 +289,7 @@ def register_deployment_tools(mcp: FastMCP, get_client: Any) -> None:
         sep = "  ".join("─" * w for w in col_w)
 
         rows = [header, sep]
-        for v in versions:
-            ver = str(v.get("version", "?"))
-            ts = _age(v.get("created_at") or v.get("timestamp") or v.get("date"))
-            admin = str(v.get("created_by") or v.get("admin") or v.get("uname") or "—")[: col_w[2]]
-            desc = str(v.get("description") or "—")[: col_w[3]]
-            scope = v.get("scope")
-            flag = (
-                " ◀ running"
-                if scope and str(running_by_scope.get(scope)) == str(v.get("version"))
-                else ""
-            )
+        for ver, ts, admin, desc, flag in entries:
             rows.append(
                 f"{ver:<{col_w[0]}}  {ts:<{col_w[1]}}  {admin:<{col_w[2]}}  {desc:<{col_w[3]}}{flag}"
             )
