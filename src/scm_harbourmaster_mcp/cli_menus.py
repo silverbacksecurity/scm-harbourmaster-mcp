@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import contextlib
 import json
+import os
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -2739,30 +2741,134 @@ def _op_ai_advisor(tenant, console, _pause) -> None:
 # ── leaf operations: Config Lifecycle ──────────────────────────────────────
 
 
-def _op_config_clone(tenant, console, _pause) -> None:
-    backup_file = Prompt.ask("Source backup JSON path", default="").strip()
-    if not backup_file or not Path(backup_file).exists():
-        console.print("[red]File not found.[/red]")
+def _backup_meta(path: Path) -> tuple[str, str]:
+    """(tenant label or id, folder) read from the head of a backup file.
+
+    The metadata keys are written before "resources", so a short read avoids
+    parsing multi-hundred-MB snapshots just to build the picker.
+    """
+    try:
+        head = path.read_text(errors="ignore")[:1024]
+    except OSError:
+        return "—", "—"
+    meta = {}
+    for key in ("tenant_id", "label", "folder"):
+        m = re.search(rf'"{key}"\s*:\s*"([^"]*)"', head)
+        if m:
+            meta[key] = m.group(1)
+    return meta.get("label") or meta.get("tenant_id") or "—", meta.get("folder") or "—"
+
+
+def _pick_backup_file(
+    console,
+    _pause,
+    *,
+    pattern: str = "scm_backup_*.json",
+    title: str = "Available Backups",
+    limit: int = 20,
+) -> Path | None:
+    """Numbered picker over the backup directory, with a typed-path fallback."""
+    backup_dir = Path(os.getenv("SCM_MCP_BACKUP_DIR", "backups"))
+    found = sorted(backup_dir.glob(pattern), key=lambda f: f.stat().st_mtime, reverse=True)
+    backups = found[:limit]
+
+    if backups:
+        console.print()
+        t = Table(title=title, box=box.SIMPLE_HEAD, border_style="dim")
+        t.add_column("#", style="dim", width=4)
+        t.add_column("File", style="cyan")
+        t.add_column("Tenant", style="white")
+        t.add_column("Folder", style="white")
+        t.add_column("Created", style="dim")
+        t.add_column("Size", justify="right", style="dim")
+        for idx, f in enumerate(backups, 1):
+            label, folder = _backup_meta(f)
+            stat = f.stat()
+            t.add_row(
+                str(idx),
+                f.name,
+                label,
+                folder,
+                datetime.fromtimestamp(stat.st_mtime, UTC).strftime("%Y-%m-%d %H:%M"),
+                f"{stat.st_size // 1024} KB",
+            )
+        console.print(t)
+        if len(found) > len(backups):
+            console.print(f"[dim]Showing {len(backups)} most recent of {len(found)}.[/dim]")
+        console.print()
+        raw = Prompt.ask("Select # (or type a file path)", default="1").strip()
+    else:
+        console.print(f"\n[yellow]No backups matching {pattern} in {backup_dir}/[/yellow]")
+        console.print("[dim]Run Backup Config first, or type a path to a backup JSON.[/dim]\n")
+        raw = Prompt.ask("Backup JSON path", default="").strip()
+
+    if not raw:
+        console.print("[red]Nothing selected.[/red]")
         _pause()
+        return None
+
+    if raw.isdigit() and backups:
+        try:
+            return backups[int(raw) - 1]
+        except IndexError:
+            console.print(f"[red]Invalid selection — pick 1-{len(backups)}.[/red]")
+            _pause()
+            return None
+
+    # Typed path: accept absolute/relative, a bare filename in the backup dir,
+    # and either form with the .json suffix left off.
+    candidates = [Path(raw), backup_dir / raw, Path(f"{raw}.json"), backup_dir / f"{raw}.json"]
+    for cand in candidates:
+        if cand.is_file():
+            return cand
+    console.print(f"[red]File not found: {raw}[/red]")
+    _pause()
+    return None
+
+
+def _op_config_clone(tenant, console, _pause) -> None:
+    source = _pick_backup_file(console, _pause, title="Source Backups")
+    if source is None:
         return
-    target_folder = Prompt.ask("Target folder", default="").strip()
+
+    target_folder = Prompt.ask("Target folder", default=tenant.default_folder or "Shared").strip()
     if not target_folder:
         console.print("[red]Target folder required.[/red]")
         _pause()
         return
+    name_prefix = Prompt.ask("Name prefix (blank for none)", default="").strip()
+    include_deployment = Prompt.ask(
+        "Include deployment objects (IKE/IPSec/RN/SC)?", default="no"
+    ).strip().lower() in ("yes", "y", "true")
     dry_run = Prompt.ask("Dry run?", default="yes").strip().lower() in ("yes", "y", "true")
+
+    if not dry_run and not Confirm.ask(
+        f"\n[bold yellow]Push cloned objects into {target_folder} on {tenant.label}?[/bold yellow]",
+        default=False,
+    ):
+        console.print("[dim]Clone cancelled.[/dim]")
+        _pause()
+        return
+
     with console.status("[cyan]Cloning config...[/cyan]"):
         try:
             from .audit.cloner import clone_config
-            from .auth.oauth import get_scm_client
 
-            client = get_scm_client(tenant)
+            # A dry run makes no API calls, so don't force an auth round-trip.
+            client = None
+            if not dry_run:
+                from .auth.oauth import get_scm_client
+
+                client = get_scm_client(tenant)
             report = clone_config(
                 client,
-                source_backup_file=backup_file,
+                source_backup_file=str(source),
                 target_folder=target_folder,
+                name_prefix=name_prefix,
+                include_deployment=include_deployment,
                 dry_run=dry_run,
             )
+            report.target_tenant_id = tenant.tenant_id
             console.print(Markdown(report.to_markdown()))
         except Exception as exc:
             console.print(f"[red]Error: {exc}[/red]")
