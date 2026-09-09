@@ -4348,7 +4348,7 @@ Assembles the monthly customer deliverable from live tenant data:
      change failure rate, unique mobile users
   3. Incidents raised in the period (severity-ranked)
   4. Change record — config jobs in period + cumulative SSR ledger
-  5. Compliance posture — Silver+ (Gold adds the 30-day score trend)
+  5. Compliance posture — framework scores + 30-day score trend
   6. Licence & renewal posture — expiry countdown within 180 days
   7. Bandwidth vs allocation — per-RN-location usage over the month
      compared against the region's allocated bandwidth

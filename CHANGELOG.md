@@ -162,6 +162,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The Docker/GHCR image name and the deployment paths under `/opt` and
     `/etc` are unchanged.
 
+### Fixed
+- **AS-BUILT §2.1 compute-location labels** (`audit/asbuilt_report.py`) — each
+  location node was labelled with the network-locations API's `region` field,
+  which holds the underlying cloud region rather than the Prisma location code,
+  so two distinct locations could render identically (Ireland and UK both come
+  back as `europe-west2`). Nodes now carry three lines: the display name, the
+  location `value` that the Remote Network and Service Connection nodes already
+  cite (`(eu-west-1)`), and the cloud region tagged with its provider
+  (`GCP: europe-west2`). Which provider that field names varies by tenant — the
+  same location returns GCP names for some and OCI (`uk-london-1`) or AWS
+  (`eu-west-1`) names for others — so the provider is inferred from the
+  region-name shape: AWS is `<geo>-<compass direction>-<n>`, OCI
+  `<geo>-<city>-<n>`, and GCP has no hyphen before the trailing digit. Checked
+  against all 67 distinct region values present in local backups: 38 GCP, 24
+  OCI, 5 AWS, none falling through to the generic `Cloud:` prefix. §2.3's table
+  was unaffected — it reads `aggregate_region`. 10 tests
+- **`scm_config_versions` printed the wrong version number**
+  (`tools/deployment.py`) — the Version column rendered the record's `version`
+  field, which is the PAN-OS content release (`192-external`, near-constant
+  across long runs of commits). The config version number lives in `id`, which
+  is what `/running` reports and what `scm_config_rollback` loads, so the
+  tool's own closing hint pointed at a value it never printed. The `◀ running`
+  marker never appeared either: it looked up `running_by_scope[scope]`, but
+  `scope` is a comma-separated list and the NGFW scope arrives separately in
+  `ngfw_scope` — both forms are now split out and matched individually. Admin
+  was also clipped to 10 characters, collapsing every account on a shared
+  domain to one label; the first three columns are now sized to their content.
+- **`scm_config_clone` could not create anything from a backup**
+  (`audit/cloner.py`, `tools/audit.py`) — validating a real backup's sanitised
+  objects against the SDK's own create models offline, 6 of 151 passed; the
+  rest were rejected client-side before any API call. The rulebase was sent as
+  `position`, but it is a `create()` kwarg the SDK spells per rule type
+  (`rulebase=` for security/decryption/app-override, `position=` for NAT), and
+  every `*CreateModel` is `extra="forbid"`, so the stray field rejected all 42
+  security rules outright; it is now a per-type kwarg carried in `_RULE_ORDER`.
+  `policy_type` and the extractor's `_folder`/`_position` provenance keys
+  joined `_SYSTEM_FIELDS`; the source snippet/device is dropped before the
+  target folder is set (it tripped "Exactly one of folder, snippet, or device"
+  on every tag, HIP object, HIP profile and address); and PAN predefined
+  objects are detected before sanitising and reported under their own
+  "Skipped (PAN predefined)" row instead of counting as conflicts. Both backup
+  writers also persisted the flat, always-empty `nat_rules` field rather than
+  the extractor's `nat_rules_pre`/`nat_rules_post` split, losing every NAT
+  rule; they now write the split keys, the flat one remains for older readers,
+  and the cloner falls back to it only when neither split key is present. Same
+  backup after the fixes: 106 of 125 cloneable objects valid, with the
+  remaining deployment-family gaps reported per object.
+
 ## [0.13.0] - 2026-07-31
 
 ### Added

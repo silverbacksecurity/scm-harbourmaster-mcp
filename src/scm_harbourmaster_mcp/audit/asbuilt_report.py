@@ -34,6 +34,50 @@ from .pan_references import (
 
 _NA = "_⚠️ Manual input required_"
 
+# AWS region names are always <geo>-<direction>-<n>; OCI uses <geo>-<city>-<n>.
+# This set is what separates the two, since both share the hyphenated shape.
+_AWS_DIRECTIONS = frozenset(
+    {
+        "north",
+        "south",
+        "east",
+        "west",
+        "central",
+        "northeast",
+        "northwest",
+        "southeast",
+        "southwest",
+    }
+)
+
+
+def _cloud_region_label(region: str) -> str:
+    """Tag a location's cloud region with the provider that operates it.
+
+    The SCM network-locations API returns a single ``region`` string per
+    location, and which cloud it names varies by tenant deployment — GCP
+    ("europe-west2"), AWS ("eu-west-1") and OCI ("uk-london-1") all appear
+    for the same location across tenants, so the provider has to come from
+    the naming convention:
+
+      * GCP  — no hyphen before the trailing digit ("europe-west2", "us-east4")
+      * AWS  — <geo>-<compass direction>-<n> ("eu-west-1", "me-central-1")
+      * OCI  — <geo>-<city>-<n> ("uk-london-1", "me-dubai-1")
+
+    Returns an empty string when ``region`` is missing, and falls back to a
+    bare "Cloud:" prefix for anything that matches none of the three shapes.
+    """
+    if not region:
+        return ""
+    parts = region.split("-")
+    if len(parts) == 3 and parts[2].isdigit():
+        provider = "AWS" if parts[1] in _AWS_DIRECTIONS else "OCI"
+    elif len(parts) >= 2 and parts[-1][-1].isdigit() and not parts[-1].isdigit():
+        provider = "GCP"
+    else:
+        provider = "Cloud"
+    return f"{provider}: {region}"
+
 
 class AsBuiltReportBuilder:
     """Build a Prisma SASE AS-BUILT from a full AuditSnapshot."""
@@ -596,10 +640,20 @@ class AsBuiltReportBuilder:
         # Compute locations in use by this deployment (full catalog if none matched)
         _diagram_locs = self._active_locations() or snap.network_locations
         for loc in _diagram_locs[:8]:
-            loc_id = loc.get("value", "").replace("-", "_").replace(".", "_")
-            loc_name = loc.get("display", loc.get("value", "unknown"))
-            region = loc.get("region", "")
-            label = f"{loc_name}\\n({region})" if region and region != loc_name else loc_name
+            loc_value = loc.get("value", "")
+            loc_id = loc_value.replace("-", "_").replace(".", "_")
+            loc_name = loc.get("display") or loc_value or "unknown"
+            # Label with `value` — the Prisma location code the RN/SC nodes cite
+            # ("Region: eu-west-1"). `region` is the underlying GCP region and is
+            # shared between locations (Ireland and UK are both europe-west2),
+            # which made distinct locations look identical on the diagram.
+            label_parts = [loc_name]
+            if loc_value and loc_value != loc_name:
+                label_parts.append(f"({loc_value})")
+            cloud = _cloud_region_label(loc.get("region", ""))
+            if cloud:
+                label_parts.append(cloud)
+            label = "\\n".join(label_parts)
             lines.append(f'        LOC_{loc_id}["📍 {label}"]')
 
         lines.append("    end")

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from scm_harbourmaster_mcp.audit.asbuilt_report import _NA, _nested
+from scm_harbourmaster_mcp.audit.asbuilt_report import _NA, _cloud_region_label, _nested
 from scm_harbourmaster_mcp.audit.asbuilt_report import AsBuiltReportBuilder as HLDReportBuilder
 from scm_harbourmaster_mcp.audit.models import AuditSnapshot
 
@@ -1030,6 +1030,48 @@ class TestEdgeCases:
         ]
         md = _build(snap)
         assert "—" in md  # dash for empty nat pool
+
+    def test_location_node_labels_value_and_cloud_region(self) -> None:
+        # `region` is the underlying cloud region, which is shared across
+        # locations (Ireland and UK are both GCP europe-west2) — the Prisma
+        # location code must be what distinguishes the two nodes.
+        snap = AuditSnapshot(folder="test", tenant_id="t-1")
+        snap.network_locations = [
+            {
+                "value": "eu-west-1",
+                "display": "Ireland",
+                "region": "europe-west2",
+                "aggregate_region": "europe-northwest",
+                "continent": "Europe",
+            },
+            {
+                "value": "eu-west-2",
+                "display": "UK",
+                "region": "europe-west2",
+                "aggregate_region": "europe-northwest",
+                "continent": "Europe",
+            },
+        ]
+        md = _build(snap)
+        assert "📍 Ireland\\n(eu-west-1)\\nGCP: europe-west2" in md
+        assert "📍 UK\\n(eu-west-2)\\nGCP: europe-west2" in md
+
+    @pytest.mark.parametrize(
+        ("region", "expected"),
+        [
+            ("europe-west2", "GCP: europe-west2"),
+            ("us-east4", "GCP: us-east4"),
+            ("me-central1", "GCP: me-central1"),
+            ("eu-west-1", "AWS: eu-west-1"),
+            ("me-central-1", "AWS: me-central-1"),
+            ("uk-london-1", "OCI: uk-london-1"),
+            ("us-ashburn-1", "OCI: us-ashburn-1"),
+            ("somewhere", "Cloud: somewhere"),
+            ("", ""),
+        ],
+    )
+    def test_cloud_region_provider_inference(self, region: str, expected: str) -> None:
+        assert _cloud_region_label(region) == expected
 
     def test_more_than_8_locations_truncated_in_diagram(self) -> None:
         snap = AuditSnapshot(folder="test", tenant_id="t-1")
