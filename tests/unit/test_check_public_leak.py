@@ -84,6 +84,29 @@ def test_identifiers_include_keys_and_labels_and_drop_short_ones(monkeypatch, tm
     assert "Q" not in idents
 
 
+def test_identifiers_include_tenant_id_and_client_id(monkeypatch, tmp_path) -> None:
+    """A numeric TSG id is a customer identifier that no secret scanner flags.
+
+    Regression guard for 2026-09-09: a real tenant_id reached dev master as a
+    test fixture default and this loader did not know it was an identifier.
+    """
+    p = tmp_path / "settings.toml"
+    p.write_text(
+        "[tenants.acme-corp]\n"
+        "label = 'Acme Corporation'\n"
+        "tenant_id = '1234567890'\n"
+        "client_id = 'a000001@1234567890.iam.panserviceaccount.com'\n"
+        "default_folder = 'ngfw-shared'\n"
+    )
+    monkeypatch.setattr(guard, "SETTINGS_PATH", p)
+    idents = guard.load_identifiers()
+
+    assert "1234567890" in idents
+    assert "a000001@1234567890.iam.panserviceaccount.com" in idents
+    assert "a000001" in idents, "the client id's local part travels on its own"
+    assert "ngfw-shared" not in idents, "generic PAN folder name, not customer data"
+
+
 @pytest.fixture
 def synthetic_settings(monkeypatch, tmp_path: Path) -> Path:
     """Point the guard at a throwaway tenant registry.
@@ -176,6 +199,34 @@ def test_leak_in_a_middle_commit_is_caught_even_when_the_tip_is_clean(
     hits = guard.check_commits(commits, idents)
     assert hits, "the leak in the middle commit must be caught"
     assert any("acme-corp" in h for h in hits)
+
+
+def test_leak_in_a_commit_message_is_caught_when_the_tree_is_clean(repo: Path, monkeypatch) -> None:
+    """Commit messages are published as surely as file contents.
+
+    The 2026-09-09 fix commit named the TSG id it was removing, so its tree
+    was clean while its message was not.
+    """
+
+    def git(*args: str) -> str:
+        return subprocess.run(
+            ["git", *args], cwd=repo, capture_output=True, text=True, check=True
+        ).stdout.strip()
+
+    (repo / "notes.md").write_text("nothing sensitive in here\n")
+    git("add", "-A")
+    git("commit", "-qm", "fix: stop using acme-corp as the fixture default")
+    tip = git("rev-parse", "HEAD")
+
+    monkeypatch.setattr(guard, "REPO_ROOT", repo)
+    idents = ["acme-corp"]
+
+    assert guard.scan_contents(tip, idents) == [], "tree is clean, by construction"
+    assert guard.scan_filenames(tip, idents) == []
+
+    hits = guard.check_commit(tip, idents)
+    assert hits, "the identifier in the commit message must be caught"
+    assert any("commit message" in h for h in hits)
 
 
 def test_clean_range_produces_no_hits(repo: Path, monkeypatch) -> None:

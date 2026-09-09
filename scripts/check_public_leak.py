@@ -58,7 +58,24 @@ ZERO_SHA = "0" * 40
 
 
 def load_identifiers() -> list[str]:
-    """Tenant keys + labels from settings.toml. Raises if it can't be read."""
+    """Every customer identifier in settings.toml. Raises if it can't be read.
+
+    Keys and labels are the obvious ones. ``tenant_id`` matters just as much
+    and was missed until 2026-09-09, when a real 10-digit TSG id reached dev
+    master as a test fixture default and was caught only by a manual sweep:
+    a numeric tenant id is a customer identifier but not a secret, so neither
+    this guard nor gitleaks flagged it.
+
+    ``client_id`` is included with its local part split out separately — the
+    customer's own service-account reference (``a000001`` in
+    ``a000001@1234567890.iam.panserviceaccount.com``) travels on its own and
+    would not be caught by matching the full address.
+
+    ``default_folder`` is deliberately NOT an identifier: values like
+    ``ngfw-shared`` and ``Shared`` are generic PAN folder names already
+    published across the repo, and treating them as customer data makes every
+    sweep noise.
+    """
     if not SETTINGS_PATH.exists():
         raise FileNotFoundError(
             f"{SETTINGS_PATH} not found — cannot determine which tenant identifiers "
@@ -69,10 +86,15 @@ def load_identifiers() -> list[str]:
     tenants = data.get("tenants", {})
     idents: set[str] = set()
     for key, cfg in tenants.items():
+        cfg = cfg or {}
         idents.add(key)
-        label = (cfg or {}).get("label")
-        if label:
-            idents.add(str(label))
+        for field in ("label", "tenant_id", "client_id"):
+            value = cfg.get(field)
+            if value:
+                idents.add(str(value))
+        client_id = str(cfg.get("client_id") or "")
+        if "@" in client_id:
+            idents.add(client_id.split("@", 1)[0])
     found = sorted(i for i in idents if len(i) >= MIN_IDENTIFIER_LEN)
     if not found:
         raise ValueError(
@@ -144,8 +166,30 @@ def scan_contents(commit: str, identifiers: list[str]) -> list[str]:
     raise RuntimeError(f"git grep failed: {result.stderr.strip()}")
 
 
+def scan_message(commit: str, identifiers: list[str]) -> list[str]:
+    """Commit messages are published too, and are not part of any tree.
+
+    Found the hard way on 2026-09-09: the commit that *removed* a leaked TSG
+    id named that id in its own message, so mirroring it would have published
+    the identifier the fix was meant to suppress.
+    """
+    result = _git("log", "-1", "--format=%B", commit)
+    if result.returncode != 0:
+        return []
+    body = result.stdout.lower()
+    return [
+        f"{commit[:9]} (commit message)  <- contains '{ident}'"
+        for ident in identifiers
+        if ident.lower() in body
+    ]
+
+
 def check_commit(commit: str, identifiers: list[str]) -> list[str]:
-    return scan_filenames(commit, identifiers) + scan_contents(commit, identifiers)
+    return (
+        scan_filenames(commit, identifiers)
+        + scan_contents(commit, identifiers)
+        + scan_message(commit, identifiers)
+    )
 
 
 def check_commits(commits: list[str], identifiers: list[str]) -> list[str]:
