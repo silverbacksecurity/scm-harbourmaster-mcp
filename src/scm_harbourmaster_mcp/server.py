@@ -29,6 +29,7 @@ from .tools.audit import register_audit_tools
 from .tools.cdl_logforwarding import register_cdl_logforwarding_tools
 from .tools.compliance import register_compliance_tools
 from .tools.config_cleanup import register_config_cleanup_tools
+from .tools.config_index_tools import register_config_index_tools
 from .tools.config_orch import register_config_orch_tools
 from .tools.csp_licensing import register_csp_licensing_tools
 from .tools.deployment import register_deployment_tools
@@ -167,6 +168,7 @@ def register_all_tools(
     register_cdl_logforwarding_tools(mcp, get_client)
     register_compliance_tools(mcp, get_client)
     register_config_cleanup_tools(mcp, get_client)
+    register_config_index_tools(mcp, get_client)
     register_policy_optimizer_tools(mcp, get_client)
     register_config_orch_tools(mcp, get_client)
     register_site_management_tools(mcp, get_client)

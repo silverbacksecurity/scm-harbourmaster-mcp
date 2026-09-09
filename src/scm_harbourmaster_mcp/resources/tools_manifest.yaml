@@ -271,6 +271,21 @@ scm_config_diff:
   idempotent: true
   retry_policy: retry
   scope: tenant
+scm_config_index:
+  access: read
+  domain: config_change
+  idempotent: true
+  known_failure_modes: Rebuilds the local SQLite search index from a full config extraction
+    (~2 min per tenant); all_tenants returns a job ID for scm_config_index_result. Results
+    from scm_object_search are only as fresh as the last run of this tool.
+  retry_policy: retry
+  scope: cross_tenant
+scm_config_index_result:
+  access: read
+  domain: config_change
+  idempotent: true
+  retry_policy: retry
+  scope: cross_tenant
 scm_config_orch_bandwidth:
   access: write
   domain: deployment
@@ -634,6 +649,15 @@ scm_nist_gap:
   idempotent: true
   retry_policy: retry
   scope: tenant
+scm_object_search:
+  access: read
+  domain: config_change
+  idempotent: true
+  known_failure_modes: Reads the local index only — no API call, so it returns nothing
+    until scm_config_index has been run, and reflects config as of that run rather than
+    live state. An IP/CIDR query does range containment; anything else is text.
+  retry_policy: fail_fast
+  scope: cross_tenant
 scm_pab_apps:
   access: read
   domain: pab

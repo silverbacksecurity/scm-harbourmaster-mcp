@@ -39,6 +39,8 @@ tenant-*.md
 ai-design-components/
 backups/
 baselines/
+# Local config search index — full tenant policy/objects in SQLite
+index/
 plans/
 
 # CLI action history — records tenant ids/labels for actions run

@@ -4,7 +4,7 @@
 
 All tools authenticate via Bearer-token OAuth (SASE client credentials) configured in `settings.toml` / `.secrets.toml`.
 
-**161 tools** across 35 modules.
+**164 tools** across 36 modules.
 
 ## Table of Contents
 
@@ -30,6 +30,7 @@ All tools authenticate via Bearer-token OAuth (SASE client credentials) configur
 - [Cdl Logforwarding](#cdl-logforwarding)
 - [Compliance](#compliance)
 - [Config Cleanup](#config-cleanup)
+- [Config Index Tools](#config-index-tools)
 - [Config Orch](#config-orch)
 - [Csp Licensing](#csp-licensing)
 - [Dns Security](#dns-security)
@@ -3982,6 +3983,119 @@ Returns:
 | `location` | `str` | `''` |
 | `limit` | `int` | `200` |
 | `offset` | `int` | `0` |
+
+---
+
+## Config Index Tools
+
+_MCP tools for the local config search index — the Global Find replacement._
+
+### `scm_config_index`
+
+Build or refresh the local search index over a tenant's SCM config.
+
+```
+Extracts a full config snapshot and flattens it into a local SQLite
+index (SCM_MCP_INDEX_DIR, default ./index) — one row per object across
+addresses, groups, services, tags, EDLs, applications, every security /
+NAT / decryption / authentication rulebase, security profiles, zones,
+VPN, remote networks, and identity config. Address literals found
+anywhere in an object are indexed as ranges so scm_object_search can do
+real CIDR containment.
+
+Re-running replaces that tenant+folder's index; other tenants are left
+alone. Run it after a commit, or on a schedule alongside
+scm_drift_check, so searches reflect current config — results carry the
+index age so stale answers are visible rather than silent.
+
+Args:
+    folder: SCM folder to index (default "Prisma Access").
+    tenant_id: SCM tenant ID (MSSP mode) for a single tenant.
+    all_tenants: If True, index every configured tenant in a background
+                 job — returns a job ID for scm_config_index_result.
+    include_predefined: Also index Palo Alto's shipped App-ID catalogue
+                 (~11k signatures, ~25 MB per tenant). Off by default:
+                 it is vendor reference data, identical on every tenant,
+                 and it would bury the tenant's own config in results.
+                 Turn it on only to look up app signatures locally.
+
+Returns:
+    Index summary (single tenant, ~2 min) or a job ID (all tenants).
+```
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `folder` | `str` | `'Prisma Access'` |
+| `tenant_id` | `str` | `''` |
+| `all_tenants` | `bool` | `False` |
+| `include_predefined` | `bool` | `False` |
+
+### `scm_config_index_result`
+
+Retrieve the summary of an all-tenants config index sweep.
+
+```
+Args:
+    job_id: Job ID returned by scm_config_index with all_tenants=True
+            (jobs are kept for 1 hour).
+
+Returns:
+    The index summary, or a status message if the sweep is still running.
+```
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `job_id` | `str` | `—` |
+
+### `scm_object_search`
+
+Search indexed SCM config across tenants — the Global Find replacement.
+
+```
+Answers in milliseconds from the local index built by scm_config_index,
+with no API call. Unlike SCM's Global Search it spans every indexed
+tenant at once and understands addresses:
+
+  * Text  — "payments", "log4j", "tcp/8443", a rule or object name
+            fragment, a tag, a description phrase.
+  * IP    — "10.20.5.7" or "10.20.0.0/16" does real containment: every
+            object whose address range overlaps the query, however that
+            object happens to spell it. This is the question Global
+            Search cannot answer.
+
+Results show the object's own scope (folder / snippet / device), so an
+object inherited from a parent folder is distinguishable from a local
+one. Each hit carries a one-line gist — an address's value, a group's
+members, a rule's source → destination and action.
+
+Run scm_config_index first; searches report the index age so a stale
+answer is visible rather than silent.
+
+Args:
+    query: Free text, or an IP / CIDR for containment matching.
+    tenant_id: Restrict to one tenant. Omit to search every indexed tenant.
+    folder: Restrict to one SCM folder.
+    obj_types: Comma-separated section names to restrict to, e.g.
+               "addresses,address_groups" or "security_rules_pre".
+    limit: Maximum hits (1-500, default 50).
+    include_predefined: Include Palo Alto's shipped App-ID signatures in
+               results. Off by default so the tenant's own config is not
+               buried; only has an effect if the index was built with
+               scm_config_index(include_predefined=True).
+
+Returns:
+    Markdown results grouped by object type, or guidance if nothing is
+    indexed yet.
+```
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `query` | `str` | `—` |
+| `tenant_id` | `str` | `''` |
+| `folder` | `str` | `''` |
+| `obj_types` | `str` | `''` |
+| `limit` | `int` | `50` |
+| `include_predefined` | `bool` | `False` |
 
 ---
 
