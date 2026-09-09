@@ -84,6 +84,23 @@ def test_identifiers_include_keys_and_labels_and_drop_short_ones(monkeypatch, tm
     assert "Q" not in idents
 
 
+@pytest.fixture
+def synthetic_settings(monkeypatch, tmp_path: Path) -> Path:
+    """Point the guard at a throwaway tenant registry.
+
+    ``run_hook_mode`` loads identifiers before it ever looks at the push range,
+    so even a test that never reaches the range check needs a readable
+    settings.toml. The real one is git-ignored — present on a developer's box,
+    never on a CI runner — so a test that leans on it passes locally and fails
+    everywhere else, and would assert against whatever tenants happen to be
+    registered at the time.
+    """
+    p = tmp_path / "settings.toml"
+    p.write_text("[tenants.acme-corp]\nlabel = 'Acme Corporation'\n")
+    monkeypatch.setattr(guard, "SETTINGS_PATH", p)
+    return p
+
+
 def test_hook_refuses_when_no_remote_url_supplied(monkeypatch, capsys) -> None:
     monkeypatch.delenv("PRE_COMMIT_REMOTE_URL", raising=False)
     monkeypatch.setattr(guard.sys, "argv", ["check_public_leak.py"])
@@ -91,7 +108,9 @@ def test_hook_refuses_when_no_remote_url_supplied(monkeypatch, capsys) -> None:
     assert "refusing" in capsys.readouterr().err
 
 
-def test_hook_refuses_when_push_range_is_undeterminable(monkeypatch, capsys) -> None:
+def test_hook_refuses_when_push_range_is_undeterminable(
+    monkeypatch, capsys, synthetic_settings
+) -> None:
     """The original bug: pre-commit ate stdin, so no refs were found and the
     hook passed having scanned nothing. It must refuse instead."""
     monkeypatch.setenv("PRE_COMMIT_REMOTE_URL", PUB)
