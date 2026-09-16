@@ -33,6 +33,14 @@ class FakeResource:
         return rule
 
 
+class MissingResource(FakeResource):
+    """A resource whose fetch finds nothing (the object does not exist yet)."""
+
+    def fetch(self, **kwargs: Any) -> Any:
+        self.fetched.append(kwargs)
+        raise LookupError("not found")
+
+
 class FakeClient:
     def __init__(self) -> None:
         self.resources: dict[str, FakeResource] = {}
@@ -303,6 +311,7 @@ def test_objects_in_a_customer_snippet_are_still_cloned(tmp_path):
 
 def test_gp_and_identity_objects_push_with_folder_in_payload(tmp_path):
     client = FakeClient()
+    client.resources["auth_setting"] = MissingResource()
     src = _backup(
         tmp_path,
         {
@@ -382,3 +391,191 @@ def test_folder_kwarg_conflict_overwrite_passes_folder_once(tmp_path):
     assert report.results[0].status == "overwritten"
     resource = client.resources["tunnel_profile"]
     assert resource.fetched == [{"name": "tp-1", "folder": "Mobile Users"}]
+
+
+# ── URL categories and profile groups ─────────────────────────────────────
+
+
+def test_url_categories_and_profile_groups_precede_dependants(tmp_path):
+    client = FakeClient()
+    order: list[str] = []
+    for attr in ("url_category", "url_access_profile", "profile_group", "security_rule"):
+        res = client.resources.setdefault(attr, FakeResource())
+        res.create = (lambda a: lambda data, **kw: order.append(a))(attr)  # type: ignore[method-assign]
+    src = _backup(
+        tmp_path,
+        {
+            "security_rules_pre": [{"name": "r", "folder": "src"}],
+            "profile_groups": [{"name": "pg", "folder": "src", "spyware": ["as"]}],
+            "url_access_profiles": [{"name": "url", "folder": "src"}],
+            "url_categories": [{"name": "cat", "folder": "src", "list": ["*.bing.com"]}],
+        },
+    )
+    cloner.clone_config(client, src, "dst", dry_run=False)
+    assert order == ["url_category", "url_access_profile", "profile_group", "security_rule"]
+
+
+class _Resp:
+    def __init__(self, status: int, body: Any) -> None:
+        self.status_code = status
+        self.ok = status < 400
+        self._body = body
+        self.text = json.dumps(body)
+        self.content = self.text.encode()
+
+    def json(self) -> Any:
+        return self._body
+
+
+class _Session:
+    def __init__(self, post_status: int = 201, post_body: Any = None) -> None:
+        self.calls: list[tuple[str, str, Any]] = []
+        self._post = _Resp(post_status, post_body or {"id": "new"})
+
+    def post(self, url: str, json: Any = None, timeout: Any = None) -> _Resp:
+        self.calls.append(("POST", url, json))
+        return self._post
+
+    def get(self, url: str, params: Any = None, timeout: Any = None) -> _Resp:
+        self.calls.append(("GET", url, params))
+        return _Resp(200, {"data": [{"id": "pg-1", "name": params["name"]}]})
+
+    def put(self, url: str, json: Any = None, timeout: Any = None) -> _Resp:
+        self.calls.append(("PUT", url, json))
+        return _Resp(200, json)
+
+
+class _SdkClientWithoutProfileGroups:
+    def __init__(self, session: _Session) -> None:
+        self.session = session
+
+    def __getattr__(self, name: str) -> Any:
+        raise AttributeError(name)
+
+
+def test_profile_groups_pushed_via_rest_when_sdk_lacks_them(tmp_path):
+    session = _Session()
+    client = _SdkClientWithoutProfileGroups(session)
+    src = _backup(
+        tmp_path,
+        {
+            "profile_groups": [
+                {
+                    "id": "old",
+                    "name": "example-group",
+                    "folder": "Shared",
+                    "spyware": ["example-spyware"],
+                }
+            ]
+        },
+    )
+    report = cloner.clone_config(client, src, "Prisma Access", dry_run=False)
+
+    method, url, body = session.calls[0]
+    assert method == "POST" and url.endswith("/sse/config/v1/profile-groups")
+    assert body == {
+        "name": "example-group",
+        "folder": "Prisma Access",
+        "spyware": ["example-spyware"],
+    }
+    assert [r.status for r in report.results] == ["created"]
+
+
+def test_profile_group_conflict_overwrite_uses_put_without_container(tmp_path):
+    session = _Session(
+        post_status=400, post_body={"_errors": [{"message": "Object already exists"}]}
+    )
+    client = _SdkClientWithoutProfileGroups(session)
+    src = _backup(
+        tmp_path, {"profile_groups": [{"name": "pg", "folder": "Shared", "spyware": ["x"]}]}
+    )
+    report = cloner.clone_config(
+        client, src, "Prisma Access", on_conflict="overwrite", dry_run=False
+    )
+
+    assert [r.status for r in report.results] == ["overwritten"]
+    method, url, body = session.calls[-1]
+    assert method == "PUT" and url.endswith("/profile-groups/pg-1")
+    assert body == {"name": "pg", "spyware": ["x"]}
+
+
+def test_threat_profile_empty_actions_are_omitted(tmp_path):
+    client = FakeClient()
+    src = _backup(
+        tmp_path,
+        {
+            "anti_spyware_profiles": [
+                {
+                    "name": "sp",
+                    "folder": "Shared",
+                    "rules": [
+                        {"name": "crit", "action": {"reset_both": {}}},
+                        {"name": "info", "action": {}},
+                    ],
+                }
+            ]
+        },
+    )
+    cloner.clone_config(client, src, "Prisma Access", dry_run=False)
+
+    rules = client.resources["anti_spyware_profile"].created[0][0]["rules"]
+    assert [r.get("action") for r in rules] == [{"reset_both": {}}, None]
+    assert "action" not in rules[1]
+
+
+def test_bandwidth_allocations_carry_no_folder(tmp_path):
+    client = FakeClient()
+    src = _backup(
+        tmp_path,
+        {"bandwidth_allocations": [{"name": "region-a", "allocated_bandwidth": 50.0}]},
+    )
+    cloner.clone_config(client, src, "Remote Networks", include_deployment=True, dry_run=False)
+
+    payload = client.resources["bandwidth_allocation"].created[0][0]
+    assert "folder" not in payload
+
+
+def test_sdk_validation_error_retries_create_over_rest(tmp_path):
+    session = _Session()
+
+    class StrictResource:
+        ENDPOINT = "/config/security/v1/wildfire-anti-virus-profiles"
+
+        def create(self, data: dict[str, Any], **kwargs: Any) -> Any:
+            raise ValueError("1 validation error for WildfireAvProfileCreateModel\nname")
+
+    class Client:
+        api_base_url = "https://api.example"
+
+        def __init__(self) -> None:
+            self.session = session
+            self.wildfire_antivirus_profile = StrictResource()
+
+    src = _backup(
+        tmp_path, {"wildfire_profiles": [{"name": "Profile With Spaces", "folder": "Shared"}]}
+    )
+    report = cloner.clone_config(Client(), src, "Prisma Access", dry_run=False)
+
+    assert [r.status for r in report.results] == ["created"]
+    method, url, body = session.calls[0]
+    assert (method, url) == (
+        "POST",
+        "https://api.example/config/security/v1/wildfire-anti-virus-profiles",
+    )
+    assert body["name"] == "Profile With Spaces"
+
+
+def test_auth_settings_existing_name_is_skipped_not_duplicated(tmp_path):
+    client = FakeClient()  # FakeResource.fetch always finds an object
+    src = _backup(
+        tmp_path,
+        {
+            "mobile_agent_auth_settings": [
+                {"name": "DEFAULT", "authentication_profile": "Local Users"}
+            ]
+        },
+    )
+    report = cloner.clone_config(client, src, "Mobile Users", dry_run=False)
+
+    assert [r.status for r in report.results] == ["skipped"]
+    assert client.resources["auth_setting"].created == []

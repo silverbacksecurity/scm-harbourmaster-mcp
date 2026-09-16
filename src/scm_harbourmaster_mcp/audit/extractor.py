@@ -15,6 +15,7 @@ import threading
 import time
 import warnings
 import xml.etree.ElementTree as ET
+from collections.abc import Callable
 from concurrent.futures import ALL_COMPLETED, ThreadPoolExecutor, wait
 from typing import Any
 
@@ -187,7 +188,7 @@ def _extract_snapshot_uncached(client: Any, folder: str, tenant_id: str) -> Audi
                 if session is not None:
                     url = _rest_fallback_url(client, attr)
                     try:
-                        raw = _rest_list(session, url, dict(kwargs))
+                        raw = _rest_list(session, url, _rest_params(kwargs))
                         if raw:
                             logger.info("sdk_validation_fallback", resource=attr, count=len(raw))
                             return raw
@@ -275,23 +276,39 @@ def _extract_snapshot_uncached(client: Any, folder: str, tenant_id: str) -> Audi
                     combined.append(rule)
         return combined
 
+    # Cloud leaf folders (Mobile Users, Remote Networks, ...) ignore the
+    # position selector and return the whole effective rulebase for both pre
+    # and post, so positions are resolved once for both lists.
+    _rule_split: list[tuple[list[dict[str, Any]], list[dict[str, Any]]]] = []
+    _rule_split_lock = threading.Lock()
+
     def _safe_rules_multifolder(position: str) -> list[dict[str, Any]]:
-        seen_ids: set[str] = set()
-        combined: list[dict[str, Any]] = []
-        for f in _rule_folders:
-            # SecurityRule.list()'s rulebase-selector kwarg is `rulebase`, not
-            # `position` — passing `position` is silently swallowed into **filters
-            # and always returns the default "pre" rulebase (see also security.py).
-            for rule in _safe("security_rule", folder=f, rulebase=position, limit=_LIMIT):
-                rid = rule.get("id") or rule.get("name", "")
-                if rid not in seen_ids:
-                    seen_ids.add(rid)
-                    # SCM returns the defining folder on each rule object.
-                    # Fall back to the query folder if the field is absent.
-                    rule.setdefault("_folder", rule.get("folder") or f)
-                    rule["_position"] = position
-                    combined.append(rule)
-        return combined
+        with _rule_split_lock:
+            if not _rule_split:
+                _rule_split.append(
+                    resolve_rule_positions(
+                        _rule_folders,
+                        # SecurityRule.list()'s rulebase-selector kwarg is `rulebase`,
+                        # not `position` — `position` is silently swallowed into
+                        # **filters (see also security.py).
+                        lambda f, pos: _safe("security_rule", folder=f, rulebase=pos, limit=_LIMIT),
+                    )
+                )
+        pre, post = _rule_split[0]
+        return pre if position == "pre" else post
+
+    def _fetch_profile_groups_rest() -> list[dict[str, Any]]:
+        session = getattr(client, "session", None)
+        if session is None:
+            return []
+        try:
+            return _rest_list(
+                session, _PROFILE_GROUPS_URL, {"folder": folder, "limit": str(_LIMIT)}
+            )
+        except Exception as exc:
+            with errors_lock:
+                snap.extraction_errors.append(f"profile_group (REST): {exc}")
+            return []
 
     # IKE Gateways: SDK Pydantic model drops local_address (e.g. {"interface": "vlan"})
     # which is required for a complete AS-BUILT and for config backup/restore.
@@ -413,6 +430,8 @@ def _extract_snapshot_uncached(client: Any, folder: str, tenant_id: str) -> Audi
         ("dns_security_profiles", lambda: _safe("dns_security_profile", **kw)),
         ("decryption_profiles", lambda: _safe("decryption_profile", **kw)),
         ("file_blocking_profiles", lambda: _safe("file_blocking_profile", **kw)),
+        # Profile groups are not wrapped by pan-scm-sdk 0.15.1 — REST only
+        ("profile_groups", _fetch_profile_groups_rest),
         # Logging
         (
             "log_forwarding_profiles",
@@ -720,7 +739,7 @@ def _extract_snapshot_uncached(client: Any, folder: str, tenant_id: str) -> Audi
                 ("addresses", "/config/objects/v1/addresses"),
                 ("address_groups", "/config/objects/v1/address-groups"),
                 ("url_categories", "/config/objects/v1/url-categories"),
-                ("security_profiles", "/config/profiles/v1/security-profile-groups"),
+                ("security_profiles", "/config/security/v1/profile-groups"),
                 ("url_profiles", "/config/profiles/v1/url-filtering-profiles"),
                 ("dns_sec_profiles", "/config/profiles/v1/dns-security-profiles"),
             ]
@@ -807,6 +826,7 @@ def backup_resource_payload(snap: AuditSnapshot) -> dict[str, Any]:
         "dns_security_profiles": snap.dns_security_profiles,
         "decryption_profiles": snap.decryption_profiles,
         "file_blocking_profiles": snap.file_blocking_profiles,
+        "profile_groups": snap.profile_groups,
         # Logging
         "log_forwarding_profiles": snap.log_forwarding_profiles,
         "syslog_profiles": snap.syslog_profiles,
@@ -874,6 +894,7 @@ def extract_licenses(client: Any, snap: AuditSnapshot) -> AuditSnapshot:
 
 
 _SCM_API_HOST = "https://api.sase.paloaltonetworks.com"
+_PROFILE_GROUPS_URL = f"{_SCM_API_HOST}/sse/config/v1/profile-groups"
 _SCM_CONFIG_BASE = f"{_SCM_API_HOST}/config/v1"
 _ZTNA_BASE = f"{_SCM_API_HOST}/sse/connector/v2.0/api"
 _BROWSER_BASE = f"{_SCM_API_HOST}/seb-api/v1"
@@ -964,7 +985,7 @@ def list_with_rest_fallback(client: Any, attr: str, **params: Any) -> list[Any]:
         if session is None or url is None:
             raise
         logger.info("sdk_validation_fallback_tool", resource=attr)
-        return _rest_list(session, url, {k: str(v) for k, v in params.items()})
+        return _rest_list(session, url, {k: str(v) for k, v in _rest_params(params).items()})
 
 
 def extract_casb_dlp(client: Any, snap: AuditSnapshot, folder: str) -> AuditSnapshot:
@@ -2901,3 +2922,98 @@ def extract_managed_tenants(client: Any, snap: AuditSnapshot) -> AuditSnapshot:
         snap.extraction_errors.append(f"managed_tenants: {exc}")
         logger.warning("managed_tenants_error", error=str(exc))
     return snap
+
+
+def _rest_params(params: dict[str, Any]) -> dict[str, Any]:
+    """Translate SDK list() kwargs into SCM REST query parameters.
+
+    The SDK spells the rulebase selector ``rulebase=`` but the REST API only
+    understands ``position=`` — forwarding ``rulebase`` unchanged makes the API
+    ignore it and return both rulebases.
+    """
+    out = dict(params)
+    if "rulebase" in out:
+        out.setdefault("position", out.pop("rulebase"))
+    return out
+
+
+# The config API reports the Prisma Access container as "Shared" on objects,
+# but only accepts "Prisma Access" as a folder query parameter.
+_API_FOLDER_ALIASES = {"Shared": "Prisma Access"}
+
+
+def resolve_rule_positions(
+    folders: list[str],
+    list_rules: Callable[[str, str], list[dict[str, Any]]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Split the security rules visible from *folders* into (pre, post).
+
+    Container folders honour the position selector.  Cloud leaf folders
+    (Mobile Users, Remote Networks, Explicit Proxy) do not: both queries return
+    the same effective rulebase — parent pre rules, the folder's own rules,
+    parent post rules.  Positions are therefore taken from container queries,
+    probing the defining folder of inherited rules when needed; a leaf folder's
+    own rules are placed by their order relative to known post rules (defaulting
+    to pre when there is no anchor).
+
+    *list_rules(folder, position)* returns the rule dicts for one query.  Rules
+    are deduplicated by id and tagged with ``_folder`` / ``_position``.
+    """
+    listings: dict[tuple[str, str], list[dict[str, Any]]] = {}
+
+    def _get(f: str, pos: str) -> list[dict[str, Any]]:
+        if (f, pos) not in listings:
+            listings[(f, pos)] = list_rules(f, pos)
+        return listings[(f, pos)]
+
+    def _key(r: dict[str, Any]) -> str:
+        return str(r.get("id") or r.get("name", ""))
+
+    positions: dict[str, str] = {}
+    probed: set[str] = set()
+
+    def _probe(f: str) -> bool:
+        """Record positions from *f*; False when *f* ignores the selector."""
+        probed.add(f)
+        pre, post = _get(f, "pre"), _get(f, "post")
+        if {_key(r) for r in pre} == {_key(r) for r in post}:
+            return False
+        for r in pre:
+            positions.setdefault(_key(r), "pre")
+        for r in post:
+            positions[_key(r)] = "post"
+        return True
+
+    effective = [f for f in folders if not _probe(f)]
+
+    for f in effective:
+        for r in _get(f, "pre"):
+            owner = r.get("folder")
+            query = _API_FOLDER_ALIASES.get(owner, owner) if owner else None
+            if query and owner != f and _key(r) not in positions and query not in probed:
+                _probe(query)
+
+    for f in effective:
+        seen_post = False
+        for r in _get(f, "pre"):
+            k = _key(r)
+            if positions.get(k) == "post":
+                seen_post = True
+            elif k not in positions:
+                positions[k] = "post" if seen_post else "pre"
+
+    pre_out: list[dict[str, Any]] = []
+    post_out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for f in folders:
+        for r in _get(f, "pre") + _get(f, "post"):
+            k = _key(r)
+            if k in seen:
+                continue
+            seen.add(k)
+            # SCM returns the defining folder on each rule object.
+            # Fall back to the query folder if the field is absent.
+            r.setdefault("_folder", r.get("folder") or f)
+            r["_position"] = positions.get(k, "pre")
+            (post_out if r["_position"] == "post" else pre_out).append(r)
+    return pre_out, post_out

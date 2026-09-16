@@ -83,6 +83,7 @@ class AuditSnapshot:
     dns_security_profiles: list[dict[str, Any]] = field(default_factory=list)
     decryption_profiles: list[dict[str, Any]] = field(default_factory=list)
     file_blocking_profiles: list[dict[str, Any]] = field(default_factory=list)
+    profile_groups: list[dict[str, Any]] = field(default_factory=list)
 
     # Logging
     log_forwarding_profiles: list[dict[str, Any]] = field(default_factory=list)

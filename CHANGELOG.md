@@ -263,6 +263,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `/etc` are unchanged.
 
 ### Fixed
+- **Config backups put every security rule in both pre and post**
+  (`audit/extractor.py`) — cloud leaf folders (Mobile Users, Remote Networks,
+  Explicit Proxy) ignore the position selector and return the whole effective
+  rulebase for both queries, so a backup of any folder that includes them
+  listed every rule twice and a clone recreated post rules as pre rules.
+  Positions now come from container-folder queries (probing the defining
+  folder of inherited rules, `Shared` → `Prisma Access`), with a leaf folder's
+  own rules placed by their order relative to known post rules. The SDK
+  validation-error REST fallback also forwarded `rulebase=`, which the API
+  ignores; it now sends `position=`
+- **Backups and clones missed profile groups and URL categories**
+  (`audit/extractor.py`, `audit/cloner.py`) — rules and URL filtering profiles
+  reference both by name, so a clone failed on every rule using a custom
+  profile group. Backups now include `profile_groups` (REST, not wrapped by
+  pan-scm-sdk 0.15.1); the cloner creates URL categories before URL profiles
+  and profile groups before rules. The snippet object count read profile
+  groups from a 404ing endpoint
+- **Clone failures and silent duplicates found in a live tenant restore**
+  (`audit/cloner.py`) — anti-spyware and vulnerability rules read back with
+  `action: {}` (signature default) were rejected on create; the empty action
+  is now omitted, which round-trips. SDK create models stricter than SCM (e.g.
+  names with spaces) now retry the create over REST. Bandwidth allocations no
+  longer send a `folder` the API rejects. GlobalProtect auth settings are
+  checked for an existing name first: SCM accepts a duplicate under a
+  generated `UserAuth_<ts>` name instead of reporting a conflict
 - **BPA TP-007 read the grayware verdict before malware**
   (`audit/bpa_checks.py`) — a WildFire profile with `malware=block` and the
   usual `grayware=alert` was reported as not blocking malware

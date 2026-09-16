@@ -15,8 +15,10 @@ PSK handling: pre-shared keys in IKE gateways are ALWAYS replaced with
 
 Dependency push order
 ─────────────────────
-Tier 0  tags, services, EDLs, server/crypto/sec profiles, GP & identity
-Tier 1  addresses, service groups, log-forwarding profiles, zone-protection
+Tier 0  tags, services, EDLs, URL categories, server/crypto/sec profiles,
+        GP & identity
+Tier 1  addresses, service groups, log-forwarding profiles, zone-protection,
+        profile groups
 Tier 2  address groups, app groups, HIP objects
 Tier 3  HIP profiles, security zones
 Rules   security (pre), security (post), NAT, decryption, app-override
@@ -80,6 +82,8 @@ _PUSH_ORDER: list[tuple[str, str, str]] = [
     ("tags", "tag", "customer"),
     ("services", "service", "customer"),
     ("edls", "external_dynamic_list", "customer"),
+    # URL filtering profiles reference custom URL categories by name
+    ("url_categories", "url_category", "customer"),
     ("http_server_profiles", "http_server_profile", "customer"),
     ("syslog_profiles", "syslog_server_profile", "customer"),
     ("ike_crypto_profiles", "ike_crypto_profile", _FOLDER_REMOTE_NETWORKS),
@@ -109,6 +113,8 @@ _PUSH_ORDER: list[tuple[str, str, str]] = [
     ("log_forwarding_profiles", "log_forwarding_profile", "customer"),
     ("zone_protection_profiles", "zone_protection_profile", "customer"),
     ("hip_objects", "hip_object", "customer"),
+    # Groups the Tier 0 security profiles; rules reference the group by name
+    ("profile_groups", "profile_group", "customer"),
     # ── Tier 2 ────────────────────────────────────────────────────────────
     ("address_groups", "address_group", "customer"),
     ("application_groups", "application_group", "customer"),
@@ -140,6 +146,9 @@ _FOLDER_KWARG_ORDER: list[tuple[str, str, str]] = [
     ("mobile_agent_tunnel_profiles", "tunnel_profile", _FOLDER_MOBILE_USERS),
     ("mobile_agent_infrastructure", "infrastructure_settings", _FOLDER_MOBILE_USERS),
 ]
+
+# Deployment resources the API scopes implicitly; a folder in the body is rejected
+_FOLDERLESS_RESOURCES = frozenset({"bandwidth_allocation"})
 
 _DEPLOY_ORDER: list[tuple[str, str, str]] = [
     ("ike_gateways", "ike_gateway", _FOLDER_REMOTE_NETWORKS),
@@ -277,6 +286,18 @@ def _drop_nulls(value: Any) -> Any:
     return value
 
 
+# Threat profiles whose rules SCM reads back with action {} when the rule uses
+# the signature's default action.  Create rejects both {} and {"default": {}}
+# ("missing node 'action'"); omitting the key round-trips back to {}.
+_THREAT_RULE_PROFILES = frozenset({"anti_spyware_profiles", "vulnerability_profiles"})
+
+
+def _drop_empty_actions(obj: dict[str, Any]) -> None:
+    for rule in obj.get("rules") or []:
+        if isinstance(rule, dict) and rule.get("action") == {}:
+            del rule["action"]
+
+
 def _anonymise_ips(obj: dict[str, Any], ip_map: dict[str, str]) -> dict[str, Any]:
     """Replace IPv4 addresses in a dict (recursively) with template vars."""
     text = json.dumps(obj)
@@ -376,6 +397,92 @@ def _to_update_model(resource: Any, payload: dict[str, Any]) -> Any:
     return payload
 
 
+class _RestResource:
+    """Minimal create/fetch/update adapter for config resources pan-scm-sdk
+    does not wrap, so ``_push_one`` can treat them like SDK resources."""
+
+    def __init__(self, session: Any, url: str) -> None:
+        self._session = session
+        self._url = url
+
+    @staticmethod
+    def _check(resp: Any) -> Any:
+        if not resp.ok:
+            # Body carries the SCM error text ("Object already exists", ...)
+            # that the conflict detection in _push_one matches on.
+            raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:300]}")
+        return resp.json() if resp.content else {}
+
+    def create(self, data: dict[str, Any]) -> Any:
+        return self._check(self._session.post(self._url, json=data, timeout=30))
+
+    def fetch(self, name: str, folder: str) -> Any:
+        body = self._check(
+            self._session.get(self._url, params={"name": name, "folder": folder}, timeout=30)
+        )
+        items = body.get("data", [body]) if isinstance(body, dict) else body
+        if not items:
+            raise RuntimeError(f"{name!r} not found in folder {folder!r}")
+        return type("Existing", (), {"id": items[0].get("id")})()
+
+    def update(self, data: dict[str, Any]) -> Any:
+        # The container is fixed at create time; PUT bodies carry neither it nor the id
+        payload = {k: v for k, v in data.items() if k not in ("id", "folder", "snippet", "device")}
+        return self._check(self._session.put(f"{self._url}/{data['id']}", json=payload, timeout=30))
+
+
+# Resources with no pan-scm-sdk wrapper (0.15.1), pushed via raw REST
+_REST_ONLY_RESOURCES: dict[str, str] = {
+    "profile_group": "https://api.sase.paloaltonetworks.com/sse/config/v1/profile-groups",
+}
+
+
+# Resources the API never reports as a name conflict: a duplicate create is
+# accepted under a generated name (e.g. GP auth settings → "UserAuth_<ts>").
+_RENAMES_ON_DUPLICATE = frozenset({"auth_setting"})
+
+
+def _exists(
+    resource: Any, name: str, payload: dict[str, Any], create_kwargs: dict[str, str]
+) -> bool:
+    folder = create_kwargs.get("folder") or payload.get("folder") or _FOLDER_MOBILE_USERS
+    try:
+        resource.fetch(name=name, folder=folder)
+    except Exception:
+        return False
+    return True
+
+
+def _rest_create_fallback(
+    client: Any, resource: Any, exc: Exception, create_kwargs: dict[str, str]
+) -> _RestResource | None:
+    """REST adapter for a create the SDK rejected client-side.
+
+    The SDK create models are stricter than SCM — e.g. their name pattern
+    forbids spaces, which SCM accepts — so a local validation error is retried
+    as a raw POST.  Only folder-in-payload creates qualify: rulebase and folder
+    kwargs travel as query parameters the adapter does not send.
+    """
+    if "validation error" not in str(exc).lower() or create_kwargs:
+        return None
+    endpoint = getattr(resource, "ENDPOINT", None)
+    session = getattr(client, "session", None)
+    base = getattr(client, "api_base_url", None)
+    if not (endpoint and session is not None and base):
+        return None
+    logger.info("clone_sdk_validation_rest_fallback", endpoint=endpoint)
+    return _RestResource(session, f"{base}{endpoint}")
+
+
+def _resource(client: Any, sdk_attr: str) -> Any:
+    if sdk_attr in _REST_ONLY_RESOURCES:
+        try:
+            return getattr(client, sdk_attr)
+        except AttributeError:
+            return _RestResource(client.session, _REST_ONLY_RESOURCES[sdk_attr])
+    return getattr(client, sdk_attr)
+
+
 def _push_one(
     client: Any,
     sdk_attr: str,
@@ -394,8 +501,20 @@ def _push_one(
             detail += " (" + ", ".join(f"{k}={v}" for k, v in create_kwargs.items()) + ")"
         return PushResult(resource_type, name, "dry_run", detail)
     try:
-        resource = getattr(client, sdk_attr)
-        resource.create(payload, **create_kwargs)
+        resource = _resource(client, sdk_attr)
+        if sdk_attr in _RENAMES_ON_DUPLICATE and _exists(resource, name, payload, create_kwargs):
+            if on_conflict == "skip":
+                return PushResult(resource_type, name, "skipped", "already exists")
+            return PushResult(
+                resource_type, name, "failed", "exists; overwrite unsupported for this type"
+            )
+        try:
+            resource.create(payload, **create_kwargs)
+        except Exception as exc:
+            rest = _rest_create_fallback(client, resource, exc, create_kwargs)
+            if rest is None:
+                raise
+            rest.create(payload)
         logger.info("clone_object_created", type=resource_type, name=name)
         return PushResult(resource_type, name, "created")
     except Exception as exc:
@@ -411,7 +530,7 @@ def _push_one(
             return PushResult(resource_type, name, "skipped", "already exists")
         if is_conflict and on_conflict == "overwrite":
             try:
-                resource = getattr(client, sdk_attr)
+                resource = _resource(client, sdk_attr)
                 # Forward the create kwargs (e.g. rulebase=) but keep the
                 # folder single-sourced: it may ride in create_kwargs for
                 # folder-kwarg resources instead of the payload.
@@ -517,10 +636,12 @@ def clone_config(
                 anonymise_ips=anonymise_ips,
                 ip_map=ip_map,
                 is_ike_gateway=is_ike_gateway,
-                set_folder=not folder_kwarg,
+                set_folder=not folder_kwarg and sdk_attr not in _FOLDERLESS_RESOURCES,
             )
             if psk_w:
                 report.psk_warnings.append(psk_w)
+            if snap_key in _THREAT_RULE_PROFILES:
+                _drop_empty_actions(o)
             kwargs = dict(create_kwargs or {})
             if folder_kwarg:
                 kwargs["folder"] = folder
