@@ -1,0 +1,303 @@
+{
+  "description": "Certificates and TLS service profiles are served under /sse/config/v1. The same paths under /config/v1 answer 404 on every folder, which the tools used to report as 'none found'.",
+  "interactions": [
+    {
+      "name": "TLS profiles - correct base",
+      "request": {
+        "method": "GET",
+        "url": "https://api.strata.paloaltonetworks.com/sse/config/v1/tls-service-profiles",
+        "query": {
+          "folder": "Shared"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "json": {
+          "data": [
+            {
+              "id": "00000000-0000-4000-8000-000000000101",
+              "name": "tls-modern",
+              "folder": "Shared",
+              "protocol_settings": {
+                "min_version": "tls1-2",
+                "max_version": "tls1-3"
+              }
+            },
+            {
+              "id": "00000000-0000-4000-8000-000000000102",
+              "name": "tls-legacy",
+              "folder": "Shared",
+              "protocol_settings": {
+                "min_version": "tls1-0",
+                "max_version": "tls1-2"
+              }
+            }
+          ],
+          "limit": 200,
+          "offset": 0,
+          "total": 2
+        }
+      }
+    },
+    {
+      "name": "TLS profiles - wrong base 404s on every folder",
+      "request": {
+        "method": "GET",
+        "url": "https://api.strata.paloaltonetworks.com/config/v1/tls-service-profiles"
+      },
+      "response": {
+        "status": 404,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "json": {
+          "_errors": [
+            {
+              "code": "API_I00013",
+              "message": "Object Not Present",
+              "details": {
+                "errorType": "Object Not Present"
+              }
+            }
+          ],
+          "_request_id": "00000000-0000-0000-0000-000000000000"
+        }
+      }
+    },
+    {
+      "name": "TLS profile create - correct base",
+      "request": {
+        "method": "POST",
+        "url": "https://api.strata.paloaltonetworks.com/sse/config/v1/tls-service-profiles"
+      },
+      "response": {
+        "status": 201,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "json": {
+          "id": "00000000-0000-4000-8000-000000000103",
+          "name": "tls-baseline",
+          "folder": "Shared"
+        }
+      }
+    },
+    {
+      "name": "TLS profile create - wrong base",
+      "request": {
+        "method": "POST",
+        "url": "https://api.strata.paloaltonetworks.com/config/v1/tls-service-profiles"
+      },
+      "response": {
+        "status": 404,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "json": {
+          "_errors": [
+            {
+              "code": "API_I00013",
+              "message": "Object Not Present",
+              "details": {
+                "errorType": "Object Not Present"
+              }
+            }
+          ],
+          "_request_id": "00000000-0000-0000-0000-000000000000"
+        }
+      }
+    },
+    {
+      "name": "certificate import - correct base",
+      "request": {
+        "method": "POST",
+        "url": "https://api.strata.paloaltonetworks.com/sse/config/v1/certificates"
+      },
+      "response": {
+        "status": 201,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "json": {
+          "id": "00000000-0000-4000-8000-000000000202",
+          "name": "example-import",
+          "folder": "Shared"
+        }
+      }
+    },
+    {
+      "name": "certificate import - wrong base",
+      "request": {
+        "method": "POST",
+        "url": "https://api.strata.paloaltonetworks.com/config/v1/certificates"
+      },
+      "response": {
+        "status": 404,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "json": {
+          "_errors": [
+            {
+              "code": "API_I00013",
+              "message": "Object Not Present",
+              "details": {
+                "errorType": "Object Not Present"
+              }
+            }
+          ],
+          "_request_id": "00000000-0000-0000-0000-000000000000"
+        }
+      }
+    },
+    {
+      "name": "certificates in Shared",
+      "request": {
+        "method": "GET",
+        "url": "https://api.sase.paloaltonetworks.com/sse/config/v1/certificates",
+        "query": {
+          "folder": "Shared"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "json": {
+          "data": [
+            {
+              "id": "00000000-0000-4000-8000-000000000201",
+              "name": "example-forward-proxy-ca",
+              "folder": "Shared",
+              "ca": true,
+              "common_name": "Example Forward Proxy CA",
+              "issuer": "/CN=Example Root CA",
+              "not_valid_after": "Jan  1 00:00:00 2100 GMT",
+              "expiry_epoch": "4102444800"
+            }
+          ],
+          "limit": 500,
+          "offset": 0,
+          "total": 1
+        }
+      }
+    },
+    {
+      "name": "certificates in Remote Networks",
+      "request": {
+        "method": "GET",
+        "url": "https://api.sase.paloaltonetworks.com/sse/config/v1/certificates",
+        "query": {
+          "folder": "Remote Networks"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "json": {
+          "data": [],
+          "limit": 500,
+          "offset": 0,
+          "total": 0
+        }
+      }
+    },
+    {
+      "name": "certificates in Mobile Users",
+      "request": {
+        "method": "GET",
+        "url": "https://api.sase.paloaltonetworks.com/sse/config/v1/certificates",
+        "query": {
+          "folder": "Mobile Users"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "json": {
+          "data": [],
+          "limit": 500,
+          "offset": 0,
+          "total": 0
+        }
+      }
+    },
+    {
+      "name": "certificates in Service Connections",
+      "request": {
+        "method": "GET",
+        "url": "https://api.sase.paloaltonetworks.com/sse/config/v1/certificates",
+        "query": {
+          "folder": "Service Connections"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "json": {
+          "data": [],
+          "limit": 500,
+          "offset": 0,
+          "total": 0
+        }
+      }
+    },
+    {
+      "name": "certificates - wrong base",
+      "request": {
+        "method": "GET",
+        "url": "https://api.sase.paloaltonetworks.com/config/v1/certificates"
+      },
+      "response": {
+        "status": 404,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "json": {
+          "_errors": [
+            {
+              "code": "API_I00013",
+              "message": "Object Not Present",
+              "details": {
+                "errorType": "Object Not Present"
+              }
+            }
+          ],
+          "_request_id": "00000000-0000-0000-0000-000000000000"
+        }
+      }
+    },
+    {
+      "name": "IKE gateways",
+      "request": {
+        "method": "GET",
+        "url": "https://api.sase.paloaltonetworks.com/sse/config/v1/ike-gateways",
+        "query": {
+          "folder": "Remote Networks"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "json": {
+          "data": [],
+          "limit": 500,
+          "offset": 0,
+          "total": 0
+        }
+      }
+    }
+  ]
+}

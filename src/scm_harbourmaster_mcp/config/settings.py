@@ -11,10 +11,10 @@ Priority (highest to lowest):
 from __future__ import annotations
 
 import functools
-from typing import Any
+from typing import Annotated, Any
 
 from pydantic import Field, SecretStr, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from ..utils.logging import get_logger
 
@@ -80,12 +80,38 @@ class TenantConfig(BaseSettings):
         ),
     )
 
+    compliance_region: str = Field(
+        "",
+        description=(
+            "Compliance Center X-PANW-Region header value for this tenant. "
+            "One of: americas, europe, uk, au. NOT the same vocabulary as "
+            "insights_region (which uses eu/us/uk/sg/au) — the Compliance API "
+            "rejects 'eu' by silently returning an empty result set. Leave "
+            "blank to auto-detect on first use."
+        ),
+    )
+
     @field_validator("tenant_id", "client_id")
     @classmethod
     def not_empty(cls, v: str) -> str:
         if not v.strip():
             raise ValueError("must not be empty")
         return v.strip()
+
+    @field_validator("compliance_region")
+    @classmethod
+    def known_compliance_region(cls, v: str) -> str:
+        """Reject region codes the Compliance API silently ignores.
+
+        A wrong value is worse than none: the API answers 200 with an empty
+        payload rather than an error, so a typo would surface as "no data"
+        instead of a configuration failure.
+        """
+        v = v.strip().lower()
+        allowed = {"americas", "europe", "uk", "au"}
+        if v and v not in allowed:
+            raise ValueError(f"must be one of {', '.join(sorted(allowed))} (got {v!r})")
+        return v
 
 
 class Settings(BaseSettings):
@@ -167,6 +193,31 @@ class Settings(BaseSettings):
         "MSSP",
         description="MSSP operator name shown in report and discovery headers.",
     )
+
+    # ── Toolset filtering ──────────────────────────────────────────────────
+    enabled_toolsets: Annotated[list[str], NoDecode] = Field(
+        default_factory=list,
+        description=(
+            "Toolsets / profiles to register (see scm_harbourmaster_mcp.toolsets). "
+            "Empty = all tools. Env: SCM_MCP_ENABLED_TOOLSETS=sdwan,ops. "
+            "Overridden by the --toolsets CLI flag."
+        ),
+    )
+    read_only: bool = Field(
+        False,
+        description=(
+            "Hide write-capable tools (create/delete/commit/... and dry_run/action "
+            "dispatchers). Env: SCM_MCP_READ_ONLY=true. Overridden by --read-only."
+        ),
+    )
+
+    @field_validator("enabled_toolsets", mode="before")
+    @classmethod
+    def split_toolsets(cls, v: Any) -> list[str]:
+        """Accept a list or a comma-separated string (env var / dynaconf)."""
+        from ..toolsets import parse_toolset_names
+
+        return parse_toolset_names(v)
 
     def default_tenant(self) -> TenantConfig:
         return TenantConfig(

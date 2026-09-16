@@ -10,6 +10,8 @@ API base: ``https://api.sase.paloaltonetworks.com/insights/v3.0/resource/query``
 
 from __future__ import annotations
 
+import json
+import re
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
@@ -26,7 +28,27 @@ _INSIGHTS_BASE_V3 = "https://api.sase.paloaltonetworks.com/insights/v3.0/resourc
 _INSIGHTS_BASE_V2 = "https://api.sase.paloaltonetworks.com/api/sase/v2.0/resource"
 _INSIGHTS_BASE_V1 = "https://api.sase.paloaltonetworks.com/api/sase/v1.0/resource"
 
-_REGION_MAP = {"eu": "europe", "uk": "uk", "us": "americas", "sg": "sg", "au": "au"}
+# settings.toml `insights_region` key -> X-PANW-Region header value. The two
+# vocabularies are NOT the same: `eu` and `us` are settings keys, the header
+# wants `europe` and `americas`. Sending a settings key verbatim is not
+# rejected — the API answers 200 with an empty-looking result — so a mismatch
+# fails silently, which is exactly how it went unnoticed in tools/ops.py.
+REGION_MAP = {"eu": "europe", "uk": "uk", "us": "americas", "sg": "sg", "au": "au"}
+_REGION_HEADERS = frozenset(REGION_MAP.values())
+
+
+def region_header(value: str) -> str:
+    """Normalise either vocabulary to an X-PANW-Region header value.
+
+    Accepts a settings key (``eu``) or an already-valid header value
+    (``europe``); ``uk``/``sg``/``au`` are legitimately both. Returns "" for
+    anything unrecognised so callers can decide their own fallback.
+    """
+    if not value:
+        return ""
+    if value in _REGION_HEADERS:
+        return value
+    return REGION_MAP.get(value, "")
 
 
 DEFAULT_WINDOW_HOURS = 24
@@ -66,14 +88,42 @@ def with_time_window(body: dict[str, Any] | None, hours: int) -> dict[str, Any]:
     return merged
 
 
-def _resolve_region(tenant_id: str, region: str) -> str:
+# Insights 400s carry an error code that separates "this resource does not
+# exist" from "this resource exists but rejected the body" — a distinction the
+# HTTP status alone cannot make. Live-probed: DATA10003 comes back for bogus or
+# removed resource paths, DATA10005 for real resources missing required query
+# fields. Retrying a DATA10003 with a different body can never succeed.
+_INSIGHTS_ERROR_HINTS: dict[str, str] = {
+    "DATA10003": (
+        "resource_not_found: Insights does not recognise this resource path — it "
+        "has been removed or is misspelled. Changing the request body will not help."
+    ),
+    "DATA10005": (
+        "invalid_body: the resource exists but rejected the request body — it "
+        "needs additional query fields (for example properties, count or a filter)."
+    ),
+}
+_INSIGHTS_ERROR_CODE_RE = re.compile(r"\b(DATA1000[35])\b")
+
+
+def _insights_error_code(data: Any) -> str:
+    """Return the Insights error code (DATA10003/DATA10005) in *data*, or ""."""
+    text = data if isinstance(data, str) else json.dumps(data, default=str)
+    match = _INSIGHTS_ERROR_CODE_RE.search(text or "")
+    return match.group(1) if match else ""
+
+
+def resolve_region(tenant_id: str, region: str = "") -> str:
     """Resolve the X-PANW-Region header value for a tenant.
 
     An explicit ``region`` wins; otherwise the tenant's configured
-    ``insights_region`` is mapped, falling back to ``europe``.
+    ``insights_region`` is mapped, falling back to ``europe``. Either
+    vocabulary is accepted on the way in — an unrecognised value is passed
+    through untouched so a region added upstream still works before this map
+    learns about it.
     """
     if region:
-        return region
+        return region_header(region) or region
     try:
         from ..config.settings import load_all_tenant_configs
 
@@ -83,7 +133,7 @@ def _resolve_region(tenant_id: str, region: str) -> str:
         else:
             tc = next(iter(cfgs.values()), None) if cfgs else None
         if tc is not None:
-            return _REGION_MAP.get(tc.insights_region, "europe")
+            return region_header(tc.insights_region or "") or "europe"
     except Exception:
         pass
     return "europe"
@@ -163,7 +213,6 @@ def register_insights_tools(mcp: FastMCP, get_client: Any) -> None:
         - ``users/agent/connected_user_count`` — PA Agent connected users
         - ``gp_mobileusers/user_list`` — GP user list with locations
         - ``users/agent/user_list`` — PA Agent user list
-        - ``pa_bandwidth_consumption`` — per-SPN bandwidth
         - ``agents/agent_versions`` — agent version distribution
         - ``tunnels/tunnel_list`` — IKE tunnel status (needs scope)
 
@@ -206,7 +255,7 @@ def register_insights_tools(mcp: FastMCP, get_client: Any) -> None:
         _refresh_token(client)
 
         # --- Resolve region ---
-        region = _resolve_region(tenant_id, region)
+        region = resolve_region(tenant_id, region)
 
         # --- Resolve base URL ---
         version = api_version.strip().lower()
@@ -247,23 +296,27 @@ def register_insights_tools(mcp: FastMCP, get_client: Any) -> None:
             status, data = _insights_call(
                 session, path, tenant_id, with_time_window(body_dict, hours), region
             )
-            if status == 400:
+            if status == 400 and _insights_error_code(data) != "DATA10003":
                 # Resource doesn't take an event_time filter — retry bare.
+                # (DATA10003 means the resource itself is gone; skip the retry.)
                 logger.info("insights_window_fallback", resource=resource)
                 time_window = "none (resource rejected the time filter)"
                 status, data = _insights_call(session, path, tenant_id, body_dict, region)
 
         if status != 200:
-            return _fmt(
-                {
-                    "resource": resource,
-                    "api_version": api_version,
-                    "region": region,
-                    "time_window": time_window,
-                    "error": f"HTTP {status}",
-                    "detail": data if isinstance(data, str) else str(data)[:500],
-                }
-            )
+            error: dict[str, Any] = {
+                "resource": resource,
+                "api_version": api_version,
+                "region": region,
+                "time_window": time_window,
+                "error": f"HTTP {status}",
+                "detail": data if isinstance(data, str) else str(data)[:500],
+            }
+            code = _insights_error_code(data)
+            if code:
+                error["error_code"] = code
+                error["hint"] = _INSIGHTS_ERROR_HINTS[code]
+            return _fmt(error)
 
         rows = data.get("data", data) if isinstance(data, dict) else data
         return _fmt(
@@ -337,7 +390,7 @@ def register_insights_tools(mcp: FastMCP, get_client: Any) -> None:
                     return "Error: no HTTP session available on SCM client."
                 _refresh_token(client)
 
-                region = _resolve_region(tenant_id, region)
+                region = resolve_region(tenant_id, region)
 
                 if action == "status":
                     path = f"{_INSIGHTS_BASE_V2}/download/status"
@@ -373,7 +426,7 @@ def register_insights_tools(mcp: FastMCP, get_client: Any) -> None:
                 return "Error: no HTTP session available on SCM client."
             _refresh_token(client)
 
-            region = _resolve_region(tenant_id, region)
+            region = resolve_region(tenant_id, region)
 
             resource_clean = resource.strip().lstrip("/")
             body_dict: dict | None = None

@@ -915,8 +915,11 @@ def check_tp_007(snap: AuditSnapshot) -> Finding:
         # WildFire profile verdict actions may also be at profile level
         verdict_actions = profile.get("verdicts") or profile.get("threat_exception") or {}
         if isinstance(verdict_actions, dict):
+            # The malware verdict is what this check is about; grayware is only
+            # a fallback. Preferring grayware (usually "alert") used to hide a
+            # correctly configured malware=block verdict.
             malware_action = str(
-                verdict_actions.get("grayware", verdict_actions.get("malware", ""))
+                verdict_actions.get("malware", verdict_actions.get("grayware", ""))
             ).lower()
             if malware_action in _BLOCK_ACTIONS:
                 has_block_on_malware = True

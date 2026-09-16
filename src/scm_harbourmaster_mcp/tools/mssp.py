@@ -34,7 +34,9 @@ def register_mssp_tools(mcp: FastMCP, get_client: Any, get_settings: Any) -> Non
         """Show a summary dashboard of all loaded MSSP tenants.
 
         Lists every tenant currently cached in the server, showing their
-        folder, label, and service term.
+        folder, label, service term, and the cached API-capability summary
+        from mssp_tenant_capabilities (never probes — "not probed" until that
+        tool has run for the tenant).
 
         Args:
             tenant_id: Not used for filtering — returns all loaded tenants.
@@ -42,6 +44,14 @@ def register_mssp_tools(mcp: FastMCP, get_client: Any, get_settings: Any) -> Non
         Returns:
             Markdown dashboard of all tenants.
         """
+        from ..utils.capabilities import (
+            AVAILABLE,
+            FORBIDDEN,
+            UNPROVISIONED,
+            capability_counts,
+            get_cached_capabilities,
+        )
+
         loaded = list_loaded_tenants()
         if not loaded:
             return "No tenants currently loaded. Configure tenants in settings.toml."
@@ -50,9 +60,10 @@ def register_mssp_tools(mcp: FastMCP, get_client: Any, get_settings: Any) -> Non
             "# MSSP Tenant Dashboard\n",
             f"**Loaded tenants:** {len(loaded)}\n",
             "",
-            "| Tenant ID | Label | Folder | Term | Account Ref |",
-            "|-----------|-------|--------|------|-------------|",
+            "| Tenant ID | Label | Folder | Term | Account Ref | API Capabilities |",
+            "|-----------|-------|--------|------|-------------|------------------|",
         ]
+        restricted: list[str] = []
 
         for tid in loaded:
             cfg = get_tenant_meta(tid)
@@ -63,7 +74,31 @@ def register_mssp_tools(mcp: FastMCP, get_client: Any, get_settings: Any) -> Non
                 ref = cfg.account_ref or "—"
             else:
                 label, folder, term, ref = "—", "—", "—", "—"
-            lines.append(f"| `{tid}` | {label} | {folder} | {term} | {ref} |")
+
+            cached = get_cached_capabilities(tid)
+            if cached is None:
+                caps = "not probed"
+            else:
+                results = cached[0]
+                counts = capability_counts(results)
+                caps = f"{counts[AVAILABLE]}/{len(results)} available"
+                blocked = [
+                    f"`{r.family}` ({r.status})"
+                    for r in results.values()
+                    if r.status in (FORBIDDEN, UNPROVISIONED)
+                ]
+                if blocked:
+                    caps += f" · {len(blocked)} restricted"
+                    restricted.append(f"- `{tid}`: " + ", ".join(sorted(blocked)))
+            lines.append(f"| `{tid}` | {label} | {folder} | {term} | {ref} | {caps} |")
+
+        if restricted:
+            lines += [
+                "",
+                "**Restricted API families (cached probe)** — report sections relying on "
+                "these are skipped up front:",
+                *restricted,
+            ]
 
         return "\n".join(lines)
 

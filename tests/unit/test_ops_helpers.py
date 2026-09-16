@@ -7,9 +7,13 @@ These back the certificate, licence, and update-check tooling. They are pure
 from __future__ import annotations
 
 import time
+from types import SimpleNamespace
 
 from scm_harbourmaster_mcp.tools.ops import (
+    _SPN_BW_RESOURCES,
+    _connected_mu_count,
     _days_until_epoch,
+    _insights_query,
     _parse_expiry_str,
     _parse_semver,
     _status,
@@ -96,3 +100,61 @@ class TestParseSemver:
 
     def test_unparseable_falls_back_to_zeros(self) -> None:
         assert _parse_semver("not-a-version") == (0, 0, 0)
+
+
+class _Resp:
+    def __init__(self, status_code: int = 200, payload=None, text: str = ""):
+        self.status_code = status_code
+        self._payload = payload
+        self.text = text
+
+    def json(self):
+        if self._payload is None:
+            raise ValueError("no json")
+        return self._payload
+
+
+class _Session:
+    def __init__(self, resp: _Resp):
+        self.resp = resp
+        self.calls: list[dict] = []
+
+    def post(self, url, json=None, headers=None, timeout=None):  # noqa: A002
+        self.calls.append({"url": url, "json": json, "headers": headers})
+        return self.resp
+
+
+class TestInsightsQueryFromOps:
+    """ops.py had its own Insights caller that skipped the region resolver."""
+
+    def test_region_header_is_a_header_value_not_a_settings_key(self) -> None:
+        session = _Session(_Resp(payload={"data": []}))
+        _insights_query(session, "sn_bandwidth", "1234567890")
+        assert session.calls[0]["headers"]["X-PANW-Region"] == "europe"
+
+    def test_non_200_returns_empty_but_is_logged(self, capsys) -> None:
+        """DATA10003 used to vanish completely — [] with no trace of why."""
+        session = _Session(
+            _Resp(status_code=400, payload=None, text='{"_errors":[{"code":"DATA10003"}]}')
+        )
+        assert _insights_query(session, "pa_bandwidth_consumption", "1") == []
+        out = capsys.readouterr().out
+        assert "insights_query_failed" in out
+        assert "DATA10003" in out
+        assert "status=400" in out
+
+    def test_dead_resource_is_no_longer_attempted(self) -> None:
+        assert "pa_bandwidth_consumption" not in _SPN_BW_RESOURCES
+        assert _SPN_BW_RESOURCES == ("sn_bandwidth", "edge_bandwidth")
+
+
+class TestConnectedMuCountRegion:
+    def test_settings_key_is_mapped_before_it_reaches_the_header(self) -> None:
+        client = SimpleNamespace(session=_Session(_Resp(payload={"data": []})), oauth_client=None)
+        _connected_mu_count(client, "1234567890", "eu")
+        assert client.session.calls[0]["headers"]["X-PANW-Region"] == "europe"
+
+    def test_unknown_region_falls_back_rather_than_sending_junk(self) -> None:
+        client = SimpleNamespace(session=_Session(_Resp(payload={"data": []})), oauth_client=None)
+        _connected_mu_count(client, "1234567890", "mars")
+        assert client.session.calls[0]["headers"]["X-PANW-Region"] == "europe"

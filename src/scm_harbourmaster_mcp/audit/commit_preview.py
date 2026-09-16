@@ -523,7 +523,7 @@ def render_commit_preview(
         lines.append("If the changes match the change ticket, proceed:")
     lines += [
         "",
-        f'1. `scm_commit(folders=["{folder}"], description="<ticket ref>")`',
+        f'1. `scm_commit(folders=["{folder}"], ticket_ref="<ticket ref>", dry_run=False)`',
         f'2. `scm_drift_check(folder="{folder}", update_baseline=True)` — roll the '
         "baseline forward so the next preview diffs against this approved state.",
         "",

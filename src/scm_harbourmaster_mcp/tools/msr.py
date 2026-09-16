@@ -4,7 +4,9 @@ Assembles the per-tenant monthly customer deliverable from sources the
 server already produces: period-bounded incidents and config jobs, the
 SSR provenance ledger, compliance posture, licence
 expiry, and the Insights bandwidth snapshot. Every source degrades
-gracefully — a licence-API outage costs one section, not the pack.
+gracefully — a licence-API outage costs one section, not the pack. When
+``mssp_tenant_capabilities`` has a cached verdict that a family is
+forbidden/unprovisioned, that section is skipped up front instead.
 
 Pure period/SLA/rendering logic lives in ``audit/msr_report.py``.
 """
@@ -33,11 +35,11 @@ from ..audit.msr_report import (
 )
 from ..auth.oauth import fetch_licenses
 from ..config.settings import load_all_tenant_configs
+from ..utils.capabilities import capability_skip_reason
 from ..utils.logging import get_logger
 from ..utils.tool_decorator import scm_tool
 from .compliance import _compliance_get
-from .insights import _INSIGHTS_BASE_V3, _insights_call, _refresh_token
-from .insights import _REGION_MAP as _INS_REGION_MAP
+from .insights import _INSIGHTS_BASE_V3, _insights_call, _refresh_token, region_header
 from .mt_monitor import _BASE as _MT_BASE
 from .ops import _licence_rows
 from .posture import _incidents_for_tenant
@@ -69,6 +71,21 @@ def _insights_try(
         return _insights_call(session, path, tenant_id, body, region)
     except Exception as exc:
         return -1, str(exc)
+
+
+class _CapabilitySkipped(RuntimeError):
+    """A section skipped up front because a cached capability probe rules it out.
+
+    Raised inside a section's ``try`` so the existing per-section degradation
+    records the reason in ``data.errors`` (and so the §11 coverage table).
+    """
+
+
+def _require_capability(tenant_id: str, family: str) -> None:
+    """Raise :class:`_CapabilitySkipped` when the cache marks *family* unusable."""
+    reason = capability_skip_reason(tenant_id, family)
+    if reason is not None:
+        raise _CapabilitySkipped(reason)
 
 
 def _resolve_tenant_meta(tenant_id: str) -> tuple[str, str, str]:
@@ -130,6 +147,7 @@ def gather_msr_data(
 
     # ── Incidents (period-bounded) ──────────────────────────────────────
     try:
+        _require_capability(tsg_id, "incidents")
         session = getattr(client, "session", None)
         if session is None:
             raise RuntimeError("client has no HTTP session")
@@ -141,6 +159,7 @@ def gather_msr_data(
 
     # ── Config jobs (period-bounded) ────────────────────────────────────
     try:
+        _require_capability(tsg_id, "config_jobs")
         response = client.list_jobs(limit=200)
         jobs = response.data if hasattr(response, "data") else []
         rows = [
@@ -170,13 +189,15 @@ def gather_msr_data(
 
     # ── Licences ────────────────────────────────────────────────────────
     try:
+        _require_capability(tsg_id, "licensing")
         data.licence_rows = _licence_rows(fetch_licenses(client))
         data.gathered.append(f"licences — {len(data.licence_rows)} SKU groups (Subscription API)")
     except Exception as exc:
         data.errors["licences"] = str(exc)
 
     # ── Bandwidth + connected MU (Insights snapshot) ────────────────────
-    if include_insights:
+    insights_skip = capability_skip_reason(tsg_id, "insights") if include_insights else None
+    if include_insights and insights_skip is None:
         try:
             ins = extract_insights(client, tenant_id=tsg_id, region=region)
             data.bandwidth_rows = list(ins.location_rn_bandwidth) + list(ins.location_sc_bandwidth)
@@ -200,7 +221,7 @@ def gather_msr_data(
             if session is None:
                 raise RuntimeError("client has no HTTP session")
             _refresh_token(client)
-            mapped = _INS_REGION_MAP.get(region, "europe")
+            mapped = region_header(region) or "europe"
             path = f"{_INSIGHTS_BASE_V3}/query/locations/location_rn_bandwidth"
             status, resp = _insights_try(
                 session, path, tsg_id, month_window_filter(start, end), mapped
@@ -254,7 +275,7 @@ def gather_msr_data(
             if session is None:
                 raise RuntimeError("client has no HTTP session")
             _refresh_token(client)
-            mapped = _INS_REGION_MAP.get(region, "europe")
+            mapped = region_header(region) or "europe"
             win: dict[str, Any] = month_window_filter(start, end)
             window = f"{label} (calendar month)"
             cpath = f"{_INSIGHTS_BASE_V3}/query/users/agent/connected_user_count"
@@ -306,12 +327,14 @@ def gather_msr_data(
         except Exception as exc:
             data.errors["mobile_users"] = str(exc)
     else:
-        data.errors["bandwidth"] = "skipped (include_insights=False)"
-        data.errors["bandwidth_month"] = "skipped (include_insights=False)"
-        data.errors["mobile_users"] = "skipped (include_insights=False)"
+        why = insights_skip or "skipped (include_insights=False)"
+        data.errors["bandwidth"] = why
+        data.errors["bandwidth_month"] = why
+        data.errors["mobile_users"] = why
 
     # ── ADEM experience snapshot (3-day window, falls back to 30-day) ───
     try:
+        _require_capability(tsg_id, "adem")
         snap = AuditSnapshot(folder="", tenant_id=tsg_id)
         extract_adem(client, snap)
         if snap.adem_agent_summary:
@@ -347,7 +370,7 @@ def gather_msr_data(
             },
             "properties": [{"property": "total_threats"}, {"property": "blocked_count"}],
         }
-        mapped = _INS_REGION_MAP.get(region, "europe")
+        mapped = region_header(region) or "europe"
         candidates = [mapped, *{"europe": ["uk"], "uk": ["europe"]}.get(mapped, [])]
         for cand in candidates:
             resp = mt_session.post(
@@ -380,7 +403,8 @@ def gather_msr_data(
 
     # ── Compliance (framework scores + 30-day trend annex) ────────────
     try:
-        raw = _compliance_get(client, "/summaries", {"product": "all"})
+        _require_capability(tsg_id, "compliance")
+        raw = _compliance_get(client, "/summaries", {"product": "all"}, tenant_id=tsg_id)
         items = raw if isinstance(raw, list) else (raw or {}).get("data") or []
         data.compliance_summaries = items
         data.gathered.append(f"compliance — {len(items)} frameworks (Compliance Center API)")
@@ -394,6 +418,7 @@ def gather_msr_data(
                 client,
                 f"/overall-compliance-timeline/{bench.get('id')}",
                 {"product": "all"},
+                tenant_id=tsg_id,
             )
             data.compliance_timeline = (tl or {}).get("timeline_30_days") or []
     except Exception as exc:

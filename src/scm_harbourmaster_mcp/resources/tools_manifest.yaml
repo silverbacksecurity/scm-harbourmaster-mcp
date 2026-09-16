@@ -6,7 +6,7 @@
 #
 # Regenerate/verify coverage: tests/unit/test_planner_manifest.py fails
 # whenever a registered tool lacks an entry here (or vice versa).
-# Tools: 158 | write: 26 | domains: 11
+# Tools: 164 | write: 27 | domains: 11
 
 dlp_backup:
   access: read
@@ -57,6 +57,14 @@ mssp_list_tenants:
   idempotent: true
   retry_policy: retry
   scope: cross_tenant
+mssp_tenant_capabilities:
+  access: read
+  domain: identity
+  idempotent: true
+  known_failure_modes: Results are cached 6h per tenant; pass refresh=true after changing a role
+    or licence. 'error' rows (401/5xx/transport) are inconclusive.
+  retry_policy: retry
+  scope: tenant
 mssp_tenant_dashboard:
   access: read
   domain: operational_health
@@ -248,10 +256,10 @@ scm_compliance_center:
   retry_policy: retry
   scope: tenant
 scm_compliance_framework:
-  access: read
+  access: write
   domain: posture_compliance
-  idempotent: true
-  retry_policy: retry
+  idempotent: false
+  retry_policy: fail_fast
   scope: tenant
 scm_config_backup:
   access: read

@@ -23,6 +23,12 @@ from mcp.server.fastmcp import FastMCP
 from ..utils.errors import handle_scm_exception
 from ..utils.logging import get_logger
 from ..utils.tool_decorator import scm_tool
+from ..utils.write_safety import (
+    DRY_RUN_HINT,
+    audit_write,
+    normalize_ticket_ref,
+    ticket_ref_error,
+)
 
 logger = get_logger(__name__)
 
@@ -152,10 +158,13 @@ def register_adnsr_tools(mcp: FastMCP, get_client: Any) -> None:
     @tool
     def scm_adnsr_profile_create(
         client: Any,
+        tenant_id: str,
         name: str,
         folder: str = "Shared",
         action: str = "sinkhole",
         log_queries: bool = True,
+        dry_run: bool = True,
+        ticket_ref: str = "",
     ) -> str:
         """Create an Advanced DNS Security Resolver profile.
 
@@ -171,8 +180,18 @@ def register_adnsr_tools(mcp: FastMCP, get_client: Any) -> None:
             action: Default action for threat domains — "sinkhole" (default),
                     "block", or "allow".
             log_queries: Enable DNS query logging (default True).
+            dry_run: If True (default), return the planned profile without creating it.
+            ticket_ref: Mandatory change-ticket reference (never sent to SCM).
             tenant_id: SCM tenant ID. Defaults to active tenant.
+
+        **Write safety (SSR pattern):** ``dry_run=True`` by default;
+        ``ticket_ref`` is mandatory.
         """
+        err = ticket_ref_error(ticket_ref)
+        if err:
+            return f"Error: {err}"
+        ticket_ref = normalize_ticket_ref(ticket_ref)
+
         session = getattr(client, "session", None)
         if not session:
             return "Error: no HTTP session available on SCM client."
@@ -192,6 +211,19 @@ def register_adnsr_tools(mcp: FastMCP, get_client: Any) -> None:
         }
 
         url = f"{_ADNSR_BASE}/profiles"
+        if dry_run:
+            return (
+                f"## ADNSR Profile Create — DRY-RUN — `{payload['name']}`\n\n"
+                f"Ticket ref: {ticket_ref}\n\n"
+                "Would POST to `/adns-resolver/v1/profiles`:\n\n"
+                f"```json\n{json.dumps(payload, indent=2)}\n```\n\n"
+                f"Run `scm_adnsr_list` to check for an existing profile of the same name.\n\n"
+                f"{DRY_RUN_HINT}"
+            )
+
+        audit_write(
+            "scm_adnsr_profile_create", ticket_ref, tenant_id, name=payload["name"], folder=folder
+        )
         resp = session.post(url, json=payload, timeout=(10, 30))
 
         if resp.status_code == 403:

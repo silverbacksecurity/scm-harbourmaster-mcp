@@ -61,9 +61,82 @@ import inspect
 from collections.abc import Callable
 from typing import Any, TypeVar
 
+from ..auth.oauth import resolve_tenant_id
 from .errors import handle_scm_exception
 
 F = TypeVar("F", bound=Callable[..., str])
+
+_TENANT_RESOLVING = "__scm_tenant_resolving__"
+
+
+def resolve_tenant_kwarg(func: Callable[..., Any]) -> Callable[..., Any]:
+    """Wrap a keyword-called tool so its ``tenant_id`` is the canonical TSG ID.
+
+    For tools that take ``tenant_id`` directly instead of using
+    :func:`scm_tool`. Functions without a ``tenant_id`` parameter, or already
+    wrapped, are returned unchanged. A value that names several tenants
+    returns a normalized ``Error: ...`` string instead of running the body.
+    """
+    if getattr(func, _TENANT_RESOLVING, False):
+        return func
+    try:
+        params = inspect.signature(func).parameters
+    except (TypeError, ValueError):
+        return func
+    if "tenant_id" not in params:
+        return func
+
+    def _canonical(kwargs: dict[str, Any]) -> str | None:
+        if "tenant_id" not in kwargs:
+            return None
+        raw = kwargs["tenant_id"]
+        try:
+            kwargs["tenant_id"] = resolve_tenant_id(str(raw or ""))
+        except Exception as exc:
+            return f"Error: {handle_scm_exception(exc, tool=func.__name__, tenant_id=raw)}"
+        return None
+
+    if inspect.iscoroutinefunction(func):
+
+        @functools.wraps(func)
+        async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
+            err = _canonical(kwargs)
+            if err is not None:
+                return err
+            return await func(*args, **kwargs)
+
+        setattr(async_wrapper, _TENANT_RESOLVING, True)
+        return async_wrapper
+
+    @functools.wraps(func)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        err = _canonical(kwargs)
+        if err is not None:
+            return err
+        return func(*args, **kwargs)
+
+    setattr(wrapper, _TENANT_RESOLVING, True)
+    return wrapper
+
+
+def install_tenant_resolution(mcp: Any) -> int:
+    """Canonicalise ``tenant_id`` on every tool already registered on *mcp*.
+
+    Tools built with :func:`scm_tool` resolve internally; this covers the
+    rest (raw REST helpers, SD-WAN, reports) so their bodies see the TSG ID
+    whichever form the caller passed. Idempotent — safe to re-run after a hot
+    reload. Returns the number of tools newly wrapped.
+    """
+    manager = getattr(mcp, "_tool_manager", None)
+    if manager is None:
+        return 0
+    wrapped = 0
+    for tool in manager.list_tools():
+        new_fn = resolve_tenant_kwarg(tool.fn)
+        if new_fn is not tool.fn:
+            tool.fn = new_fn
+            wrapped += 1
+    return wrapped
 
 
 def scm_tool(get_client: Callable[[str], Any]) -> Callable[[F], F]:
@@ -111,7 +184,9 @@ def scm_tool(get_client: Callable[[str], Any]) -> Callable[[F], F]:
                 bound = new_sig.bind(**kwargs)
                 bound.apply_defaults()
                 call_kwargs = dict(bound.arguments)
-                tenant_id = call_kwargs.pop("tenant_id", "")
+                # Accept TSG ID, settings.toml section key or label; the body
+                # (and get_client) always see the canonical TSG ID.
+                tenant_id = resolve_tenant_id(call_kwargs.pop("tenant_id", ""))
                 client = get_client(tenant_id)
                 if wants_tenant_id:
                     return func(client, tenant_id, **call_kwargs)
@@ -122,6 +197,7 @@ def scm_tool(get_client: Callable[[str], Any]) -> Callable[[F], F]:
                 )
 
         wrapper.__signature__ = new_sig  # type: ignore[attr-defined]
+        setattr(wrapper, _TENANT_RESOLVING, True)
         return wrapper  # type: ignore[return-value]
 
     return decorate

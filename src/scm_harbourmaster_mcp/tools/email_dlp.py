@@ -62,8 +62,24 @@ class _EmailDlpError(Exception):
         super().__init__(detail)
 
 
+def _is_unprovisioned(resp: Any) -> bool:
+    """True if a 400 actually means "this tenant has no Email DLP service".
+
+    Email DLP answers an otherwise valid request for a tenant it does not know
+    with ``400 {"status":"BAD_REQUEST","message":"Can't find tenant name with
+    tsgId=..."}``. That is a provisioning gate, not a malformed request, so it
+    belongs with 401/403/404 — reporting it as a client error sends operators
+    hunting for a bug in their query string instead of telling them the tenant
+    is not onboarded to Email DLP.
+    """
+    if resp.status_code != 400:
+        return False
+    body = (getattr(resp, "text", "") or "").lower()
+    return "find tenant" in body or "tenant name" in body
+
+
 def _rest_get(session: Any, url: str, params: dict | None = None) -> dict | list | None:
-    """GET with licence-gating — returns None on unlicensed/forbidden.
+    """GET with licence-gating — returns None on unlicensed/forbidden/unprovisioned.
 
     Any other failure (bad request, server error, network error) raises
     ``_EmailDlpError`` rather than propagating a raw exception, so callers can
@@ -73,12 +89,16 @@ def _rest_get(session: Any, url: str, params: dict | None = None) -> dict | list
         resp = session.get(url, params=params, timeout=(5, 15))
     except Exception as exc:
         raise _EmailDlpError(0, str(exc)) from exc
-    if resp.status_code in _NOT_LICENSED_STATUSES:
+    if resp.status_code in _NOT_LICENSED_STATUSES or _is_unprovisioned(resp):
         return None
     try:
         resp.raise_for_status()
     except Exception as exc:
-        raise _EmailDlpError(resp.status_code, str(exc)) from exc
+        # raise_for_status() renders only the status line; the API puts the
+        # actionable text in the JSON body, so keep both.
+        body = (getattr(resp, "text", "") or "").strip()[:300]
+        detail = f"{exc}{f' — {body}' if body else ''}"
+        raise _EmailDlpError(resp.status_code, detail) from exc
     return resp.json()
 
 
@@ -195,8 +215,9 @@ def register_email_dlp_tools(mcp: FastMCP, get_client: Any) -> None:
                     "incidents": [],
                     "total": 0,
                     "hint": (
-                        "Email DLP API returned 401/403/404 — the tenant may not "
-                        "have Email DLP licensed.  This is expected on most lab tenants."
+                        "Email DLP API reported this tenant as unlicensed or not "
+                        "onboarded (401/403/404, or a 400 \"Can't find tenant name "
+                        'with tsgId=...").  This is expected on most lab tenants.'
                     ),
                 }
             )

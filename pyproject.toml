@@ -41,6 +41,7 @@ dev = [
     "pytest>=9.1.0",
     "pytest-asyncio>=1.4.0",
     "pytest-cov>=7.1.0",
+    "responses>=0.26.3",
     "ruff>=0.15.17",
     "types-jsonschema>=4.20",
     "types-pyyaml>=6.0",
@@ -97,6 +98,9 @@ ignore_errors = true
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "--cov=src/scm_harbourmaster_mcp --cov-report=term-missing"
+markers = [
+    "integration: offline recorded-response (cassette) tests that drive registered tools through the real HTTP stack; no credentials or network needed, so they run by default",
+]
 
 [tool.coverage.run]
 source = ["src/scm_harbourmaster_mcp"]

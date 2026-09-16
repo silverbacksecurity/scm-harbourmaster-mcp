@@ -2496,6 +2496,7 @@ def _op_apply_ncsc(tenant, console, _pause) -> None:
 
     folder = tenant.default_folder or "Shared"
     dry_run = Prompt.ask("Dry run?", default="yes").strip().lower() in ("yes", "y", "true")
+    ticket_ref = Prompt.ask("Change ticket reference (mandatory)", default="").strip()
     with console.status(f"[cyan]Applying NCSC baseline to [bold]{folder}[/bold]...[/cyan]"):
         try:
             from .tools.ncsc_baseline import register_ncsc_tools
@@ -2506,6 +2507,7 @@ def _op_apply_ncsc(tenant, console, _pause) -> None:
                 "scm_apply_ncsc_baseline",
                 folder=folder,
                 dry_run=dry_run,
+                ticket_ref=ticket_ref,
             )
             console.print(result)
         except Exception as exc:
@@ -2518,6 +2520,7 @@ def _op_attach_ncsc(tenant, console, _pause) -> None:
 
     folder = tenant.default_folder or "Shared"
     dry_run = Prompt.ask("Dry run?", default="yes").strip().lower() in ("yes", "y", "true")
+    ticket_ref = Prompt.ask("Change ticket reference (mandatory)", default="").strip()
     with console.status(f"[cyan]Attaching NCSC profiles in [bold]{folder}[/bold]...[/cyan]"):
         try:
             from .tools.ncsc_baseline import register_ncsc_tools
@@ -2528,6 +2531,7 @@ def _op_attach_ncsc(tenant, console, _pause) -> None:
                 "scm_attach_ncsc_profiles",
                 folder=folder,
                 dry_run=dry_run,
+                ticket_ref=ticket_ref,
             )
             console.print(result)
         except Exception as exc:
@@ -2539,12 +2543,17 @@ def _op_create_ncsc_snippet(tenant, console, _pause) -> None:
     from .cli import _exc_str
 
     dry_run = Prompt.ask("Dry run?", default="yes").strip().lower() in ("yes", "y", "true")
+    ticket_ref = Prompt.ask("Change ticket reference (mandatory)", default="").strip()
     with console.status("[cyan]Creating NCSC snippet...[/cyan]"):
         try:
             from .tools.ncsc_baseline import register_ncsc_tools
 
             result = _call_mcp_tool(
-                tenant, register_ncsc_tools, "scm_create_ncsc_snippet", dry_run=dry_run
+                tenant,
+                register_ncsc_tools,
+                "scm_create_ncsc_snippet",
+                dry_run=dry_run,
+                ticket_ref=ticket_ref,
             )
             console.print(result)
         except Exception as exc:
@@ -2556,12 +2565,17 @@ def _op_create_nist_snippet(tenant, console, _pause) -> None:
     from .cli import _exc_str
 
     dry_run = Prompt.ask("Dry run?", default="yes").strip().lower() in ("yes", "y", "true")
+    ticket_ref = Prompt.ask("Change ticket reference (mandatory)", default="").strip()
     with console.status("[cyan]Creating NIST snippet...[/cyan]"):
         try:
             from .tools.ncsc_baseline import register_ncsc_tools
 
             result = _call_mcp_tool(
-                tenant, register_ncsc_tools, "scm_create_nist_snippet", dry_run=dry_run
+                tenant,
+                register_ncsc_tools,
+                "scm_create_nist_snippet",
+                dry_run=dry_run,
+                ticket_ref=ticket_ref,
             )
             console.print(result)
         except Exception as exc:
@@ -2791,6 +2805,11 @@ def _op_config_push(tenant, console, _pause) -> None:
     ).strip()
     folders = [f.strip() for f in folders_input.split(",") if f.strip()]
     desc = Prompt.ask("Description", default="CLI push").strip()
+    ticket_ref = Prompt.ask("Change ticket reference (mandatory)", default="").strip()
+    if not ticket_ref:
+        console.print("[red]A change ticket reference is required.[/red]")
+        _pause()
+        return
     if not Confirm.ask(
         f"\n[bold yellow]Push {len(folders)} folder(s) to {tenant.label}?[/bold yellow]",
         default=False,
@@ -2807,6 +2826,9 @@ def _op_config_push(tenant, console, _pause) -> None:
                 "scm_config_push_track",
                 folders=folders,
                 description=desc,
+                # The Confirm prompt above is the human approval for this push.
+                dry_run=False,
+                ticket_ref=ticket_ref,
             )
             console.print(result)
         except Exception as exc:
@@ -2827,6 +2849,11 @@ def _op_config_rollback(tenant, console, _pause) -> None:
         "y",
         "true",
     )
+    ticket_ref = Prompt.ask("Change ticket reference (mandatory)", default="").strip()
+    if not ticket_ref:
+        console.print("[red]A change ticket reference is required.[/red]")
+        _pause()
+        return
     if not Confirm.ask(
         f"\n[bold red]Rollback {tenant.label} to version {version_str}?[/bold red]",
         default=False,
@@ -2849,6 +2876,9 @@ def _op_config_rollback(tenant, console, _pause) -> None:
                 "scm_config_rollback",
                 version=version,
                 commit_immediately=commit_now,
+                # The Confirm prompt above is the human approval for this rollback.
+                dry_run=False,
+                ticket_ref=ticket_ref,
             )
             console.print(result)
         except Exception as exc:

@@ -349,7 +349,9 @@ def make_fake_sdk(*, auditlog_status: int = 200) -> Any:
 @pytest.fixture
 def tools(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     fake_sdk = make_fake_sdk()
-    monkeypatch.setattr(sdwan_tools, "get_tenant_meta", lambda tid: SimpleNamespace(tenant_id=tid))
+    monkeypatch.setattr(
+        sdwan_tools, "find_tenant_config", lambda tid: SimpleNamespace(tenant_id=tid)
+    )
     monkeypatch.setattr(sdwan_tools, "list_loaded_tenants", lambda: ["t1"])
     monkeypatch.setattr(sdwan_tools, "get_sdwan_client", lambda tc: fake_sdk)
     mcp = FastMCP("test")
@@ -360,14 +362,21 @@ def tools(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
 def test_sdwan_resolves_settings_key(
     tools: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # get_tenant_meta misses, but the settings key resolves via configs
-    monkeypatch.setattr(sdwan_tools, "get_tenant_meta", lambda tid: None)
+    # Nothing loaded in the auth cache, but the settings key resolves via
+    # configs through the shared resolver (auth.oauth.find_tenant_config).
+    from scm_harbourmaster_mcp.auth import oauth
+
+    monkeypatch.setattr(sdwan_tools, "find_tenant_config", oauth.find_tenant_config)
     monkeypatch.setattr(
         "scm_harbourmaster_mcp.config.settings.load_all_tenant_configs",
-        lambda: {"lab-key": SimpleNamespace(tenant_id="999")},
+        lambda: {"lab-key": SimpleNamespace(tenant_id="999", label="")},
     )
-    data = json.loads(tools["sdwan_list_sites"](tenant_id="lab-key"))
+    seen: list[Any] = []
+    fake_sdk = make_fake_sdk()
+    monkeypatch.setattr(sdwan_tools, "get_sdwan_client", lambda tc: seen.append(tc) or fake_sdk)
+    data = json.loads(tools["sdwan_list_sites"](tenant_id="  LAB-key "))
     assert data["total"] == 2
+    assert seen[0].tenant_id == "999"
 
 
 def test_new_tools_register(tools: dict[str, Any]) -> None:
@@ -405,7 +414,9 @@ def test_audit_logs_ok(tools: dict[str, Any]) -> None:
 
 def test_audit_logs_403_rbac_hint(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_sdk = make_fake_sdk(auditlog_status=403)
-    monkeypatch.setattr(sdwan_tools, "get_tenant_meta", lambda tid: SimpleNamespace(tenant_id=tid))
+    monkeypatch.setattr(
+        sdwan_tools, "find_tenant_config", lambda tid: SimpleNamespace(tenant_id=tid)
+    )
     monkeypatch.setattr(sdwan_tools, "list_loaded_tenants", lambda: ["t1"])
     monkeypatch.setattr(sdwan_tools, "get_sdwan_client", lambda tc: fake_sdk)
     mcp = FastMCP("test")
@@ -597,7 +608,9 @@ def r3_tools(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     fake_sdk = make_fake_sdk()
     fake_sdk.base_url = "https://api.sase.paloaltonetworks.com"
     fake_sdk._session = _FakeHttpSession()
-    monkeypatch.setattr(sdwan_tools, "get_tenant_meta", lambda tid: SimpleNamespace(tenant_id=tid))
+    monkeypatch.setattr(
+        sdwan_tools, "find_tenant_config", lambda tid: SimpleNamespace(tenant_id=tid)
+    )
     monkeypatch.setattr(sdwan_tools, "list_loaded_tenants", lambda: ["t1"])
     monkeypatch.setattr(sdwan_tools, "get_sdwan_client", lambda tc: fake_sdk)
     mcp = FastMCP("test")

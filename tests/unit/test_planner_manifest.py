@@ -48,6 +48,8 @@ EXPECTED_WRITE_TOOLS = {
     "scm_config_orch_profiles",
     "scm_config_orch_remote_networks",
     "scm_site_management",
+    # Compliance Center framework CRUD (create/update/delete/clone/benchmark).
+    "scm_compliance_framework",
     # Phase 3b: the conversational planner run can orchestrate approved
     # writes, so invoking it is itself a gated write action.
     "scm_planner_run",

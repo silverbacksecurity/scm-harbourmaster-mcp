@@ -102,3 +102,42 @@ def test_cloned_backup_replays_split_nat_keys(in_tmp_cwd, monkeypatch):
         ("nat-pre", {"position": "pre"}),
         ("nat-post", {"position": "post"}),
     ]
+
+
+def test_backup_writers_persist_gp_and_infra_resources(in_tmp_cwd, monkeypatch):
+    """The extended writers carry GP settings and network infrastructure keys."""
+    snap = _snapshot()
+    snap.mobile_agent_auth_settings = [{"name": "auths-1", "folder": "Mobile Users"}]
+    snap.mobile_agent_tunnel_profiles = [{"name": "tp-1", "folder": "Mobile Users"}]
+    snap.mobile_agent_infrastructure = [{"name": "infra-1", "folder": "Mobile Users"}]
+    snap.mobile_agent_global_settings = {"totp_tunnel_profile": "tp-1"}
+    snap.forwarding_profiles = [{"name": "fp-1", "folder": "Mobile Users"}]
+    snap.authentication_profiles = [{"name": "authp-1", "folder": "All"}]
+    snap.internal_dns_servers = [{"name": "dns-1", "folder": "Remote Networks"}]
+    snap.network_locations = [{"name": "loc-1"}]
+    snap.bgp_routing_config = {"backbone_routing": "no-export"}
+    snap.qos_profiles = [{"name": "qos-1", "folder": "Remote Networks"}]
+    snap.ike_crypto_profiles = [{"name": "ike-1", "folder": "Remote Networks"}]
+
+    monkeypatch.setattr(audit_mod, "extract_snapshot", lambda *a, **k: snap)
+    mcp = FastMCP("test")
+    audit_mod.register_audit_tools(mcp, lambda tenant_id="": object())
+    out = mcp._tool_manager.get_tool("scm_config_backup").fn(tenant_id="1234567890", folder="All")
+    path = out.split("Backup written to: ")[1].splitlines()[0]
+    resources = json.loads(Path(path).read_text())["resources"]
+
+    assert resources["mobile_agent_auth_settings"] == [
+        {"name": "auths-1", "folder": "Mobile Users"}
+    ]
+    assert resources["mobile_agent_tunnel_profiles"] == [{"name": "tp-1", "folder": "Mobile Users"}]
+    assert resources["mobile_agent_infrastructure"] == [
+        {"name": "infra-1", "folder": "Mobile Users"}
+    ]
+    assert resources["mobile_agent_global_settings"] == {"totp_tunnel_profile": "tp-1"}
+    assert resources["forwarding_profiles"] == [{"name": "fp-1", "folder": "Mobile Users"}]
+    assert resources["authentication_profiles"] == [{"name": "authp-1", "folder": "All"}]
+    assert resources["internal_dns_servers"] == [{"name": "dns-1", "folder": "Remote Networks"}]
+    assert resources["network_locations"] == [{"name": "loc-1"}]
+    assert resources["bgp_routing_config"] == {"backbone_routing": "no-export"}
+    assert resources["qos_profiles"] == [{"name": "qos-1", "folder": "Remote Networks"}]
+    assert resources["ike_crypto_profiles"] == [{"name": "ike-1", "folder": "Remote Networks"}]

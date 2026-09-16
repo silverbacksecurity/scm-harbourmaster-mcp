@@ -12,7 +12,7 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from ..auth.oauth import get_tenant_meta, list_loaded_tenants
+from ..auth.oauth import find_tenant_config, list_loaded_tenants, resolve_tenant_id
 from ..auth.sdwan import get_sdwan_client, safe_items
 from ..utils.formatting import format_result as _fmt
 from ..utils.logging import get_logger
@@ -88,21 +88,16 @@ def register_sdwan_tools(mcp: FastMCP, get_scm_client_credentials: Any) -> None:
     def _sdwan(tenant_id: str = "") -> Any:
         """Resolve SD-WAN client for a tenant.
 
-        Accepts either the numeric TSG id (looked up in the auth cache) or a
-        settings.toml tenant key (e.g. "my-lab-tenant"), so callers don't need
-        to know which form the other tools use.
+        Accepts the numeric TSG id, a settings.toml tenant key or the tenant
+        label via the shared resolver (auth.oauth.find_tenant_config), which
+        also falls back to settings.toml for SD-WAN-only tenants whose SCM
+        client never loaded.
         """
         tid = tenant_id or (list_loaded_tenants() or [""])[0]
-        tc = get_tenant_meta(tid)
+        tc = find_tenant_config(tid)
         if tc is None:
-            try:
-                from ..config.settings import load_all_tenant_configs
-
-                cfgs = load_all_tenant_configs()
-                tc = cfgs.get(tid) or next((c for c in cfgs.values() if c.tenant_id == tid), None)
-            except Exception:
-                tc = None
-        if tc is None:
+            # Raises with the list of valid tenants for an unknown name.
+            resolve_tenant_id(tid, strict=True)
             raise ValueError(
                 f"Tenant {tid!r} is not loaded. Check settings.toml and restart the server."
             )

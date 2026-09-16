@@ -57,7 +57,11 @@ class BackupResult:
 
 
 def run_backup(tenant: TenantConfig, on_progress: OnProgress = None) -> BackupResult:
-    from .audit.extractor import extract_sdwan_snapshot, extract_snapshot
+    from .audit.extractor import (
+        backup_resource_payload,
+        extract_sdwan_snapshot,
+        extract_snapshot,
+    )
     from .auth.oauth import get_scm_client
     from .auth.sdwan import get_sdwan_client
 
@@ -99,52 +103,24 @@ def run_backup(tenant: TenantConfig, on_progress: OnProgress = None) -> BackupRe
     backup_dir = Path("backups")
     backup_dir.mkdir(exist_ok=True)
     out = backup_dir / f"scm_backup_{tenant.tenant_id}_{_timestamp()}.json"
+    # The Prisma-side resources come from the same helper the MCP backup tool
+    # uses; the CLI adds the SD-WAN inventory on top.
+    resources = backup_resource_payload(snap)
+    resources.update(
+        {
+            "sdwan_sites": snap.sdwan_sites,
+            "sdwan_elements": snap.sdwan_elements,
+            "sdwan_wan_networks": snap.sdwan_wan_networks,
+            "sdwan_path_groups": snap.sdwan_path_groups,
+        }
+    )
     payload = {
         "backup_version": "1",
         "generated_at": datetime.now(UTC).isoformat(),
         "tenant_id": tenant.tenant_id,
         "label": tenant.label,
         "folder": "All",
-        "resources": {
-            "addresses": snap.addresses,
-            "address_groups": snap.address_groups,
-            "services": snap.services,
-            "service_groups": snap.service_groups,
-            "tags": snap.tags,
-            "edls": snap.edls,
-            "applications": snap.applications,
-            "application_groups": snap.application_groups,
-            "hip_objects": snap.hip_objects,
-            "hip_profiles": snap.hip_profiles,
-            "anti_spyware_profiles": snap.anti_spyware_profiles,
-            "vulnerability_profiles": snap.vulnerability_profiles,
-            "url_categories": snap.url_categories,
-            "wildfire_profiles": snap.wildfire_profiles,
-            "dns_security_profiles": snap.dns_security_profiles,
-            "decryption_profiles": snap.decryption_profiles,
-            "file_blocking_profiles": snap.file_blocking_profiles,
-            "log_forwarding_profiles": snap.log_forwarding_profiles,
-            "syslog_profiles": snap.syslog_profiles,
-            "security_rules_pre": snap.security_rules_pre,
-            "security_rules_post": snap.security_rules_post,
-            # Pre/post are the live keys; the flat "nat_rules" field is the
-            # legacy shape, kept for readers that predate the split.
-            "nat_rules_pre": snap.nat_rules_pre,
-            "nat_rules_post": snap.nat_rules_post,
-            "nat_rules": snap.nat_rules,
-            "decryption_rules": snap.decryption_rules,
-            "app_override_rules": snap.app_override_rules,
-            "zones": snap.zones,
-            "ike_gateways": snap.ike_gateways,
-            "ipsec_tunnels": snap.ipsec_tunnels,
-            "zone_protection_profiles": snap.zone_protection_profiles,
-            "remote_networks": snap.remote_networks,
-            "service_connections": snap.service_connections,
-            "sdwan_sites": snap.sdwan_sites,
-            "sdwan_elements": snap.sdwan_elements,
-            "sdwan_wan_networks": snap.sdwan_wan_networks,
-            "sdwan_path_groups": snap.sdwan_path_groups,
-        },
+        "resources": resources,
         "extraction_errors": snap.extraction_errors,
     }
     out.write_text(json.dumps(payload, indent=2, default=str))

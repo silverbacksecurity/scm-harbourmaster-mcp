@@ -34,6 +34,7 @@ from ..audit.ncsc_templates import (
 )
 from ..utils.logging import get_logger
 from ..utils.tool_decorator import scm_tool
+from ..utils.write_safety import audit_write, normalize_ticket_ref, ticket_ref_error
 
 logger = get_logger(__name__)
 
@@ -46,8 +47,10 @@ def register_ncsc_tools(mcp: FastMCP, get_client: Callable[..., Any]) -> None:
     @tool
     def scm_apply_ncsc_baseline(
         client: Any,
+        tenant_id: str,
         folder: str,
         dry_run: bool = True,
+        ticket_ref: str = "",
         syslog_profile: str = "",
         overwrite_existing: bool = False,
     ) -> str:
@@ -72,9 +75,17 @@ def register_ncsc_tools(mcp: FastMCP, get_client: Callable[..., Any]) -> None:
             folder: Target SCM folder (e.g. "Shared" or a tenant folder name).
             tenant_id: SCM tenant ID. Defaults to the active tenant.
             dry_run: If True (default) show what WOULD be created without writing.
+            ticket_ref: Mandatory change-ticket reference (never sent to SCM).
             syslog_profile: Optional syslog server profile name to add to log forwarding.
             overwrite_existing: If True, skip objects that already exist silently.
         """
+        err = ticket_ref_error(ticket_ref)
+        if err:
+            return f"Error: {err}"
+        ticket_ref = normalize_ticket_ref(ticket_ref)
+        if not dry_run:
+            audit_write("scm_apply_ncsc_baseline", ticket_ref, tenant_id, folder=folder)
+
         templates = build_templates(folder, syslog_profile=syslog_profile or None)
 
         results: list[str] = []
@@ -129,7 +140,9 @@ def register_ncsc_tools(mcp: FastMCP, get_client: Callable[..., Any]) -> None:
         results.append(f"  Created: {created} | Skipped: {skipped} | Failed: {failed}")
 
         if dry_run:
-            results.append("\nNo changes written. Re-run with `dry_run=False` to apply.")
+            results.append(
+                "\nNo changes written. Re-run with `dry_run=False` and the same `ticket_ref` to apply."
+            )
         elif failed == 0:
             results.append(
                 "\n**NCSC baseline applied.**\n"
@@ -147,8 +160,10 @@ def register_ncsc_tools(mcp: FastMCP, get_client: Callable[..., Any]) -> None:
     @tool
     def scm_create_ncsc_snippet(
         client: Any,
+        tenant_id: str,
         snippet_name: str = "NCSC-Compliance",
         dry_run: bool = True,
+        ticket_ref: str = "",
         syslog_profile: str = "",
         description: str = "NCSC CAF v4.0 / CE v3.2 compliance baseline — managed by scm-harbourmaster-mcp",
     ) -> str:
@@ -175,10 +190,18 @@ def register_ncsc_tools(mcp: FastMCP, get_client: Callable[..., Any]) -> None:
         Args:
             snippet_name: Name of the SCM snippet to create (default: "NCSC-Compliance").
             dry_run: If True (default) show what WOULD be created without writing.
+            ticket_ref: Mandatory change-ticket reference (never sent to SCM).
             syslog_profile: Optional syslog server profile name to add to log forwarding.
             description: Description for the snippet container.
             tenant_id: Tenant to target (default: first loaded tenant).
         """
+        err = ticket_ref_error(ticket_ref)
+        if err:
+            return f"Error: {err}"
+        ticket_ref = normalize_ticket_ref(ticket_ref)
+        if not dry_run:
+            audit_write("scm_create_ncsc_snippet", ticket_ref, tenant_id, snippet_name=snippet_name)
+
         templates = build_snippet_templates(snippet_name, syslog_profile=syslog_profile or None)
 
         results: list[str] = []
@@ -253,7 +276,7 @@ def register_ncsc_tools(mcp: FastMCP, get_client: Callable[..., Any]) -> None:
 
         if dry_run:
             results.append(
-                "\nNo changes written. Re-run with `dry_run=False` to apply."
+                "\nNo changes written. Re-run with `dry_run=False` and the same `ticket_ref` to apply."
                 "\n\nNote: Security rules (deny-all etc.) cannot be stored in a snippet — "
                 "use `scm_apply_ncsc_baseline(folder=...)` to add rules to a folder rulebase."
             )
@@ -263,7 +286,7 @@ def register_ncsc_tools(mcp: FastMCP, get_client: Callable[..., Any]) -> None:
                 "Next steps:\n"
                 "  1. Assign this snippet to tenants/folders via the SCM portal or API\n"
                 "  2. Add deny-all rule to the folder rulebase: "
-                "`scm_apply_ncsc_baseline(folder=..., dry_run=False)`\n"
+                "`scm_apply_ncsc_baseline(folder=..., dry_run=False, ticket_ref=...)`\n"
                 "  3. Attach profiles to allow rules: `scm_attach_ncsc_profiles(folder=...)`"
             )
         else:
@@ -277,8 +300,10 @@ def register_ncsc_tools(mcp: FastMCP, get_client: Callable[..., Any]) -> None:
     @tool
     def scm_create_nist_snippet(
         client: Any,
+        tenant_id: str,
         snippet_name: str = "NIST-Compliance",
         dry_run: bool = True,
+        ticket_ref: str = "",
         syslog_profile: str = "",
         description: str = "NIST CSF v2.0 / SP 800-53 Rev 5 compliance baseline — managed by scm-harbourmaster-mcp",
     ) -> str:
@@ -306,10 +331,18 @@ def register_ncsc_tools(mcp: FastMCP, get_client: Callable[..., Any]) -> None:
         Args:
             snippet_name: Name of the SCM snippet to create (default: "NIST-Compliance").
             dry_run: If True (default) show what WOULD be created without writing.
+            ticket_ref: Mandatory change-ticket reference (never sent to SCM).
             syslog_profile: Optional syslog server profile name to add to log forwarding.
             description: Description for the snippet container.
             tenant_id: Tenant to target (default: first loaded tenant).
         """
+        err = ticket_ref_error(ticket_ref)
+        if err:
+            return f"Error: {err}"
+        ticket_ref = normalize_ticket_ref(ticket_ref)
+        if not dry_run:
+            audit_write("scm_create_nist_snippet", ticket_ref, tenant_id, snippet_name=snippet_name)
+
         templates = _nist.build_nist_snippet_templates(
             snippet_name, syslog_profile=syslog_profile or None
         )
@@ -386,7 +419,7 @@ def register_ncsc_tools(mcp: FastMCP, get_client: Callable[..., Any]) -> None:
 
         if dry_run:
             results.append(
-                "\nNo changes written. Re-run with `dry_run=False` to apply."
+                "\nNo changes written. Re-run with `dry_run=False` and the same `ticket_ref` to apply."
                 "\n\nNote: Security rules cannot be stored in a snippet — "
                 "use `scm_apply_ncsc_baseline(folder=...)` to add a deny-all rule to a folder rulebase."
             )
@@ -396,7 +429,7 @@ def register_ncsc_tools(mcp: FastMCP, get_client: Callable[..., Any]) -> None:
                 "Next steps:\n"
                 "  1. Assign this snippet to tenants/folders via the SCM portal or API\n"
                 "  2. Add deny-all rule to the folder rulebase: "
-                "`scm_apply_ncsc_baseline(folder=..., dry_run=False)`\n"
+                "`scm_apply_ncsc_baseline(folder=..., dry_run=False, ticket_ref=...)`\n"
                 "  3. Attach profiles to allow rules: `scm_attach_ncsc_profiles(folder=...)`"
             )
         else:
@@ -410,8 +443,10 @@ def register_ncsc_tools(mcp: FastMCP, get_client: Callable[..., Any]) -> None:
     @tool
     def scm_attach_ncsc_profiles(
         client: Any,
+        tenant_id: str,
         folder: str,
         dry_run: bool = True,
+        ticket_ref: str = "",
         profile_group_name: str = "NCSC-Baseline",
         skip_already_profiled: bool = True,
     ) -> str:
@@ -435,10 +470,24 @@ def register_ncsc_tools(mcp: FastMCP, get_client: Callable[..., Any]) -> None:
             folder: SCM folder to search for rules (e.g. 'Prisma Access').
             tenant_id: SCM tenant ID. Defaults to the active tenant.
             dry_run: If True (default) show what WOULD be changed without writing.
+            ticket_ref: Mandatory change-ticket reference (never sent to SCM).
             profile_group_name: Name of the profile group to create/use.
             skip_already_profiled: If True (default), skip rules that already have
                                    a profile group set.
         """
+        err = ticket_ref_error(ticket_ref)
+        if err:
+            return f"Error: {err}"
+        ticket_ref = normalize_ticket_ref(ticket_ref)
+        if not dry_run:
+            audit_write(
+                "scm_attach_ncsc_profiles",
+                ticket_ref,
+                tenant_id,
+                folder=folder,
+                profile_group_name=profile_group_name,
+            )
+
         from scm.models.security.security_rules import SecurityRuleUpdateModel
 
         results: list[str] = []
@@ -590,7 +639,9 @@ def register_ncsc_tools(mcp: FastMCP, get_client: Callable[..., Any]) -> None:
         )
 
         if dry_run:
-            results.append("\nNo changes written. Re-run with `dry_run=False` to apply.")
+            results.append(
+                "\nNo changes written. Re-run with `dry_run=False` and the same `ticket_ref` to apply."
+            )
         elif failed_count == 0:
             results.append("\n**Done.** Re-run `scm_ncsc_gap` to confirm all gaps are resolved.")
         else:
@@ -808,7 +859,7 @@ def register_ncsc_tools(mcp: FastMCP, get_client: Callable[..., Any]) -> None:
                             control=control,
                             severity="info",
                             finding=f"NIST baseline object '{name}' not found in folder '{folder}'",
-                            remediation=f"Run scm_create_nist_snippet(dry_run=False) then push to folder '{folder}'",
+                            remediation=f"Run scm_create_nist_snippet(dry_run=False, ticket_ref=...) then push to folder '{folder}'",
                         )
                     )
             except Exception as exc:

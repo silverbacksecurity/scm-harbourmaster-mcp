@@ -1,0 +1,59 @@
+{
+  "description": "Address list in folder Shared. The API pages with the SDK's own limit/offset; pan-scm-sdk .list() swallows unknown kwargs such as limit= into **filters, so a caller's limit never reaches the wire and every object comes back.",
+  "interactions": [
+    {
+      "name": "addresses - full page regardless of the caller's limit",
+      "request": {
+        "method": "GET",
+        "url": "https://api.strata.paloaltonetworks.com/config/objects/v1/addresses",
+        "query": {
+          "folder": "Shared",
+          "offset": "0"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "json": {
+          "data": [
+            {
+              "id": "00000000-0000-4000-8000-000000000401",
+              "name": "example-host-1",
+              "folder": "Shared",
+              "ip_netmask": "192.0.2.1/32"
+            },
+            {
+              "id": "00000000-0000-4000-8000-000000000402",
+              "name": "example-host-2",
+              "folder": "Shared",
+              "ip_netmask": "192.0.2.2/32"
+            },
+            {
+              "id": "00000000-0000-4000-8000-000000000403",
+              "name": "example-host-3",
+              "folder": "Shared",
+              "ip_netmask": "192.0.2.3/32"
+            },
+            {
+              "id": "00000000-0000-4000-8000-000000000404",
+              "name": "example-host-4",
+              "folder": "Shared",
+              "ip_netmask": "192.0.2.4/32"
+            },
+            {
+              "id": "00000000-0000-4000-8000-000000000405",
+              "name": "example-host-5",
+              "folder": "Shared",
+              "ip_netmask": "192.0.2.5/32"
+            }
+          ],
+          "limit": 2500,
+          "offset": 0,
+          "total": 5
+        }
+      }
+    }
+  ]
+}

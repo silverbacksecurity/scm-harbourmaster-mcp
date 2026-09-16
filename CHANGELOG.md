@@ -8,6 +8,101 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Dry-run default and mandatory `ticket_ref` on every write tool**
+  (`utils/write_safety.py`, new file) — the SSR write-safety contract already
+  used by `scm_ssr_execute`, `scm_config_orch_*` and `scm_site_management` now
+  covers the address and security-rule create/delete tools, `scm_commit`,
+  `scm_config_push_track`, `scm_config_rollback`, the NCSC/NIST baseline and
+  snippet tools, the Compliance, ADNSR and DLP writes, `scm_cert_import` and
+  `scm_tls_profile_manager`. `dry_run` defaults to true and describes the
+  change without writing (fetching the existing object where one exists);
+  `ticket_ref` is required on every call, dry run included, is written to the
+  structured audit log before the mutating request, and is never sent to SCM.
+  The CLI menus prompt for the ticket reference. **Breaking** for callers that
+  relied on these tools writing immediately: pass `dry_run=False` and a
+  `ticket_ref`
+- **`mssp_tenant_capabilities`** (`utils/capabilities.py`,
+  `tools/capabilities.py`, new files) — sends one cheap read-only request per
+  API family and classifies each as available, forbidden (RBAC 403),
+  unprovisioned (404/424 plus family-specific codes such as Email DLP 400) or
+  error (inconclusive), cached per tenant for 6h. AS-BUILT and MSR reports
+  consult the cache and skip known-forbidden or unprovisioned sections up
+  front instead of discovering them mid-run; a tenant that was never probed
+  behaves exactly as before. Part of the `mssp` toolset
+- **Offline cassette integration suite** (`tests/integration/`) — drives
+  registered tools through the real `requests` stack against recorded,
+  placeholder-only responses for the known API quirks: Compliance region
+  selection, Email DLP unprovisioned 400, Insights DATA10003/DATA10005, RBAC
+  403, SDK `list()` limit, and the `/sse/config/v1` base. No credentials or
+  network, so it runs in the default `uv run pytest` (`-m integration` to
+  select). Adds `responses` as a dev dependency
+- **Unit coverage for BPA checks and the deployment, MSSP, NCSC baseline and
+  object/security write tools** — overall coverage 45% → 54%
+- **GlobalProtect & network infrastructure in config backup/clone**
+  (`tools/audit.py`, `audit/cloner.py`, `audit/extractor.py`, `cli_ops.py`) —
+  `scm_config_backup` now persists the mobile-agent stack (auth settings,
+  tunnel/agent/forwarding profiles, portal/gateway infrastructure settings,
+  global GP settings), identity profiles (SAML/Radius/LDAP/authentication),
+  and network infrastructure (IKE/IPSec crypto and QoS profiles, URL access
+  profiles, internal DNS servers, bandwidth allocations, BGP routing config,
+  GP IP-pool network locations). The two backup writers share one
+  `backup_resource_payload()` helper so they can no longer drift apart.
+  `scm_config_clone` restores the GP layer into the fixed `Mobile Users`
+  folder — with the folder passed as a create() kwarg for the resources whose
+  SDK models forbid a folder field in the payload — and identity/network
+  infrastructure into the customer folder or `Remote Networks`. BGP routing
+  and global GP settings are backup-only (singleton objects with no
+  create path), and network locations have no SDK create method yet; both
+  are documented in the tool docstrings. 7 tests
+- **Toolset filtering and read-only mode** (`toolsets.py`, new file) — the
+  server registers every tool on every client, ~164 names into every context
+  window. Named toolsets — `core`, `objects`, `security`, `network`,
+  `deployment`, `audit`, `compliance`, `ncsc`, `posture`, `insights`, `mssp`,
+  `sase`, `ngfw`, `dlp`, `sdwan`, `ops`, `planner` — plus the `noc` / `grc` /
+  `config` convenience profiles trim that down. Selectable via
+  `enabled_toolsets` in `settings.toml`, the `SCM_MCP_ENABLED_TOOLSETS` env
+  var, or `scm-mcp --toolsets a,b`; empty means all, so existing deployments
+  are unchanged. `core` (tenant/folder discovery), `scm_reload` and
+  `scm_restart` are always registered, and an unknown name fails at startup
+  with the valid choices. `read_only` (`SCM_MCP_READ_ONLY=true` /
+  `--read-only`) removes every write-capable tool after registration — the
+  read/write split comes from the Planner tool manifest, the single
+  classifier every registered tool already has, so read-only mode cannot
+  drift from the planner's approval gates (a name/schema heuristic was tried
+  first and missed `scm_compliance_framework` within one commit; the parity
+  test that caught it stays). `scm_reload` re-applies the same filter on
+  re-registration, and the active toolsets are logged at startup. 17 tests
+- **MCP ToolAnnotations on every registered tool**
+  (`utils/tool_annotations.py`, new file) — every tool now carries the MCP
+  hint fields: `readOnlyHint` from the planner manifest's `access` (write
+  tools that only save a local report file still count as read-only),
+  `destructiveHint` and `idempotentHint` from explicit per-tool sets
+  (deletes, rollbacks, SSR changes, planner runs, …), `openWorldHint` false
+  only for tools that touch nothing but this server's own process state, and
+  a human-readable `title` derived from the tool name. Applied centrally in
+  `register_all_tools` so hot reload re-applies them, and a coverage test
+  fails when a registered tool has no classification. 12 tests
+- **Tenant label or settings-key as `tenant_id` on every tool**
+  (`utils/tool_decorator.py`, `auth/oauth.py`) — every tool taking
+  `tenant_id` now accepts the numeric TSG ID, a `settings.toml` tenant key,
+  or a tenant label; the value resolves to the numeric ID before the client
+  is looked up, so a label such as `acme-labs` works everywhere the raw TSG
+  ID does. 17 tests
+- **Compliance Center region handling** (`tools/compliance.py`,
+  `config/settings.py`) — the Compliance API documents `X-PANW-Region` as
+  required but does not enforce it: a missing or misspelled value returns
+  HTTP 200 with an empty payload, so a report silently reads "this tenant is
+  not compliant" when the truth is "we asked the wrong region" (the
+  vocabulary is case-sensitive and differs from Insights: only `uk` works).
+  Every Compliance Center request now carries the header from a new
+  per-tenant `compliance_region` setting, validated against the four
+  documented values so a typo fails at load; when unset, the region is
+  auto-discovered once per tenant per process by probing
+  `/overall-compliance` in each region (at most four extra GETs, cached,
+  best-effort). Reports detect the all-empty case and state that the
+  framework has not been assessed in that region instead of printing zeros,
+  and carry a one-line provenance footer naming the region and how it was
+  resolved. 24 tests
 - **`scm_policy_optimizer_rules` / `scm_policy_optimizer_rule`**
   (`tools/policy_optimizer.py`, new file) — wraps the new Policy Optimizer API
   (`GET /policy-optimizer/v1/security-rules[/{id}]`, announced in the SCM API
@@ -137,6 +232,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `list-tenants` show the default folder where they showed the tier.
 
 ### Changed
+- **Documented tool counts now derive from the live registry**
+  (`scripts/check_tool_counts.py`, new file) — the "164 tools" figures in
+  README.md and docs/ had drifted and are now placeholders regenerated from
+  actually registering every tool on a throwaway FastMCP instance (no
+  credentials needed), kept honest by a CI check and `test_tool_counts.py`.
 - **Renamed the Python package and distribution** — `scm-mcp-mssp` is now
   **`scm-harbourmaster-mcp`**, and the import package `scm_mcp_mssp` is now
   `scm_harbourmaster_mcp`. A harbourmaster directs many independent vessels
@@ -163,6 +263,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `/etc` are unchanged.
 
 ### Fixed
+- **BPA TP-007 read the grayware verdict before malware**
+  (`audit/bpa_checks.py`) — a WildFire profile with `malware=block` and the
+  usual `grayware=alert` was reported as not blocking malware
+- **Insights skips the bare-body retry on DATA10003** (`tools/insights.py`) —
+  a 400 carrying DATA10003 means the resource path is gone, so retrying
+  without the time window could never succeed; the error now names the cause
+- **Insights region-header normalisation** (`tools/insights.py`,
+  `tools/ops.py`, `tools/msr.py`, `tools/mt_monitor.py`) — two vocabularies
+  exist for the region: settings `insights_region` uses `eu`/`us`, the
+  `X-PANW-Region` header wants `europe`/`americas` (`uk`/`sg`/`au` are
+  both), and sending a settings key isn't rejected — the API answers 200
+  with an empty result — so a mismatch is invisible. `tools/ops.py`
+  hardcoded `eu` in one Insights path and passed the settings key raw into
+  the header in another, so every call it made carried an unrecognised
+  region; `msr.py` and `mt_monitor.py` quietly mapped a valid `americas` to
+  `europe` via `dict.get` defaults. One normaliser now serves all four call
+  sites (`insights.region_header()`, accepting either vocabulary). Also
+  removed the dead `pa_bandwidth_consumption` candidate from
+  `scm_spn_bandwidth`'s fallback chain (the resource name is gone upstream —
+  DATA10003) and made `_insights_query` log non-200 responses instead of
+  failing silently, which is how both defects went unnoticed. 10 tests
+- **MSR compliance calls name the tenant** (`tools/msr.py`) — the MSR pack's
+  two Compliance Center calls (`/summaries` and the per-framework
+  `/overall-compliance-timeline`) did not pass `tenant_id`, so the pack's
+  compliance sections could answer for the wrong tenant rather than the
+  customer being reported on. Both calls now pass the TSG ID. 1 test
 - **AS-BUILT §2.1 compute-location labels** (`audit/asbuilt_report.py`) — each
   location node was labelled with the network-locations API's `region` field,
   which holds the underlying cloud region rather than the Prisma location code,

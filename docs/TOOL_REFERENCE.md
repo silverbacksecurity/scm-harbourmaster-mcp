@@ -4,7 +4,7 @@
 
 All tools authenticate via Bearer-token OAuth (SASE client credentials) configured in `settings.toml` / `.secrets.toml`.
 
-**164 tools** across 36 modules.
+**<!-- tool-count -->165<!-- /tool-count --> tools** across <!-- module-count -->37<!-- /module-count --> modules.
 
 ## Table of Contents
 
@@ -4354,7 +4354,6 @@ Unlocks all 103 Insights paths (v1.0 / v2.0 / v3.0 + custom queries
 - ``users/agent/connected_user_count`` — PA Agent connected users
 - ``gp_mobileusers/user_list`` — GP user list with locations
 - ``users/agent/user_list`` — PA Agent user list
-- ``pa_bandwidth_consumption`` — per-SPN bandwidth
 - ``agents/agent_versions`` — agent version distribution
 - ``tunnels/tunnel_list`` — IKE tunnel status (needs scope)
 

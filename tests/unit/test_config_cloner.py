@@ -296,3 +296,89 @@ def test_objects_in_a_customer_snippet_are_still_cloned(tmp_path):
     cloner.clone_config(client, src, "dst", dry_run=False)
 
     assert client.resources["tag"].created == [({"name": "t1", "folder": "dst"}, {})]
+
+
+# ── GP / identity / network infrastructure ───────────────────────────────
+
+
+def test_gp_and_identity_objects_push_with_folder_in_payload(tmp_path):
+    client = FakeClient()
+    src = _backup(
+        tmp_path,
+        {
+            "mobile_agent_auth_settings": [{"name": "auths-1", "folder": "Mobile Users"}],
+            "forwarding_profiles": [{"name": "fp-1", "folder": "Mobile Users"}],
+            "authentication_profiles": [{"name": "authp-1", "folder": "All"}],
+            "saml_server_profiles": [{"name": "saml-1", "folder": "All"}],
+            "internal_dns_servers": [{"name": "dns-1", "folder": "Remote Networks"}],
+            "qos_profiles": [{"name": "qos-1", "folder": "Remote Networks"}],
+        },
+    )
+    cloner.clone_config(client, src, "dst", dry_run=False)
+
+    assert client.resources["auth_setting"].created == [
+        ({"name": "auths-1", "folder": "Mobile Users"}, {})
+    ]
+    assert client.resources["forwarding_profile"].created == [
+        ({"name": "fp-1", "folder": "Mobile Users"}, {})
+    ]
+    # Identity profiles are folder-scoped like any other customer object.
+    assert client.resources["authentication_profile"].created == [
+        ({"name": "authp-1", "folder": "dst"}, {})
+    ]
+    assert client.resources["saml_server_profile"].created == [
+        ({"name": "saml-1", "folder": "dst"}, {})
+    ]
+    assert client.resources["internal_dns_server"].created == [
+        ({"name": "dns-1", "folder": "Remote Networks"}, {})
+    ]
+    assert client.resources["qos_profile"].created == [
+        ({"name": "qos-1", "folder": "Remote Networks"}, {})
+    ]
+
+
+def test_folder_kwarg_resources_pass_folder_as_kwarg_not_payload(tmp_path):
+    client = FakeClient()
+    src = _backup(
+        tmp_path,
+        {
+            "mobile_agent_tunnel_profiles": [{"name": "tp-1", "folder": "Mobile Users"}],
+            "mobile_agent_infrastructure": [{"name": "infra-1", "folder": "Mobile Users"}],
+        },
+    )
+    cloner.clone_config(client, src, "dst", dry_run=False)
+
+    tp = client.resources["tunnel_profile"].created
+    assert tp == [({"name": "tp-1"}, {"folder": "Mobile Users"})]
+    assert "folder" not in tp[0][0]
+
+    infra = client.resources["infrastructure_settings"].created
+    assert infra == [({"name": "infra-1"}, {"folder": "Mobile Users"})]
+    assert "folder" not in infra[0][0]
+
+
+def test_folder_kwarg_dry_run_names_the_folder(tmp_path):
+    client = FakeClient()
+    src = _backup(
+        tmp_path,
+        {"mobile_agent_tunnel_profiles": [{"name": "tp-1", "folder": "Mobile Users"}]},
+    )
+    report = cloner.clone_config(client, src, "dst", dry_run=True)
+
+    assert "folder 'Mobile Users'" in report.results[0].detail
+
+
+def test_folder_kwarg_conflict_overwrite_passes_folder_once(tmp_path):
+    client = FakeClient()
+    client.resources["tunnel_profile"] = ConflictingResource()
+    src = _backup(
+        tmp_path,
+        {"mobile_agent_tunnel_profiles": [{"name": "tp-1", "folder": "Mobile Users"}]},
+    )
+    report = cloner.clone_config(client, src, "dst", dry_run=False, on_conflict="overwrite")
+
+    # Overwrite succeeds on the fake resource — the point is that fetch and
+    # update received exactly one folder kwarg each, never a duplicate.
+    assert report.results[0].status == "overwritten"
+    resource = client.resources["tunnel_profile"]
+    assert resource.fetched == [{"name": "tp-1", "folder": "Mobile Users"}]

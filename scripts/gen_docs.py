@@ -192,7 +192,11 @@ def build() -> str:
         "All tools authenticate via Bearer-token OAuth (SASE client credentials) "
         "configured in `settings.toml` / `.secrets.toml`.\n"
     )
-    lines.append(f"**{total} tools** across {len(modules)} modules.\n")
+    # Marker comments let scripts/check_tool_counts.py verify/fix the counts.
+    lines.append(
+        f"**<!-- tool-count -->{total}<!-- /tool-count --> tools** across "
+        f"<!-- module-count -->{len(modules)}<!-- /module-count --> modules.\n"
+    )
 
     lines.append("## Table of Contents\n")
     for fname in modules:

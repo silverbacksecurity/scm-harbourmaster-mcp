@@ -9,6 +9,7 @@ multi-tenant mode the active client is selected by tenant_id at call time.
 from __future__ import annotations
 
 import threading
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from pydantic import SecretStr
@@ -25,6 +26,7 @@ logger = get_logger(__name__)
 _lock = threading.Lock()
 _clients: dict[str, Scm] = {}
 _tenant_configs: dict[str, TenantConfig] = {}  # mirrors _clients; stores config metadata
+_tenant_keys: dict[str, str] = {}  # settings.toml [tenants.<key>] section name -> TSG ID
 
 
 class TenantCredentials:
@@ -62,14 +64,22 @@ def get_scm_client(config: TenantConfig) -> Scm:
 
 def get_client_for_tenant(tenant_id: str) -> Scm:
     """
-    Look up a pre-cached client by tenant_id.
+    Look up a pre-cached client by tenant.
 
-    Raises TenantNotFoundError if the tenant was never initialised.
+    *tenant_id* may be the numeric TSG ID, the settings.toml ``[tenants.<key>]``
+    section name, or the tenant's ``label`` (see :func:`resolve_tenant_id`).
+
+    Raises TenantNotFoundError if the tenant was never initialised (the message
+    lists the valid tenants) or if a label matches more than one tenant.
     """
+    tsg = resolve_tenant_id(tenant_id, strict=True)
     with _lock:
-        client = _clients.get(tenant_id)
+        client = _clients.get(tsg)
     if client is None:
-        raise TenantNotFoundError(f"Tenant {tenant_id!r} is not configured or not yet loaded.")
+        raise TenantNotFoundError(
+            f"Tenant {tenant_id!r} is not configured or not yet loaded. "
+            f"Valid tenants: {_describe_known(_known_tenants(include_configured=True))}"
+        )
     return client
 
 
@@ -79,9 +89,170 @@ def list_loaded_tenants() -> list[str]:
 
 
 def get_tenant_meta(tenant_id: str) -> TenantConfig | None:
-    """Return the cached TenantConfig for a loaded tenant, or None."""
+    """Return the cached TenantConfig for a loaded tenant, or None.
+
+    Accepts any form :func:`resolve_tenant_id` understands; an ambiguous
+    value returns None rather than raising.
+    """
+    try:
+        tsg = resolve_tenant_id(tenant_id)
+    except TenantNotFoundError:
+        return None
     with _lock:
-        return _tenant_configs.get(tenant_id)
+        return _tenant_configs.get(tsg)
+
+
+# ── Tenant identifier resolution ─────────────────────────────────────────────
+#
+# Callers (humans and LLMs alike) naturally name a tenant by its settings.toml
+# section key or its human label rather than the numeric TSG ID the SCM API
+# needs. Every client/metadata lookup funnels through resolve_tenant_id so all
+# three forms work everywhere, instead of each tool module re-inventing it.
+
+
+def register_tenant_key(key: str, tenant_id: str) -> None:
+    """Remember that settings.toml ``[tenants.<key>]`` maps to *tenant_id*."""
+    if key and tenant_id:
+        with _lock:
+            _tenant_keys[key] = tenant_id
+
+
+def _norm(value: str) -> str:
+    """Case-insensitive, whitespace-tolerant comparison key."""
+    return " ".join(str(value).split()).casefold()
+
+
+@dataclass
+class _KnownTenant:
+    keys: set[str] = field(default_factory=set)
+    label: str = ""
+
+
+def _known_tenants(include_configured: bool) -> dict[str, _KnownTenant]:
+    """Map TSG ID -> section keys + label, from the caches and optionally settings."""
+    known: dict[str, _KnownTenant] = {}
+    with _lock:
+        for tsg, cfg in _tenant_configs.items():
+            known.setdefault(tsg, _KnownTenant()).label = getattr(cfg, "label", "") or ""
+        for tsg in _clients:
+            known.setdefault(tsg, _KnownTenant())
+        for key, tsg in _tenant_keys.items():
+            known.setdefault(tsg, _KnownTenant()).keys.add(key)
+    if include_configured:
+        try:
+            from ..config.settings import load_all_tenant_configs
+
+            configured = load_all_tenant_configs()
+        except Exception as exc:
+            logger.warning("tenant_resolver_config_load_failed", error=str(exc))
+            configured = {}
+        for key, cfg in configured.items():
+            tsg = str(getattr(cfg, "tenant_id", "") or "")
+            if not tsg:
+                continue
+            entry = known.setdefault(tsg, _KnownTenant())
+            entry.keys.add(key)
+            entry.label = entry.label or (getattr(cfg, "label", "") or "")
+    return known
+
+
+def _describe_known(known: dict[str, _KnownTenant]) -> str:
+    """Render tenants as ``key / Label (tsg)`` for error messages."""
+    if not known:
+        return "(none configured)"
+    parts = []
+    for tsg, entry in sorted(known.items()):
+        names = sorted(entry.keys)
+        if entry.label and _norm(entry.label) not in {_norm(k) for k in names}:
+            names.append(entry.label)
+        parts.append(f"{' / '.join(names)} ({tsg})" if names else tsg)
+    return ", ".join(parts)
+
+
+def _match(value: str, known: dict[str, _KnownTenant]) -> str | None:
+    """Return the TSG ID *value* names, or None if nothing matches.
+
+    Precedence: TSG ID, then section key, then label. A value naming more than
+    one tenant within the winning tier raises TenantNotFoundError.
+    """
+    if value in known:
+        return value
+    wanted = _norm(value)
+    tiers = (
+        [tsg for tsg in known if _norm(tsg) == wanted],
+        [tsg for tsg, e in known.items() if any(_norm(k) == wanted for k in e.keys)],
+        [tsg for tsg, e in known.items() if e.label and _norm(e.label) == wanted],
+    )
+    for hits in tiers:
+        if len(hits) == 1:
+            return hits[0]
+        if len(hits) > 1:
+            candidates = {tsg: known[tsg] for tsg in hits}
+            raise TenantNotFoundError(
+                f"Tenant {value!r} is ambiguous; it matches {len(hits)} tenants: "
+                f"{_describe_known(candidates)}. Pass the numeric tenant_id instead."
+            )
+    return None
+
+
+def resolve_tenant_id(value: str, *, strict: bool = False) -> str:
+    """Canonicalise a tenant reference to its numeric TSG ID.
+
+    Accepts the TSG ID itself, the settings.toml ``[tenants.<key>]`` section
+    name, or the tenant's ``label`` — case-insensitive and whitespace-tolerant.
+    Loaded tenants are checked first; settings.toml is only read on a miss.
+
+    An empty value returns "" (the caller's default tenant). A value matching
+    several tenants always raises TenantNotFoundError listing the candidates.
+    An unrecognised value is returned stripped but otherwise unchanged (so
+    single-tenant mode and not-yet-loaded TSG IDs keep working), unless
+    *strict* is set, tenants are configured and the value is not a bare
+    numeric ID — then TenantNotFoundError lists the valid tenants.
+    """
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    with _lock:
+        if raw in _clients or raw in _tenant_configs:
+            return raw
+    hit = _match(raw, _known_tenants(include_configured=False))
+    if hit is not None:
+        return hit
+    known = _known_tenants(include_configured=True)
+    hit = _match(raw, known)
+    if hit is not None:
+        return hit
+    if strict and known and not raw.isdigit():
+        raise TenantNotFoundError(
+            f"Tenant {raw!r} is not configured. Valid tenants: {_describe_known(known)}"
+        )
+    return raw
+
+
+def find_tenant_config(value: str) -> TenantConfig | None:
+    """Return the TenantConfig for *value* (any accepted form), or None.
+
+    Prefers the loaded-client cache, then falls back to settings.toml so a
+    tenant whose SCM client never initialised (e.g. SD-WAN-only) still
+    resolves. Raises TenantNotFoundError only for an ambiguous value.
+    """
+    tsg = resolve_tenant_id(value)
+    if not tsg:
+        return None
+    with _lock:
+        cfg = _tenant_configs.get(tsg)
+    if cfg is not None:
+        return cfg
+    try:
+        from ..config.settings import load_all_tenant_configs
+
+        configured = load_all_tenant_configs()
+    except Exception:
+        return None
+    return next(
+        (c for c in configured.values() if str(getattr(c, "tenant_id", "")) == tsg),
+        None,
+    )
 
 
 def evict_tenant(tenant_id: str) -> bool:

@@ -14,6 +14,26 @@ log_json  = true
 mssp_mode = true
 scm_default_folder = "Shared"
 
+# ── Toolset filtering ─────────────────────────────────────────────────────────
+# ~165 tools are loaded into every client's context by default. Trim that down
+# by listing only the toolsets (or profiles) you need; empty / absent = all.
+#
+#   Toolsets: core objects security network deployment audit compliance ncsc
+#             posture insights mssp sase ngfw dlp sdwan ops planner
+#   Profiles: noc    = ops + posture + insights + mssp
+#             grc    = audit + compliance + ncsc + posture
+#             config = objects + security + network + deployment
+#
+# `core` (tenant/folder discovery), scm_reload and scm_restart are always loaded.
+# read_only = true hides write-capable tools (create/delete/commit/rollback/...,
+# plus any tool with a dry_run or action parameter).
+#
+# Overrides: CLI `scm-mcp --toolsets sdwan,ops --read-only`, or env vars
+# SCM_MCP_ENABLED_TOOLSETS=sdwan,ops and SCM_MCP_READ_ONLY=true.
+#
+# enabled_toolsets = ["sdwan", "noc"]
+# read_only        = false
+
 # ── MSSP multi-tenant configuration ───────────────────────────────────────────
 # Uncomment and duplicate for each managed customer tenant.
 # Secrets (client_secret) should live in .secrets.toml under the same key path.

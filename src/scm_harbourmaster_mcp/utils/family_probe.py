@@ -68,13 +68,47 @@ def probe_family(
 
     for path in paths:
         url = f"{base_url.rstrip('/')}{path}"
-        try:
-            resp = session.get(url, timeout=timeout)
-            results[path] = resp.status_code
-        except Exception:
-            results[path] = -1
+        results[path], _ = probe_endpoint(session, url, timeout=timeout)
 
     return results
+
+
+def probe_endpoint(
+    session: Any,
+    url: str,
+    *,
+    method: str = "GET",
+    params: dict[str, Any] | None = None,
+    headers: dict[str, str] | None = None,
+    json_body: Any = None,
+    timeout: tuple[float, float] = (4.0, 10.0),
+) -> tuple[int, str]:
+    """Send one probe request and return ``(status_code, detail)``.
+
+    The response is streamed and only a short error snippet is ever read, so a
+    probe against a large collection costs the status line, not the payload.
+    ``status_code`` is ``-1`` on a transport failure, with the exception text
+    as ``detail``. Callers are responsible for only passing read-only requests.
+    """
+    try:
+        kwargs: dict[str, Any] = {"params": params, "headers": headers, "timeout": timeout}
+        if method.upper() == "GET":
+            resp = session.get(url, stream=True, **kwargs)
+        else:
+            resp = session.request(method.upper(), url, json=json_body, stream=True, **kwargs)
+    except Exception as exc:
+        return -1, str(exc)[:300]
+
+    detail = ""
+    try:
+        if resp.status_code >= 400:
+            detail = str(getattr(resp, "text", "") or "")[:300]
+    except Exception:
+        detail = ""
+    finally:
+        with contextlib.suppress(Exception):
+            resp.close()
+    return int(resp.status_code), detail
 
 
 def probe_summary(results: dict[str, int]) -> str:

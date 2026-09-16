@@ -1,0 +1,22 @@
+{
+  "description": "Email DLP rejecting a genuinely malformed request with HTTP 400 - must surface as an error that keeps the response body, not be mistaken for an unprovisioned tenant.",
+  "interactions": [
+    {
+      "name": "incidents list - invalid status filter",
+      "request": {
+        "method": "GET",
+        "url": "https://api.us-west1.email.dlp.paloaltonetworks.com/incident/api/v1/incidents"
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "json": {
+          "status": "BAD_REQUEST",
+          "message": "Invalid parameter status"
+        }
+      }
+    }
+  ]
+}

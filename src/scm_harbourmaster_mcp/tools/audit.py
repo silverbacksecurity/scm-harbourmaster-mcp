@@ -48,6 +48,7 @@ from ..audit.drift_baseline import (
 )
 from ..audit.dspt_controls import BPA_TO_DSPT, DSPT_ASSERTIONS
 from ..audit.extractor import (
+    backup_resource_payload,
     extract_adem,
     extract_airs,
     extract_allocated_ips,
@@ -81,9 +82,11 @@ from ..audit.ncsc_controls import NCSC_CONTROLS
 from ..audit.report import ReportBuilder
 from ..auth.oauth import fetch_licenses, get_scm_client, get_tenant_meta
 from ..config.settings import load_all_tenant_configs
+from ..utils.capabilities import capability_skip_reason
 from ..utils.errors import handle_scm_exception
 from ..utils.logging import get_logger
 from ..utils.tool_decorator import scm_tool
+from ..utils.write_safety import audit_write, normalize_ticket_ref, ticket_ref_error
 from .ops import _CERT_FOLDERS, _fetch_certs, _licence_rows
 
 logger = get_logger(__name__)
@@ -309,10 +312,14 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
     def scm_config_backup(client: Any, tenant_id: str, folder: str, output_dir: str = "") -> str:
         """Export a complete SCM configuration snapshot to a JSON backup file.
 
-        Pulls all resource types for the folder (addresses, security rules,
-        profiles, zones, VPN, deployment, etc.) and writes a timestamped JSON
-        file. The backup file can be used as input to scm_config_diff and as
-        the data source for the AS-BUILT report.
+        Pulls all resource types for the folder — addresses, security rules,
+        profiles, zones, VPN and deployment objects, network infrastructure
+        (crypto/QoS profiles, internal DNS, BGP routing, GP IP pools) and the
+        GlobalProtect mobile-agent stack (auth settings, tunnel and forwarding
+        profiles, portals/gateways, SAML/Radius/LDAP auth profiles) — and
+        writes a timestamped JSON file. The backup file can be used as input
+        to scm_config_diff and scm_config_clone, and as the data source for
+        the AS-BUILT report.
 
         Args:
             folder: SCM folder to back up.
@@ -336,42 +343,7 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
             "generated_at": datetime.now(UTC).isoformat(),
             "folder": folder,
             "tenant_id": snap.tenant_id,
-            "resources": {
-                "addresses": snap.addresses,
-                "address_groups": snap.address_groups,
-                "services": snap.services,
-                "service_groups": snap.service_groups,
-                "tags": snap.tags,
-                "edls": snap.edls,
-                "applications": snap.applications,
-                "application_groups": snap.application_groups,
-                "hip_objects": snap.hip_objects,
-                "hip_profiles": snap.hip_profiles,
-                "anti_spyware_profiles": snap.anti_spyware_profiles,
-                "vulnerability_profiles": snap.vulnerability_profiles,
-                "url_categories": snap.url_categories,
-                "wildfire_profiles": snap.wildfire_profiles,
-                "dns_security_profiles": snap.dns_security_profiles,
-                "decryption_profiles": snap.decryption_profiles,
-                "file_blocking_profiles": snap.file_blocking_profiles,
-                "log_forwarding_profiles": snap.log_forwarding_profiles,
-                "syslog_profiles": snap.syslog_profiles,
-                "security_rules_pre": snap.security_rules_pre,
-                "security_rules_post": snap.security_rules_post,
-                # Pre/post are the live keys; the flat "nat_rules" field is
-                # the legacy shape, kept for readers that predate the split.
-                "nat_rules_pre": snap.nat_rules_pre,
-                "nat_rules_post": snap.nat_rules_post,
-                "nat_rules": snap.nat_rules,
-                "decryption_rules": snap.decryption_rules,
-                "app_override_rules": snap.app_override_rules,
-                "zones": snap.zones,
-                "ike_gateways": snap.ike_gateways,
-                "ipsec_tunnels": snap.ipsec_tunnels,
-                "zone_protection_profiles": snap.zone_protection_profiles,
-                "remote_networks": snap.remote_networks,
-                "service_connections": snap.service_connections,
-            },
+            "resources": backup_resource_payload(snap),
             "extraction_errors": snap.extraction_errors,
         }
 
@@ -1570,48 +1542,69 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
                     _inc_sdwan = True
 
                 snap = extract_snapshot(client, _folder, tenant_id or "default")
-                extract_licenses(client, snap)
+
+                # A cached mssp_tenant_capabilities probe lets us skip families
+                # already known to be forbidden/unprovisioned, instead of
+                # discovering the 403 mid-run. No cache → no skips (never probes).
+                def _cap_ok(family: str, *sinks: list[str]) -> bool:
+                    reason = capability_skip_reason(tenant_id, family)
+                    if reason is None:
+                        return True
+                    note = f"{family}: {reason}"
+                    snap.extraction_errors.append(note)
+                    for sink in sinks:
+                        sink.append(note)
+                    logger.info("asbuilt_section_skipped_by_capability", family=family)
+                    return False
+
+                if _cap_ok("licensing"):
+                    extract_licenses(client, snap)
 
                 _pa_key = None
                 if _tc_meta is not None and _tc_meta.prisma_access_api_key is not None:
                     _pa_key = _tc_meta.prisma_access_api_key.get_secret_value()
                 if _pa_key:
                     extract_egress_ips_datapath(_pa_key, snap)
-                else:
+                elif _cap_ok("allocated_ips"):
                     extract_allocated_ips(client, snap)
 
-                if include_insights:
+                if include_insights and _cap_ok("insights", snap.insights_errors):
                     _effective_region = insights_region
                     if _effective_region == "eu" and tenant_id:
                         _tc = get_tenant_meta(tenant_id)
                         if _tc is not None:
                             _effective_region = _tc.insights_region
                     extract_insights(client, snap, region=_effective_region)
-                if include_adem:
+                if include_adem and _cap_ok("adem", snap.adem_errors):
                     extract_adem(client, snap)
                 if include_extended:
                     extract_casb_dlp(client, snap, folder=_folder)
-                    extract_ztna_connectors(client, snap)
+                    if _cap_ok("ztna_connector"):
+                        extract_ztna_connectors(client, snap)
                     extract_browser(client, snap)
                     extract_cdl(client, snap)
                     extract_ngfw_devices(client, snap)
                     extract_ngfw_routing(client, snap)
                     extract_ngfw_interface_ips(client, snap)
                     extract_airs(client, snap)
-                    extract_enterprise_dlp(client, snap)
+                    if _cap_ok("enterprise_dlp"):
+                        extract_enterprise_dlp(client, snap)
                     extract_iot_security(client, snap)
                     extract_app_acceleration(client, snap)
 
-                extract_sspm(client, snap)
+                if _cap_ok("sspm"):
+                    extract_sspm(client, snap)
                 extract_identity_sspm(client, snap)
                 extract_traffic_steering(client, snap)
                 extract_pab_tenant(client, snap)
-                extract_iam_roles(client, snap)
-                extract_iam_access_policies(client, snap)
-                extract_managed_tenants(client, snap)
+                if _cap_ok("iam"):
+                    extract_iam_roles(client, snap)
+                    extract_iam_access_policies(client, snap)
+                if _cap_ok("tenancy"):
+                    extract_managed_tenants(client, snap)
                 extract_mt_monitor_alerts(client, snap)
 
-                if _inc_sdwan:
+                if _inc_sdwan and _cap_ok("sdwan"):
                     try:
                         from ..auth.sdwan import get_sdwan_client
                         from ..config.settings import get_settings
@@ -1652,28 +1645,29 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
                         logger.warning("wan_ip_enrichment_failed", error=str(exc))
 
                 _jobs: list[dict[str, Any]] = []
-                try:
-                    _job_resp = client.list_jobs(limit=200, offset=0)
-                    _all_jobs = _job_resp.data if hasattr(_job_resp, "data") else []
-                    for j in _all_jobs:
-                        parent = str(getattr(j, "parent_id", "") or "")
-                        if parent not in ("0", "", "None"):
-                            continue
-                        _jobs.append(
-                            {
-                                "job_id": str(getattr(j, "id", "")),
-                                "type": str(getattr(j, "type_str", getattr(j, "job_type", ""))),
-                                "result": str(getattr(j, "result_str", "")),
-                                "user": str(getattr(j, "uname", "")),
-                                "description": str(getattr(j, "description", "") or ""),
-                                "start_ts": str(getattr(j, "start_ts", "")),
-                                "end_ts": str(getattr(j, "end_ts", "")),
-                                "parent_id": parent,
-                            }
-                        )
-                except Exception as _je:
-                    logger.warning("list_jobs_failed", error=str(_je))
-                    snap.extraction_errors.append(f"list_jobs: {_je}")
+                if _cap_ok("config_jobs"):
+                    try:
+                        _job_resp = client.list_jobs(limit=200, offset=0)
+                        _all_jobs = _job_resp.data if hasattr(_job_resp, "data") else []
+                        for j in _all_jobs:
+                            parent = str(getattr(j, "parent_id", "") or "")
+                            if parent not in ("0", "", "None"):
+                                continue
+                            _jobs.append(
+                                {
+                                    "job_id": str(getattr(j, "id", "")),
+                                    "type": str(getattr(j, "type_str", getattr(j, "job_type", ""))),
+                                    "result": str(getattr(j, "result_str", "")),
+                                    "user": str(getattr(j, "uname", "")),
+                                    "description": str(getattr(j, "description", "") or ""),
+                                    "start_ts": str(getattr(j, "start_ts", "")),
+                                    "end_ts": str(getattr(j, "end_ts", "")),
+                                    "parent_id": parent,
+                                }
+                            )
+                    except Exception as _je:
+                        logger.warning("list_jobs_failed", error=str(_je))
+                        snap.extraction_errors.append(f"list_jobs: {_je}")
 
                 builder = AsBuiltReportBuilder(
                     snap,
@@ -2487,6 +2481,7 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
         on_conflict: str = "skip",
         dry_run: bool = True,
         save_to: str = "",
+        ticket_ref: str = "",
     ) -> str:
         """Clone a SCM config backup into a new folder or tenant.
 
@@ -2496,6 +2491,15 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
 
           Tags → Addresses → Groups → Security profiles → Log profiles →
           Zones → Rules (pre, post, NAT, decryption) → Deployment (optional)
+
+        Beyond the policy layer, the cloner also restores GlobalProtect and
+        identity configuration from the backup: auth settings, tunnel
+        profiles, agent profiles, forwarding profiles and portal/gateway
+        infrastructure settings (into the fixed 'Mobile Users' folder), plus
+        SAML/Radius/LDAP auth profiles (customer folder).  With
+        include_deployment it additionally clones network infrastructure —
+        IKE/IPSec crypto profiles, QoS profiles, internal DNS servers and
+        bandwidth allocations (fixed 'Remote Networks' folder).
 
         Typical use-cases
         -----------------
@@ -2534,12 +2538,29 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
             dry_run: If True (default), preview what would be created without
                      making any API calls. Set to False to execute the push.
             save_to: Optional file path to write the clone report.
+            ticket_ref: Mandatory change-ticket reference (never sent to SCM).
+
+        **Write safety (SSR pattern):** ``dry_run=True`` by default;
+        ``ticket_ref`` is mandatory.
 
         Returns:
             Markdown clone report showing per-object status and PSK warnings.
         """
+        err = ticket_ref_error(ticket_ref)
+        if err:
+            return f"Error: {err}"
+        ticket_ref = normalize_ticket_ref(ticket_ref)
+
         try:
             client = get_client(target_tenant_id)
+            if not dry_run:
+                audit_write(
+                    "scm_config_clone",
+                    ticket_ref,
+                    target_tenant_id,
+                    source_backup_file=source_backup_file,
+                    target_folder=target_folder,
+                )
             report = clone_config(
                 client,
                 source_backup_file=source_backup_file,

@@ -1,0 +1,22 @@
+{
+  "description": "Email DLP answers a valid request for a tenant that is not onboarded with HTTP 400 \"Can't find tenant name with tsgId=...\" - a provisioning gate, not a malformed request.",
+  "interactions": [
+    {
+      "name": "incidents list - tenant not onboarded",
+      "request": {
+        "method": "GET",
+        "url": "https://api.us-west1.email.dlp.paloaltonetworks.com/incident/api/v1/incidents"
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "json": {
+          "status": "BAD_REQUEST",
+          "message": "Can't find tenant name with tsgId=1234567890"
+        }
+      }
+    }
+  ]
+}

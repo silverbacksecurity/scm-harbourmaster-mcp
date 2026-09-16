@@ -7,7 +7,7 @@
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 
-MCP (Model Context Protocol) server for **Palo Alto Networks Strata Cloud Manager (SCM)**, built for Managed Security Service Providers. Exposes 85 SCM operations as MCP tools consumable by Claude Desktop, Cursor, Copilot Studio, or any MCP-compatible AI assistant.
+MCP (Model Context Protocol) server for **Palo Alto Networks Strata Cloud Manager (SCM)**, built for Managed Security Service Providers. Exposes <!-- tool-count -->165<!-- /tool-count --> SCM operations as MCP tools consumable by Claude Desktop, Cursor, Copilot Studio, or any MCP-compatible AI assistant.
 
 ---
 
@@ -75,7 +75,7 @@ graph LR
     subgraph server["scm-harbourmaster-mcp"]
         stdio["FastMCP\nstdio transport"]
         http["HTTP/SSE transport\nscm-mcp-http"]
-        tools["93 MCP Tools\nobjects · policy · network\naudit · NCSC · NIST · DLP\nSD-WAN · MSSP · ops · AI advisor"]
+        tools["MCP Tools\nobjects · policy · network\naudit · NCSC · NIST · DLP\nSD-WAN · MSSP · ops · AI advisor"]
         cache["OAuth2 Client Cache\nper-tenant Scm client\n(thread-safe)"]
         cfg["settings.toml\n+ .secrets.toml"]
     end
@@ -178,7 +178,7 @@ Add to `~/.config/Claude/claude_desktop_config.json`:
 }
 ```
 
-Restart Claude Desktop. The server registers as 95 tools in Cowork mode.
+Restart Claude Desktop. The server registers as <!-- tool-count -->165<!-- /tool-count --> tools in Cowork mode.
 
 ### Cursor / VS Code
 

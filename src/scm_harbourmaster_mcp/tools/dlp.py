@@ -23,6 +23,11 @@ from mcp.server.fastmcp import FastMCP
 from ..utils.errors import handle_scm_exception
 from ..utils.logging import get_logger
 from ..utils.tool_decorator import scm_tool
+from ..utils.write_safety import (
+    audit_write,
+    normalize_ticket_ref,
+    ticket_ref_error,
+)
 
 logger = get_logger(__name__)
 
@@ -322,6 +327,7 @@ def register_dlp_tools(mcp: FastMCP, get_client: Any) -> None:
         target_folder: str,
         company_id: str = "",
         dry_run: bool = True,
+        ticket_ref: str = "",
     ) -> str:
         """Restore a DLP backup onto a target tenant/folder.
 
@@ -344,12 +350,21 @@ def register_dlp_tools(mcp: FastMCP, get_client: Any) -> None:
                            Auto-discovered if blank.
             dry_run:       If True (default), only report what would be created.
                            Set to False to apply changes.
+            ticket_ref:    Mandatory change-ticket reference (never sent to the API).
+
+        **Write safety (SSR pattern):** ``dry_run=True`` by default;
+        ``ticket_ref`` is mandatory.
 
         Returns:
             Markdown restore report listing created / skipped / failed objects.
 
         Ref: https://pan.dev/dlp/api/
         """
+        err = ticket_ref_error(ticket_ref)
+        if err:
+            return f"Error: {err}"
+        ticket_ref = normalize_ticket_ref(ticket_ref)
+
         try:
             raw = backup_json.strip()
             if not raw.startswith("{"):
@@ -402,6 +417,7 @@ def register_dlp_tools(mcp: FastMCP, get_client: Any) -> None:
             lines = [
                 f"# DLP Restore — DRY-RUN — Target: `{target_folder}` | Tenant `{tenant_id or 'default'}`\n",
                 "> ℹ️ **dry_run=True**: No changes applied. Set `dry_run=False` to execute.\n",
+                f"**Ticket ref:** {ticket_ref}\n",
                 f"**Objects that would be created ({len(created)}):**\n",
             ]
             for item in created:
@@ -409,6 +425,16 @@ def register_dlp_tools(mcp: FastMCP, get_client: Any) -> None:
             return "\n".join(lines)
 
         # Live restore
+        audit_write(
+            "dlp_restore",
+            ticket_ref,
+            tenant_id,
+            target_folder=target_folder,
+            data_objects=len(data_objects),
+            data_profiles=len(data_profiles),
+            enterprise_patterns=len(ent_patterns),
+            enterprise_profiles=len(ent_profiles),
+        )
         try:
             session = client.session
         except Exception as exc:

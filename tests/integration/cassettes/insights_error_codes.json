@@ -1,0 +1,55 @@
+{
+  "description": "Insights 400 error codes: DATA10003 means the resource path does not exist (removed or misspelled); DATA10005 means the resource exists but the body lacks required fields.",
+  "interactions": [
+    {
+      "name": "removed resource - DATA10003 whatever the body",
+      "request": {
+        "method": "POST",
+        "url": "https://api.sase.paloaltonetworks.com/insights/v3.0/resource/query/pa_bandwidth_consumption"
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "json": {
+          "header": {
+            "status": "error"
+          },
+          "errors": [
+            {
+              "code": "DATA10003",
+              "message": "Invalid Resource request",
+              "details": "Invalid resource 'pa_bandwidth_consumption.json'"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "live resource, incomplete body - DATA10005 for {} and a bare time window alike",
+      "request": {
+        "method": "POST",
+        "url": "https://api.sase.paloaltonetworks.com/insights/v3.0/resource/query/users/agent/user_list"
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "json": {
+          "header": {
+            "status": "error"
+          },
+          "errors": [
+            {
+              "code": "DATA10005",
+              "message": "Invalid Resource information name",
+              "details": "No value present"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

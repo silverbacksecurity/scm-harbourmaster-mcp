@@ -15,12 +15,18 @@ PSK handling: pre-shared keys in IKE gateways are ALWAYS replaced with
 
 Dependency push order
 ─────────────────────
-Tier 0  tags, services, EDLs, server profiles, crypto profiles, sec profiles
+Tier 0  tags, services, EDLs, server/crypto/sec profiles, GP & identity
 Tier 1  addresses, service groups, log-forwarding profiles, zone-protection
 Tier 2  address groups, app groups, HIP objects
 Tier 3  HIP profiles, security zones
 Rules   security (pre), security (post), NAT, decryption, app-override
 Deploy  IKE gateways, IPSec tunnels, remote networks, service connections
+
+GlobalProtect coverage: auth settings, tunnel profiles, agent profiles,
+forwarding profiles and the portal/gateway infrastructure settings all live
+in the fixed 'Mobile Users' folder; SAML/Radius/LDAP auth profiles clone into
+the customer folder.  Network infrastructure (crypto/QoS profiles, internal
+DNS servers, bandwidth allocations) clones into 'Remote Networks'.
 """
 
 from __future__ import annotations
@@ -85,6 +91,18 @@ _PUSH_ORDER: list[tuple[str, str, str]] = [
     ("file_blocking_profiles", "file_blocking_profile", "customer"),
     ("wildfire_profiles", "wildfire_antivirus_profile", "customer"),
     ("url_access_profiles", "url_access_profile", "customer"),
+    # GP & identity & network infrastructure — no inter-object dependencies,
+    # so they join Tier 0.  Folder-in-payload: these SDK create() models carry
+    # the folder as a regular field.
+    ("qos_profiles", "qos_profile", _FOLDER_REMOTE_NETWORKS),
+    ("internal_dns_servers", "internal_dns_server", _FOLDER_REMOTE_NETWORKS),
+    ("authentication_profiles", "authentication_profile", "customer"),
+    ("saml_server_profiles", "saml_server_profile", "customer"),
+    ("radius_server_profiles", "radius_server_profile", "customer"),
+    ("ldap_server_profiles", "ldap_server_profile", "customer"),
+    ("mobile_agent_auth_settings", "auth_setting", _FOLDER_MOBILE_USERS),
+    ("mobile_agent_agent_profiles", "agent_profile", _FOLDER_MOBILE_USERS),
+    ("forwarding_profiles", "forwarding_profile", _FOLDER_MOBILE_USERS),
     # ── Tier 1 ────────────────────────────────────────────────────────────
     ("addresses", "address", "customer"),
     ("service_groups", "service_group", "customer"),
@@ -114,6 +132,14 @@ _RULE_ORDER: list[tuple[str, str, dict[str, str]]] = [
 # Backups written before the extractor split NAT rules by rulebase put them all
 # under one flat key; replay those as pre-rules.
 _LEGACY_NAT_ORDER: tuple[str, str, dict[str, str]] = ("nat_rules", "nat_rule", {"position": "pre"})
+
+# GP resources whose create() takes the folder as a keyword argument, not a
+# payload field — the Mobile-Users API sends it as a query parameter and the
+# create models reject a folder key in the body (extra="forbid").
+_FOLDER_KWARG_ORDER: list[tuple[str, str, str]] = [
+    ("mobile_agent_tunnel_profiles", "tunnel_profile", _FOLDER_MOBILE_USERS),
+    ("mobile_agent_infrastructure", "infrastructure_settings", _FOLDER_MOBILE_USERS),
+]
 
 _DEPLOY_ORDER: list[tuple[str, str, str]] = [
     ("ike_gateways", "ike_gateway", _FOLDER_REMOTE_NETWORKS),
@@ -298,6 +324,7 @@ def _sanitise(
     anonymise_ips: bool,
     ip_map: dict[str, str],
     is_ike_gateway: bool = False,
+    set_folder: bool = True,
 ) -> tuple[dict[str, Any], str | None]:
     """
     Returns (sanitised_obj, psk_warning_or_None).
@@ -307,7 +334,12 @@ def _sanitise(
     # to go before the target folder is set.
     o.pop("snippet", None)
     o.pop("device", None)
-    o["folder"] = target_folder
+    # Resources whose folder travels as a create() kwarg (GP Mobile-Users API)
+    # must not carry a folder key in the payload at all.
+    if set_folder:
+        o["folder"] = target_folder
+    else:
+        o.pop("folder", None)
 
     psk_warning: str | None = None
     if is_ike_gateway:
@@ -356,7 +388,8 @@ def _push_one(
     name = payload.get("name", "<unknown>")
     create_kwargs = create_kwargs or {}
     if dry_run:
-        detail = f"would create in folder '{payload.get('folder', '')}'"
+        shown_folder = str(create_kwargs.get("folder") or payload.get("folder", ""))
+        detail = f"would create in folder '{shown_folder}'"
         if create_kwargs:
             detail += " (" + ", ".join(f"{k}={v}" for k, v in create_kwargs.items()) + ")"
         return PushResult(resource_type, name, "dry_run", detail)
@@ -379,9 +412,18 @@ def _push_one(
         if is_conflict and on_conflict == "overwrite":
             try:
                 resource = getattr(client, sdk_attr)
-                existing = resource.fetch(
-                    name=name, folder=payload.get("folder", ""), **create_kwargs
-                )
+                # Forward the create kwargs (e.g. rulebase=) but keep the
+                # folder single-sourced: it may ride in create_kwargs for
+                # folder-kwarg resources instead of the payload.
+                fetch_kwargs: dict[str, str] = {"name": name}
+                if "folder" in create_kwargs:
+                    fetch_kwargs["folder"] = str(create_kwargs["folder"])
+                else:
+                    fetch_kwargs["folder"] = payload.get("folder", "")
+                for k, v in create_kwargs.items():
+                    if k != "folder":
+                        fetch_kwargs[k] = str(v)
+                existing = resource.fetch(**fetch_kwargs)
                 payload_with_id = dict(payload)
                 if hasattr(existing, "id"):
                     payload_with_id["id"] = str(existing.id)
@@ -417,11 +459,17 @@ def clone_config(
     target_folder   : Destination SCM folder name.
     name_prefix     : Optional prefix applied to every object name.
     anonymise_ips   : Replace IPv4 literals with {{IP_N}} template vars.
-    include_deployment : Also clone IKE gateways, IPSec tunnels, RNs, SCs.
+    include_deployment : Also clone IKE gateways, IPSec tunnels, RNs, SCs,
+                         bandwidth allocations and QoS/DNS infrastructure.
     skip_rules      : Omit all policy rules.
     on_conflict     : 'skip' (default) or 'overwrite'.
     dry_run         : If True, no API writes are made (default: True).
     resource_filter : If set, only process resource types in this set.
+
+    GlobalProtect and identity coverage: auth settings, tunnel profiles,
+    agent profiles, forwarding profiles, portal/gateway infrastructure
+    settings (fixed 'Mobile Users' folder) and SAML/Radius/LDAP auth
+    profiles (customer folder) are cloned from the backup when present.
     """
     data = json.loads(Path(source_backup_file).read_text())
     resources: dict[str, list[dict[str, Any]]] = data.get("resources", {})
@@ -441,6 +489,7 @@ def clone_config(
         *,
         is_ike_gateway: bool = False,
         create_kwargs: dict[str, str] | None = None,
+        folder_kwarg: bool = False,
     ) -> None:
         if resource_filter and snap_key not in resource_filter:
             return
@@ -468,17 +517,25 @@ def clone_config(
                 anonymise_ips=anonymise_ips,
                 ip_map=ip_map,
                 is_ike_gateway=is_ike_gateway,
+                set_folder=not folder_kwarg,
             )
             if psk_w:
                 report.psk_warnings.append(psk_w)
+            kwargs = dict(create_kwargs or {})
+            if folder_kwarg:
+                kwargs["folder"] = folder
             result = _push_one(
-                client, sdk_attr, o, on_conflict, dry_run, snap_key, create_kwargs=create_kwargs
+                client, sdk_attr, o, on_conflict, dry_run, snap_key, create_kwargs=kwargs
             )
             report.results.append(result)
 
     # ── Standard objects in dependency order ─────────────────────────────
     for snap_key, sdk_attr, folder in _PUSH_ORDER:
         _process_batch(snap_key, sdk_attr, folder)
+
+    # ── GP resources whose folder is a create() kwarg ────────────────────
+    for snap_key, sdk_attr, folder in _FOLDER_KWARG_ORDER:
+        _process_batch(snap_key, sdk_attr, folder, folder_kwarg=True)
 
     # ── Policy rules ─────────────────────────────────────────────────────
     if not skip_rules:

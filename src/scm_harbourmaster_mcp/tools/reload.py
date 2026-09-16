@@ -27,6 +27,7 @@ from collections.abc import Callable
 from mcp.server.fastmcp import FastMCP
 
 from ..utils.logging import get_logger
+from ..utils.tool_annotations import annotations_for
 
 logger = get_logger(__name__)
 
@@ -140,9 +141,12 @@ def register_reload_tool(mcp: FastMCP, reregister: Callable[[], None] | None = N
         reregister: Optional callback that re-runs tool registration (e.g.
             ``lambda: register_all_tools(mcp, get_client, get_settings)``).
             Called after modules are reloaded so tool-body edits take effect.
+            The callback must carry the server's toolset filter and read-only
+            flag (``create_server`` passes a closure that does), otherwise a
+            reload would resurrect filtered-out tools.
     """
 
-    @mcp.tool()
+    @mcp.tool(annotations=annotations_for("scm_reload"))
     def scm_reload(modules: list[str] | None = None) -> str:
         """Hot-reload scm_harbourmaster_mcp source modules without restarting the MCP server.
 
@@ -222,7 +226,7 @@ def register_reload_tool(mcp: FastMCP, reregister: Callable[[], None] | None = N
 
         return "\n".join(lines)
 
-    @mcp.tool()
+    @mcp.tool(annotations=annotations_for("scm_restart"))
     def scm_restart(delay_seconds: int = 3) -> str:
         """Restart the MCP server process.
 

@@ -28,11 +28,11 @@ from ..audit.extractor import _bearer_session_for
 from ..utils.formatting import format_result as _fmt
 from ..utils.logging import get_logger
 from ..utils.tool_decorator import scm_tool
+from .insights import region_header
 
 logger = get_logger(__name__)
 
 _BASE = "https://api.sase.paloaltonetworks.com/mt/monitor/v1/agg"
-_REGION_MAP = {"eu": "europe", "uk": "uk", "us": "americas", "sg": "sg", "au": "au"}
 _CDL_REGIONS = ("de", "americas", "europe", "uk", "sg", "ca", "jp", "au", "in")
 
 
@@ -536,7 +536,7 @@ def register_mt_monitor_tools(mcp: FastMCP, get_client: Any) -> None:
                         (c for c in cfgs.values() if c.tenant_id == tenant_id), None
                     )
                     if tc is not None:
-                        mapped = _REGION_MAP.get(tc.insights_region, "europe")
+                        mapped = region_header(tc.insights_region or "") or "europe"
                 except Exception:
                     pass
                 sibling = {"europe": ["uk"], "uk": ["europe"]}.get(mapped, [])

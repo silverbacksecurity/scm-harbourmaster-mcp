@@ -1,0 +1,367 @@
+{
+  "description": "Compliance Frameworks for a tenant with no assessment results in any region: every region, and the header-less call, return HTTP 200 with data_available=false.",
+  "interactions": [
+    {
+      "name": "summaries (framework definitions are global - no region needed)",
+      "request": {
+        "method": "GET",
+        "url": "https://api.strata.paloaltonetworks.com/posture/compliance-frameworks/v1/summaries",
+        "headers": {
+          "X-PANW-Region": null
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "json": {
+          "data": [
+            {
+              "id": "PCF-00000000-0000-4000-8000-000000000301",
+              "category": "PCF",
+              "benchmark": true,
+              "revision_summary": [
+                {
+                  "name": "Example Framework",
+                  "state": "released",
+                  "overall_score": -1,
+                  "industry_score": -1
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "overall-compliance in americas - empty",
+      "request": {
+        "method": "GET",
+        "url": "https://api.strata.paloaltonetworks.com/posture/compliance-frameworks/v1/overall-compliance/PCF-00000000-0000-4000-8000-000000000301",
+        "headers": {
+          "X-PANW-Region": "americas"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "json": {
+          "category": "PCF",
+          "products": {
+            "all": {
+              "name": "all",
+              "data_available": false,
+              "compliance": {
+                "overall_score": -1,
+                "industry_score": -1
+              }
+            },
+            "ngfw": {
+              "name": "ngfw",
+              "data_available": false,
+              "compliance": {
+                "overall_score": -1,
+                "industry_score": -1
+              },
+              "categories": []
+            },
+            "sase": {
+              "name": "sase",
+              "data_available": false,
+              "compliance": {
+                "overall_score": -1,
+                "industry_score": -1
+              },
+              "categories": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "overall-compliance in europe - empty",
+      "request": {
+        "method": "GET",
+        "url": "https://api.strata.paloaltonetworks.com/posture/compliance-frameworks/v1/overall-compliance/PCF-00000000-0000-4000-8000-000000000301",
+        "headers": {
+          "X-PANW-Region": "europe"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "json": {
+          "category": "PCF",
+          "products": {
+            "all": {
+              "name": "all",
+              "data_available": false,
+              "compliance": {
+                "overall_score": -1,
+                "industry_score": -1
+              }
+            },
+            "ngfw": {
+              "name": "ngfw",
+              "data_available": false,
+              "compliance": {
+                "overall_score": -1,
+                "industry_score": -1
+              },
+              "categories": []
+            },
+            "sase": {
+              "name": "sase",
+              "data_available": false,
+              "compliance": {
+                "overall_score": -1,
+                "industry_score": -1
+              },
+              "categories": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "overall-compliance in uk - empty",
+      "request": {
+        "method": "GET",
+        "url": "https://api.strata.paloaltonetworks.com/posture/compliance-frameworks/v1/overall-compliance/PCF-00000000-0000-4000-8000-000000000301",
+        "headers": {
+          "X-PANW-Region": "uk"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "json": {
+          "category": "PCF",
+          "products": {
+            "all": {
+              "name": "all",
+              "data_available": false,
+              "compliance": {
+                "overall_score": -1,
+                "industry_score": -1
+              }
+            },
+            "ngfw": {
+              "name": "ngfw",
+              "data_available": false,
+              "compliance": {
+                "overall_score": -1,
+                "industry_score": -1
+              },
+              "categories": []
+            },
+            "sase": {
+              "name": "sase",
+              "data_available": false,
+              "compliance": {
+                "overall_score": -1,
+                "industry_score": -1
+              },
+              "categories": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "overall-compliance in au - empty",
+      "request": {
+        "method": "GET",
+        "url": "https://api.strata.paloaltonetworks.com/posture/compliance-frameworks/v1/overall-compliance/PCF-00000000-0000-4000-8000-000000000301",
+        "headers": {
+          "X-PANW-Region": "au"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "json": {
+          "category": "PCF",
+          "products": {
+            "all": {
+              "name": "all",
+              "data_available": false,
+              "compliance": {
+                "overall_score": -1,
+                "industry_score": -1
+              }
+            },
+            "ngfw": {
+              "name": "ngfw",
+              "data_available": false,
+              "compliance": {
+                "overall_score": -1,
+                "industry_score": -1
+              },
+              "categories": []
+            },
+            "sase": {
+              "name": "sase",
+              "data_available": false,
+              "compliance": {
+                "overall_score": -1,
+                "industry_score": -1
+              },
+              "categories": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "overall-compliance with NO region header - HTTP 200 but empty, not an error",
+      "request": {
+        "method": "GET",
+        "url": "https://api.strata.paloaltonetworks.com/posture/compliance-frameworks/v1/overall-compliance/PCF-00000000-0000-4000-8000-000000000301",
+        "headers": {
+          "X-PANW-Region": null
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "json": {
+          "category": "PCF",
+          "products": {
+            "all": {
+              "name": "all",
+              "data_available": false,
+              "compliance": {
+                "overall_score": -1,
+                "industry_score": -1
+              }
+            },
+            "ngfw": {
+              "name": "ngfw",
+              "data_available": false,
+              "compliance": {
+                "overall_score": -1,
+                "industry_score": -1
+              },
+              "categories": []
+            },
+            "sase": {
+              "name": "sase",
+              "data_available": false,
+              "compliance": {
+                "overall_score": -1,
+                "industry_score": -1
+              },
+              "categories": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "overall-compliance with invalid region 'UK' - also HTTP 200 and empty",
+      "request": {
+        "method": "GET",
+        "url": "https://api.strata.paloaltonetworks.com/posture/compliance-frameworks/v1/overall-compliance/PCF-00000000-0000-4000-8000-000000000301",
+        "headers": {
+          "X-PANW-Region": "UK"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "json": {
+          "category": "PCF",
+          "products": {
+            "all": {
+              "name": "all",
+              "data_available": false,
+              "compliance": {
+                "overall_score": -1,
+                "industry_score": -1
+              }
+            },
+            "ngfw": {
+              "name": "ngfw",
+              "data_available": false,
+              "compliance": {
+                "overall_score": -1,
+                "industry_score": -1
+              },
+              "categories": []
+            },
+            "sase": {
+              "name": "sase",
+              "data_available": false,
+              "compliance": {
+                "overall_score": -1,
+                "industry_score": -1
+              },
+              "categories": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "overall-compliance with invalid region 'eu' - also HTTP 200 and empty",
+      "request": {
+        "method": "GET",
+        "url": "https://api.strata.paloaltonetworks.com/posture/compliance-frameworks/v1/overall-compliance/PCF-00000000-0000-4000-8000-000000000301",
+        "headers": {
+          "X-PANW-Region": "eu"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "json": {
+          "category": "PCF",
+          "products": {
+            "all": {
+              "name": "all",
+              "data_available": false,
+              "compliance": {
+                "overall_score": -1,
+                "industry_score": -1
+              }
+            },
+            "ngfw": {
+              "name": "ngfw",
+              "data_available": false,
+              "compliance": {
+                "overall_score": -1,
+                "industry_score": -1
+              },
+              "categories": []
+            },
+            "sase": {
+              "name": "sase",
+              "data_available": false,
+              "compliance": {
+                "overall_score": -1,
+                "industry_score": -1
+              },
+              "categories": []
+            }
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,90 @@
+{
+  "description": "Cross-tenant and report tools where one service account lacks the RBAC role for an endpoint: that tenant answers 403 while the others answer normally.",
+  "interactions": [
+    {
+      "name": "incident search - permitted tenant",
+      "request": {
+        "method": "POST",
+        "url": "https://api.strata.paloaltonetworks.com/incidents/v1/search",
+        "headers": {
+          "Authorization": "Bearer token-permitted"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "json": {
+          "data": [
+            {
+              "incident_id": "inc-0001",
+              "severity": "Critical",
+              "status": "Raised",
+              "title": "Example critical incident"
+            },
+            {
+              "incident_id": "inc-0002",
+              "severity": "High",
+              "status": "Raised",
+              "title": "Example high incident"
+            },
+            {
+              "incident_id": "inc-0003",
+              "severity": "Low",
+              "status": "Cleared",
+              "title": "Example low incident"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "incident search - view-only role",
+      "request": {
+        "method": "POST",
+        "url": "https://api.strata.paloaltonetworks.com/incidents/v1/search",
+        "headers": {
+          "Authorization": "Bearer token-view-only"
+        }
+      },
+      "response": {
+        "status": 403,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "json": {
+          "_errors": [
+            {
+              "code": "E016",
+              "message": "Forbidden",
+              "details": {
+                "errorType": "Unauthorized"
+              }
+            }
+          ],
+          "_request_id": "00000000-0000-0000-0000-000000000000"
+        }
+      }
+    },
+    {
+      "name": "posture report - role lacks posture access",
+      "request": {
+        "method": "GET",
+        "url": "https://api.strata.paloaltonetworks.com/posture/v1/reports",
+        "headers": {
+          "Authorization": "Bearer token-view-only"
+        }
+      },
+      "response": {
+        "status": 403,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "json": {
+          "msg": "Access denied: insufficient role"
+        }
+      }
+    }
+  ]
+}

@@ -12,8 +12,10 @@ import json
 from typing import Any
 from unittest.mock import MagicMock
 
+import pytest
 from mcp.server.fastmcp import FastMCP
 
+from scm_harbourmaster_mcp.tools import insights as insights_mod
 from scm_harbourmaster_mcp.tools.insights import register_insights_tools
 
 
@@ -98,6 +100,16 @@ class TestHeaders:
         session = FakeSession(FakeResponse(payload={"data": []}))
         _invoke(session, resource="x", tenant_id="1", region="americas")
         assert session.calls[0]["headers"]["X-PANW-Region"] == "americas"
+
+    def test_settings_key_region_is_mapped_to_a_header_value(self) -> None:
+        """`eu` is a settings key; the header wants `europe`.
+
+        Sending the key verbatim is answered 200-with-nothing rather than
+        rejected, so this never surfaced as an error.
+        """
+        session = FakeSession(FakeResponse(payload={"data": []}))
+        _invoke(session, resource="x", tenant_id="1", region="eu")
+        assert session.calls[0]["headers"]["X-PANW-Region"] == "europe"
 
     def test_token_refresh_attempted_before_call(self) -> None:
         session = FakeSession(FakeResponse(payload={"data": []}))
@@ -251,3 +263,33 @@ class TestExportWorkflow:
         out = _invoke_export(session, resource="users/agent/user_list", tenant_id="123")
         data = json.loads(out)
         assert data["error"] == "HTTP 403"
+
+
+class TestRegionHeader:
+    """The two region vocabularies must not be confused for one another."""
+
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            ("eu", "europe"),  # settings key -> header value
+            ("us", "americas"),
+            ("uk", "uk"),  # legitimately both
+            ("sg", "sg"),
+            ("au", "au"),
+            ("europe", "europe"),  # already a header value
+            ("americas", "americas"),
+            ("", ""),
+        ],
+    )
+    def test_both_vocabularies_normalise(self, value: str, expected: str) -> None:
+        assert insights_mod.region_header(value) == expected
+
+    def test_unknown_region_returns_empty_so_callers_choose_a_fallback(self) -> None:
+        assert insights_mod.region_header("mars") == ""
+
+    def test_resolve_region_passes_an_unknown_value_through(self) -> None:
+        """A region added upstream should work before this map learns it."""
+        assert insights_mod.resolve_region("1", "mars") == "mars"
+
+    def test_resolve_region_defaults_to_europe_without_config(self) -> None:
+        assert insights_mod.resolve_region("no-such-tenant") == "europe"

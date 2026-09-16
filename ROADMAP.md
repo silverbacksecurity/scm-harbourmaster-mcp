@@ -324,6 +324,39 @@ Planner API-key smoke testing._
   office_location_tag`) unrelated to request params — a PAN-side issue, not
   ours. 23 tests.
 
+- **Panorama → SCM migration tool (`scm_panorama_migrate`)** — proposed
+  2026-09-16. Modelled on
+  [PaloAltoNetworks/panos-to-scm](https://github.com/PaloAltoNetworks/panos-to-scm),
+  which PAN archived on 2024-08-31 (it's read-only now, and the maintained
+  version is internal-only). Goal: an MSSP-safe, multi-tenant replacement
+  built on this server's existing pan-scm-sdk client cache and write-safety
+  pattern.
+  - **Input:** a Panorama device-group or local PAN-OS XML export (uploaded
+    file path). Parsing is offline, so it needs no Panorama API access.
+  - **Scope (parity with panos-to-scm):** tags, addresses/groups,
+    services/groups, application filters/groups, EDLs, HIP objects/profiles,
+    URL categories, security profiles + profile groups, and security, NAT,
+    app-override and decryption rules, with source rule order preserved.
+  - **Improvements over upstream:** `dry_run` by default with a mandatory
+    `ticket_ref` (upstream has no dry run); an up-front migration plan that
+    maps each item to its SCM folder/snippet and lists conflicts; dedupe
+    against objects already in the target folder, reusing
+    `scm_object_search`/config index; merge/replace/append/skip conflict
+    modes (as upstream); an automatic `scm_config_backup` before the push,
+    with `scm_config_rollback` as the undo; a post-migration `scm_config_diff`
+    plus `scm_bpa_assess`/`scm_rule_shadow_audit` on the result.
+  - **Known SCM API gaps to handle explicitly (from upstream):** SCM only
+    accepts profile *groups* for rules, so single profiles get wrapped in a
+    generated group. Antivirus/WildFire can't be created as one profile via
+    the API, so they're flagged for manual creation. Security-rule schedules
+    aren't supported by the API, so they're reported as dropped. Any
+    unmapped PAN-OS feature is listed in the plan, never dropped silently.
+  - **Out of scope for v1:** Cisco ASA/Firepower input (upstream WIP),
+    device/network/template-stack config, Panorama API live pull.
+  - **Open questions:** a single async job with `scm_job_status` progress
+    (likely, for large rulebases) vs a synchronous call; and whether this
+    joins the Planner epic as a multi-step plan.
+
 ### Blocked
 
 - **Branch NAT IP, PA side (IKE peer IP per circuit)** — blocked on a service

@@ -12,12 +12,12 @@ Usage:
 from __future__ import annotations
 
 import argparse
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING, Any
 
 from mcp.server.fastmcp import FastMCP
 
-from .auth.oauth import get_scm_client, list_loaded_tenants
+from .auth.oauth import get_scm_client, list_loaded_tenants, register_tenant_key
 from .config.settings import TenantConfig, get_settings
 from .dashboard import instrument_server, register_dashboard
 from .resources.tenant import register_tenant_resources
@@ -26,6 +26,7 @@ from .tools.adnsr import register_adnsr_tools
 from .tools.ai_advisor import register_ai_advisor_tools
 from .tools.aiops import register_aiops_tools
 from .tools.audit import register_audit_tools
+from .tools.capabilities import register_capability_tools
 from .tools.cdl_logforwarding import register_cdl_logforwarding_tools
 from .tools.compliance import register_compliance_tools
 from .tools.config_cleanup import register_config_cleanup_tools
@@ -57,7 +58,18 @@ from .tools.service_status import register_service_status_tools
 from .tools.setup import register_setup_tools
 from .tools.site_management import register_site_management_tools
 from .tools.ssr import register_ssr_tools
+from .toolsets import (
+    ALWAYS_ON_TOOLS,
+    PROFILES,
+    TOOLSETS,
+    UnknownToolsetError,
+    _is_write_tool,
+    registrars_for,
+    resolve_toolsets,
+)
 from .utils.logging import configure_logging, get_logger
+from .utils.tool_annotations import apply_tool_annotations
+from .utils.tool_decorator import install_tenant_resolution
 
 if TYPE_CHECKING:
     from scm.client import Scm
@@ -72,7 +84,9 @@ def _build_client_resolver(settings: object) -> Callable[..., Any]:
     Return a callable that resolves a TenantConfig → Scm client.
 
     In single-tenant mode the default credentials are always used.
-    In MSSP mode the tenant_id argument selects among pre-loaded tenants.
+    In MSSP mode the tenant_id argument selects among pre-loaded tenants; it
+    may be the TSG ID, the settings.toml section key or the tenant label
+    (resolved by ``get_client_for_tenant``).
     """
     from .config.settings import Settings  # avoid circular at module level
 
@@ -137,6 +151,8 @@ def _load_mssp_tenants_from_dynaconf(settings: object) -> None:
         for name, cfg in tenants_raw.items():
             try:
                 tc = TenantConfig(**cfg)
+                # Keep the section key so tools accept it as a tenant_id alias.
+                register_tenant_key(name, tc.tenant_id)
                 get_scm_client(tc)
                 logger.info("tenant_preloaded", tenant_label=name, tenant_id=tc.tenant_id)
             except Exception as exc:
@@ -147,60 +163,126 @@ def _load_mssp_tenants_from_dynaconf(settings: object) -> None:
         logger.warning("dynaconf_tenant_load_failed", error=str(exc))
 
 
+def _registrars(
+    get_client: Callable[..., Any],
+    get_settings: Callable[[], Any],
+) -> dict[str, Callable[[FastMCP], None]]:
+    """Map each register_* function name to a call, in tool listing order.
+
+    Built per call (not at import) so the lambdas resolve module globals at
+    registration time — hot reload patches those globals, and ``scm_reload``
+    must pick up the fresh registrars. Keys are what ``toolsets.TOOLSETS`` uses.
+    """
+    return {
+        "register_object_tools": lambda m: register_object_tools(m, get_client),
+        "register_security_tools": lambda m: register_security_tools(m, get_client),
+        "register_ssr_tools": lambda m: register_ssr_tools(m, get_client),
+        "register_network_tools": lambda m: register_network_tools(m, get_client),
+        "register_deployment_tools": lambda m: register_deployment_tools(m, get_client),
+        "register_setup_tools": lambda m: register_setup_tools(m, get_client),
+        "register_audit_tools": lambda m: register_audit_tools(m, get_client),
+        "register_cdl_logforwarding_tools": lambda m: register_cdl_logforwarding_tools(
+            m, get_client
+        ),
+        "register_compliance_tools": lambda m: register_compliance_tools(m, get_client),
+        "register_config_cleanup_tools": lambda m: register_config_cleanup_tools(m, get_client),
+        "register_config_index_tools": lambda m: register_config_index_tools(m, get_client),
+        "register_policy_optimizer_tools": lambda m: register_policy_optimizer_tools(m, get_client),
+        "register_config_orch_tools": lambda m: register_config_orch_tools(m, get_client),
+        "register_site_management_tools": lambda m: register_site_management_tools(m, get_client),
+        "register_mssp_tools": lambda m: register_mssp_tools(m, get_client, get_settings),
+        "register_capability_tools": lambda m: register_capability_tools(m, get_client),
+        "register_casb_dlp_tools": lambda m: register_casb_dlp_tools(m, get_client),
+        "register_ngfw_airs_tools": lambda m: register_ngfw_airs_tools(m, get_client),
+        "register_dlp_tools": lambda m: register_dlp_tools(m, get_client),
+        "register_dns_security_tools": lambda m: register_dns_security_tools(m, get_client),
+        "register_email_dlp_tools": lambda m: register_email_dlp_tools(m, get_client),
+        "register_sdwan_tools": lambda m: register_sdwan_tools(m, get_client),
+        "register_ncsc_tools": lambda m: register_ncsc_tools(m, get_client),
+        "register_ai_advisor_tools": lambda m: register_ai_advisor_tools(m, get_client),
+        "register_aiops_tools": lambda m: register_aiops_tools(m, get_client),
+        "register_posture_tools": lambda m: register_posture_tools(m, get_client),
+        "register_adnsr_tools": lambda m: register_adnsr_tools(m, get_client),
+        "register_ops_tools": lambda m: register_ops_tools(m, get_client),
+        "register_msr_tools": lambda m: register_msr_tools(m, get_client),
+        "register_spi_tools": lambda m: register_spi_tools(m, get_client),
+        "register_pab_msp_tools": lambda m: register_pab_msp_tools(m, get_client),
+        "register_pab_tools": lambda m: register_pab_tools(m, get_client),
+        "register_service_status_tools": lambda m: register_service_status_tools(m, get_client),
+        "register_planner_tools": lambda m: register_planner_tools(m, get_client),
+        "register_insights_tools": lambda m: register_insights_tools(m, get_client),
+        "register_mt_monitor_tools": lambda m: register_mt_monitor_tools(m, get_client),
+        "register_adem_tools": lambda m: register_adem_tools(m, get_client),
+        "register_csp_licensing_tools": lambda m: register_csp_licensing_tools(m),
+    }
+
+
+def remove_write_tools(mcp: FastMCP) -> list[str]:
+    """Drop every tool ``_is_write_tool`` flags (read-only mode); return removed names."""
+    tm = mcp._tool_manager
+    removed: list[str] = []
+    for tool in list(tm.list_tools()):
+        if tool.name in ALWAYS_ON_TOOLS:
+            continue
+        if _is_write_tool(tool.name):
+            tm.remove_tool(tool.name)
+            removed.append(tool.name)
+    return removed
+
+
 def register_all_tools(
     mcp: FastMCP,
     get_client: Callable[..., Any],
     get_settings: Callable[[], Any],
+    toolsets: Iterable[str] | None = None,
+    read_only: bool = False,
 ) -> None:
     """Register every MCP tool except the hot-reload tool itself.
 
     Kept separate from ``create_server`` so ``scm_reload`` can re-run it after a
     hot reload — re-decorating the tools replaces the closures FastMCP registered
     at startup, so edits to a tool's own body actually take effect.
+
+    Args:
+        toolsets: Toolset / profile names to register (see ``toolsets.py``).
+            ``None`` or empty registers everything; ``core`` is always included.
+            Unknown names raise ``UnknownToolsetError``.
+        read_only: When true, remove write-capable tools after registration.
     """
-    register_object_tools(mcp, get_client)
-    register_security_tools(mcp, get_client)
-    register_ssr_tools(mcp, get_client)
-    register_network_tools(mcp, get_client)
-    register_deployment_tools(mcp, get_client)
-    register_setup_tools(mcp, get_client)
-    register_audit_tools(mcp, get_client)
-    register_cdl_logforwarding_tools(mcp, get_client)
-    register_compliance_tools(mcp, get_client)
-    register_config_cleanup_tools(mcp, get_client)
-    register_config_index_tools(mcp, get_client)
-    register_policy_optimizer_tools(mcp, get_client)
-    register_config_orch_tools(mcp, get_client)
-    register_site_management_tools(mcp, get_client)
-    register_mssp_tools(mcp, get_client, get_settings)
-    register_casb_dlp_tools(mcp, get_client)
-    register_ngfw_airs_tools(mcp, get_client)
-    register_dlp_tools(mcp, get_client)
-    register_dns_security_tools(mcp, get_client)
-    register_email_dlp_tools(mcp, get_client)
-    register_sdwan_tools(mcp, get_client)
-    register_ncsc_tools(mcp, get_client)
-    register_ai_advisor_tools(mcp, get_client)
-    register_aiops_tools(mcp, get_client)
-    register_posture_tools(mcp, get_client)
-    register_adnsr_tools(mcp, get_client)
-    register_ops_tools(mcp, get_client)
-    register_msr_tools(mcp, get_client)
-    register_spi_tools(mcp, get_client)
-    register_pab_msp_tools(mcp, get_client)
-    register_pab_tools(mcp, get_client)
-    register_service_status_tools(mcp, get_client)
-    register_planner_tools(mcp, get_client)
-    register_insights_tools(mcp, get_client)
-    register_mt_monitor_tools(mcp, get_client)
-    register_adem_tools(mcp, get_client)
-    register_csp_licensing_tools(mcp)
+    wanted = registrars_for(resolve_toolsets(toolsets))
+    for name, register in _registrars(get_client, get_settings).items():
+        if name in wanted:
+            register(mcp)
+
+    if read_only:
+        remove_write_tools(mcp)
+
+    # Every tool taking tenant_id accepts TSG ID, settings key or label.
+    install_tenant_resolution(mcp)
+
+    # MCP ToolAnnotations (read-only / destructive / idempotent hints) are
+    # applied centrally here so hot reload re-applies them too.
+    apply_tool_annotations(mcp)
 
 
-def create_server() -> FastMCP:
-    """Initialise the MCP server with all tools and resources registered."""
+def create_server(
+    toolsets: Iterable[str] | str | None = None,
+    read_only: bool | None = None,
+) -> FastMCP:
+    """Initialise the MCP server with tools and resources registered.
+
+    Args:
+        toolsets: Toolset / profile names overriding ``settings.enabled_toolsets``
+            (e.g. from ``--toolsets``). ``None`` falls back to settings.
+        read_only: Overrides ``settings.read_only`` when not ``None``.
+    """
     settings = get_settings()
     configure_logging(level=settings.log_level, json_logs=settings.log_json)
+
+    # Resolve the filter up-front so a typo fails before any auth work.
+    requested = settings.enabled_toolsets if toolsets is None else toolsets
+    active_toolsets = resolve_toolsets(requested)
+    ro = settings.read_only if read_only is None else read_only
 
     logger.info(
         "server_starting",
@@ -223,12 +305,23 @@ def create_server() -> FastMCP:
         except Exception as exc:
             logger.warning("default_tenant_auth_skipped", reason=str(exc))
 
-    # Register tools (all except the reload tool itself)
-    register_all_tools(mcp, get_client, get_settings)
+    # Register tools (all except the reload tool itself), honouring the
+    # toolset filter and read-only mode.
+    def _register() -> None:
+        register_all_tools(mcp, get_client, get_settings, toolsets=active_toolsets, read_only=ro)
+
+    _register()
+    logger.info(
+        "toolsets_active",
+        toolsets=active_toolsets,
+        filtered=len(active_toolsets) < len(TOOLSETS),
+        read_only=ro,
+        tool_count=len(mcp._tool_manager.list_tools()),
+    )
 
     # The hot-reload tool can re-run register_all_tools so edits to a tool's own
-    # body go live without a full process restart.
-    register_reload_tool(mcp, reregister=lambda: register_all_tools(mcp, get_client, get_settings))
+    # body go live without a full process restart. The same filter is re-applied.
+    register_reload_tool(mcp, reregister=_register)
 
     # Register resources
     register_tenant_resources(mcp)
@@ -250,9 +343,27 @@ def main() -> None:
     )
     parser.add_argument("--host", default="127.0.0.1", help="SSE host (default: 127.0.0.1)")
     parser.add_argument("--port", type=int, default=8000, help="SSE port (default: 8000)")
+    parser.add_argument(
+        "--toolsets",
+        default=None,
+        help=(
+            "Comma-separated toolsets/profiles to load (overrides enabled_toolsets). "
+            f"Toolsets: {', '.join(sorted(TOOLSETS))}. Profiles: {', '.join(sorted(PROFILES))}. "
+            "Default: all."
+        ),
+    )
+    parser.add_argument(
+        "--read-only",
+        action="store_true",
+        default=None,
+        help="Hide write-capable tools (overrides read_only setting).",
+    )
     args = parser.parse_args()
 
-    server = create_server()
+    try:
+        server = create_server(toolsets=args.toolsets, read_only=args.read_only)
+    except UnknownToolsetError as exc:
+        parser.error(str(exc))
 
     if args.transport == "sse":
         logger.info("transport_sse", host=args.host, port=args.port)

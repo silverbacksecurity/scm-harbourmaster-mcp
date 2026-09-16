@@ -492,6 +492,8 @@ def test_create_framework(monkeypatch: Any) -> None:
     result = tool.fn(
         action="create",
         payload_json=json.dumps({"name": "My Framework", "category": "CCF"}),
+        dry_run=False,
+        ticket_ref="CHG-1001",
     )
 
     assert "Framework Created" in result
@@ -507,7 +509,7 @@ def test_create_missing_payload(monkeypatch: Any) -> None:
     mcp = FastMCP("test-create-empty")
     register_compliance_tools(mcp, get_client)
     tool = mcp._tool_manager.get_tool("scm_compliance_framework")
-    result = tool.fn(action="create")
+    result = tool.fn(action="create", dry_run=False, ticket_ref="CHG-1001")
 
     assert "Error" in result
     assert "payload_json" in result
@@ -521,7 +523,7 @@ def test_delete_framework(monkeypatch: Any) -> None:
     mcp = FastMCP("test-delete")
     register_compliance_tools(mcp, get_client)
     tool = mcp._tool_manager.get_tool("scm_compliance_framework")
-    result = tool.fn(action="delete", framework_id="PCF-fake")
+    result = tool.fn(action="delete", framework_id="PCF-fake", dry_run=False, ticket_ref="CHG-1001")
 
     assert "Framework Deleted" in result
     assert "PCF-fake" in result
@@ -536,10 +538,64 @@ def test_benchmark_framework(monkeypatch: Any) -> None:
     mcp = FastMCP("test-benchmark")
     register_compliance_tools(mcp, get_client)
     tool = mcp._tool_manager.get_tool("scm_compliance_framework")
-    result = tool.fn(action="benchmark", framework_id="PCF-fake")
+    result = tool.fn(
+        action="benchmark", framework_id="PCF-fake", dry_run=False, ticket_ref="CHG-1001"
+    )
 
     assert "Framework Benchmarked" in result
     assert "PCF-fake" in result
+
+
+def test_framework_write_defaults_to_dry_run(monkeypatch: Any) -> None:
+    current = {"id": "PCF-fake", "name": "Existing Framework"}
+    mock_client = _make_mock_client(monkeypatch, get_data=current)
+    get_client = _resolve_get_client(mock_client)
+    from mcp.server.fastmcp import FastMCP
+
+    mcp = FastMCP("test-dry-run")
+    register_compliance_tools(mcp, get_client)
+    tool = mcp._tool_manager.get_tool("scm_compliance_framework")
+    result = tool.fn(action="delete", framework_id="PCF-fake", ticket_ref="CHG-1001")
+
+    assert "DRY-RUN" in result
+    assert "CHG-1001" in result
+    assert "Existing Framework" in result  # current state fetched for the preview
+    mock_client.session.delete.assert_not_called()
+    mock_client.session.post.assert_not_called()
+
+
+def test_framework_write_requires_ticket_ref(monkeypatch: Any) -> None:
+    mock_client = _make_mock_client(monkeypatch)
+    get_client = _resolve_get_client(mock_client)
+    from mcp.server.fastmcp import FastMCP
+
+    mcp = FastMCP("test-no-ticket")
+    register_compliance_tools(mcp, get_client)
+    tool = mcp._tool_manager.get_tool("scm_compliance_framework")
+    result = tool.fn(action="delete", framework_id="PCF-fake", dry_run=False)
+
+    assert "ticket_ref is mandatory" in result
+    mock_client.session.delete.assert_not_called()
+
+
+def test_framework_create_never_sends_ticket_ref(monkeypatch: Any) -> None:
+    mock_client = _make_mock_client(monkeypatch, post_data={"id": "CCF-new"}, post_status=201)
+    get_client = _resolve_get_client(mock_client)
+    from mcp.server.fastmcp import FastMCP
+
+    mcp = FastMCP("test-no-ticket-in-body")
+    register_compliance_tools(mcp, get_client)
+    tool = mcp._tool_manager.get_tool("scm_compliance_framework")
+    tool.fn(
+        action="create",
+        payload_json=json.dumps({"name": "X"}),
+        dry_run=False,
+        ticket_ref="CHG-1001",
+    )
+
+    body = mock_client.session.post.call_args.kwargs["json"]
+    assert "ticket_ref" not in json.dumps(body)
+    assert "CHG-1001" not in json.dumps(body)
 
 
 def test_invalid_write_action(monkeypatch: Any) -> None:
@@ -554,3 +610,140 @@ def test_invalid_write_action(monkeypatch: Any) -> None:
 
     assert "Error" in result
     assert "unknown action" in result.lower()
+
+
+# ---------------------------------------------------------------------------
+# Tests — X-PANW-Region handling
+#
+# The Compliance API documents the header as required but does not enforce it:
+# a missing or wrong value returns HTTP 200 with an empty payload rather than
+# an error, so these tests pin the behaviour that keeps an empty region result
+# from being rendered as a genuine zero score.
+# ---------------------------------------------------------------------------
+
+_EMPTY_SCORES: dict[str, Any] = {
+    "category": "PCF",
+    "products": {
+        "all": {
+            "name": "all",
+            "data_available": False,
+            "compliance": {"overall_score": -1, "industry_score": -1},
+        }
+    },
+}
+
+_POPULATED_SCORES: dict[str, Any] = {
+    "category": "PCF",
+    "products": {
+        "all": {
+            "name": "all",
+            "data_available": True,
+            "compliance": {"overall_score": 89, "industry_score": 80},
+        }
+    },
+}
+
+
+def _clear_region_cache() -> None:
+    from scm_harbourmaster_mcp.tools.compliance import _reset_region_cache
+
+    _reset_region_cache()
+
+
+def test_configured_region_is_sent_as_header(monkeypatch: Any) -> None:
+    """A tenant's configured compliance_region reaches the wire."""
+    from scm_harbourmaster_mcp.tools import compliance as mod
+
+    _clear_region_cache()
+    monkeypatch.setattr(mod, "_configured_region", lambda _tid: "uk")
+
+    mock_client = _make_mock_client(monkeypatch, get_data=_POPULATED_SCORES)
+    mod._do_scores(mock_client, framework_id="PCF-1", tenant_id="123")
+
+    _, kwargs = mock_client.session.get.call_args
+    assert kwargs["headers"] == {"X-PANW-Region": "uk"}
+
+
+def test_region_is_discovered_when_unconfigured(monkeypatch: Any) -> None:
+    """With no configured region, the first region reporting data wins."""
+    from scm_harbourmaster_mcp.tools import compliance as mod
+
+    _clear_region_cache()
+    monkeypatch.setattr(mod, "_configured_region", lambda _tid: "")
+
+    mock_client = _make_mock_client(monkeypatch)
+
+    def fake_get(url: str, **kwargs: Any) -> Any:
+        if url.endswith("/summaries"):
+            return MockResponse({"data": [{"id": "PCF-1"}]}, 200)
+        region = (kwargs.get("headers") or {}).get("X-PANW-Region")
+        return MockResponse(_POPULATED_SCORES if region == "uk" else _EMPTY_SCORES, 200)
+
+    mock_client.session.get.side_effect = fake_get
+    region, source = mod._resolve_region(mock_client, "123")
+
+    assert region == "uk"
+    assert source == "auto-detected"
+
+
+def test_empty_region_result_is_not_rendered_as_a_score(monkeypatch: Any) -> None:
+    """data_available false must not surface as a real compliance figure."""
+    from scm_harbourmaster_mcp.tools import compliance as mod
+
+    _clear_region_cache()
+    monkeypatch.setattr(mod, "_configured_region", lambda _tid: "americas")
+
+    mock_client = _make_mock_client(monkeypatch, get_data=_EMPTY_SCORES)
+    result = mod._do_scores(mock_client, framework_id="PCF-1", tenant_id="123")
+
+    assert "No assessment results" in result
+    assert "not a compliance score of zero" in result
+    assert "Scoreboard" not in result
+
+
+def test_assessed_accepts_singular_exception_key(monkeypatch: Any) -> None:
+    """Upstream spells it total_exception when populated, total_exceptions when empty."""
+    from scm_harbourmaster_mcp.tools import compliance as mod
+
+    _clear_region_cache()
+    monkeypatch.setattr(mod, "_configured_region", lambda _tid: "uk")
+
+    payload = {
+        "configurations_assessed": {
+            "checks": 12,
+            "assessments": 92,
+            "total_exception": 4,
+            "expiring_exceptions": 1,
+        }
+    }
+    mock_client = _make_mock_client(monkeypatch, get_data=payload)
+    result = mod._do_assessed(mock_client, framework_id="PCF-1", tenant_id="123")
+
+    assert "| Total Exceptions | 4 |" in result
+    assert "Nothing assessed" not in result
+
+
+def test_zero_assessed_flags_the_region(monkeypatch: Any) -> None:
+    from scm_harbourmaster_mcp.tools import compliance as mod
+
+    _clear_region_cache()
+    monkeypatch.setattr(mod, "_configured_region", lambda _tid: "americas")
+
+    payload = {"configurations_assessed": {"checks": 0, "assessments": 0}}
+    mock_client = _make_mock_client(monkeypatch, get_data=payload)
+    result = mod._do_assessed(mock_client, framework_id="PCF-1", tenant_id="123")
+
+    assert "Nothing assessed in region `americas`" in result
+
+
+def test_invalid_compliance_region_is_rejected() -> None:
+    """'eu' is valid for Insights but silently returns nothing here — reject it."""
+    import pytest
+
+    from scm_harbourmaster_mcp.config.settings import TenantConfig
+
+    with pytest.raises(ValueError, match="must be one of"):
+        TenantConfig(tenant_id="123", client_id="c", client_secret="s", compliance_region="eu")
+
+    ok = TenantConfig(tenant_id="123", client_id="c", client_secret="s", compliance_region="UK")
+    assert ok.compliance_region == "uk"

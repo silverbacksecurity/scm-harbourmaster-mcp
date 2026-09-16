@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import threading
 from datetime import UTC, datetime
 from typing import Any
 
@@ -26,6 +27,12 @@ from mcp.server.fastmcp import FastMCP
 from ..utils.errors import handle_scm_exception
 from ..utils.logging import get_logger
 from ..utils.tool_decorator import scm_tool
+from ..utils.write_safety import (
+    DRY_RUN_HINT,
+    audit_write,
+    normalize_ticket_ref,
+    ticket_ref_error,
+)
 
 logger = get_logger(__name__)
 
@@ -41,6 +48,21 @@ _LICENSE_HINT = (
     "\n\nThis feature requires the **Compliance Center** add-on licence for your "
     "Strata Cloud Manager subscription. Contact your PAN account team or MSSP admin to enable."
 )
+
+# The Compliance API documents X-PANW-Region as required, but does not enforce
+# it: a missing, empty, misspelled or wrongly-cased value all return HTTP 200
+# with an *empty* payload (overall_score -1, data_available false, zero counts)
+# rather than an error. Sending the right value is therefore the difference
+# between real data and a report full of zeroes that looks legitimate.
+#
+# The vocabulary is case-sensitive and differs from Prisma Access Insights:
+# "uk" works, "UK"/"eu"/"us"/"gb" do not.
+_COMPLIANCE_REGIONS = ("americas", "europe", "uk", "au")
+
+# tenant_id -> (region, how_it_was_resolved). "" means "no region found";
+# cached either way so discovery runs at most once per tenant per process.
+_region_cache: dict[str, tuple[str, str]] = {}
+_region_lock = threading.Lock()
 
 _ACTIONS_HELP = """\
 Valid actions for scm_compliance_center (read-side):
@@ -103,11 +125,118 @@ def _bearer_session(client: Any) -> Any:
     return sess
 
 
-def _compliance_get(client: Any, path: str, params: dict[str, str] | None = None) -> Any:
+def _configured_region(tenant_id: str) -> str:
+    """The tenant's explicitly configured compliance_region, or ""."""
+    if not tenant_id:
+        return ""
+    try:
+        from ..auth.oauth import get_tenant_meta
+
+        meta = get_tenant_meta(tenant_id)
+    except Exception:
+        return ""
+    return (getattr(meta, "compliance_region", "") or "").strip().lower() if meta else ""
+
+
+def _discover_region(client: Any, tenant_id: str) -> str:
+    """Probe the documented regions and return the one holding this tenant's data.
+
+    Compliance *definitions* are global (the same predefined frameworks answer
+    in every region), so they cannot be used to identify the right one. The
+    per-tenant assessment results are regional, and ``data_available`` on
+    ``/overall-compliance`` is an explicit flag for exactly that — so pick a
+    framework from /summaries, then ask each region whether it holds results.
+
+    Costs at most four extra GETs, once per tenant per process. Returns "" if
+    no region has data, which is a legitimate state for an unassessed tenant.
+    """
+    session = _bearer_session(client)
+    try:
+        resp = session.get(f"{_COMPLIANCE_BASE}/summaries", timeout=_TIMEOUT)
+        if resp.status_code != 200:
+            return ""
+        rows = (resp.json() or {}).get("data") or []
+        framework_id = next((r.get("id") for r in rows if r.get("id")), None)
+        if not framework_id:
+            return ""
+
+        for region in _COMPLIANCE_REGIONS:
+            probe = session.get(
+                f"{_COMPLIANCE_BASE}/overall-compliance/{framework_id}",
+                headers={"X-PANW-Region": region},
+                timeout=_TIMEOUT,
+            )
+            if probe.status_code != 200:
+                continue
+            products = (probe.json() or {}).get("products") or {}
+            if any(p.get("data_available") for p in products.values() if isinstance(p, dict)):
+                logger.info("compliance_region_discovered", tenant_id=tenant_id, region=region)
+                return region
+    except Exception as exc:  # discovery is best-effort — never break the call
+        logger.warning("compliance_region_discovery_failed", tenant_id=tenant_id, error=str(exc))
+    return ""
+
+
+def _resolve_region(client: Any, tenant_id: str) -> tuple[str, str]:
+    """Return (region, source) for *tenant_id*, discovering it once if needed."""
+    key = tenant_id or "<default>"
+    with _region_lock:
+        cached = _region_cache.get(key)
+    if cached is not None:
+        return cached
+
+    configured = _configured_region(tenant_id)
+    result = (
+        (configured, "configured")
+        if configured
+        else (_discover_region(client, tenant_id), "auto-detected")
+    )
+    if not result[0]:
+        result = ("", "none")
+
+    with _region_lock:
+        _region_cache[key] = result
+    return result
+
+
+def _reset_region_cache() -> None:
+    """Drop every cached region. Used by tests and after a settings reload."""
+    with _region_lock:
+        _region_cache.clear()
+
+
+def _region_headers(client: Any, tenant_id: str) -> dict[str, str]:
+    """X-PANW-Region header for this tenant, or {} when no region is known."""
+    region, _ = _resolve_region(client, tenant_id)
+    return {"X-PANW-Region": region} if region else {}
+
+
+def _region_note(client: Any, tenant_id: str) -> str:
+    """One-line provenance footer so an empty report is never mistaken for a clean one."""
+    region, source = _resolve_region(client, tenant_id)
+    if region:
+        return f"*Data region: `{region}` ({source}).*"
+    return (
+        "> ⚠️ **No data region identified for this tenant.** The Compliance API returns "
+        "an empty result set (scores of `N/A`, zero counts) rather than an error when it "
+        "is queried without a matching region, so the figures below may be blank for that "
+        "reason rather than because the tenant is non-compliant. Set `compliance_region` "
+        f"for this tenant in settings.toml — one of: {', '.join(_COMPLIANCE_REGIONS)}."
+    )
+
+
+def _compliance_get(
+    client: Any, path: str, params: dict[str, str] | None = None, tenant_id: str = ""
+) -> Any:
     """GET *path* under the Compliance Center base, returning parsed JSON."""
     session = _bearer_session(client)
     url = f"{_COMPLIANCE_BASE}{path}"
-    resp = session.get(url, params=params or {}, timeout=_TIMEOUT)
+    resp = session.get(
+        url,
+        params=params or {},
+        headers=_region_headers(client, tenant_id),
+        timeout=_TIMEOUT,
+    )
 
     if resp.status_code == 403:
         _raise_403(resp)
@@ -119,12 +248,16 @@ def _compliance_get(client: Any, path: str, params: dict[str, str] | None = None
 
 
 def _compliance_post(
-    client: Any, path: str, body: Any = None, timeout: tuple[int, int] = _TIMEOUT
+    client: Any,
+    path: str,
+    body: Any = None,
+    timeout: tuple[int, int] = _TIMEOUT,
+    tenant_id: str = "",
 ) -> Any:
     """POST *path* with JSON *body*, returning parsed JSON or text."""
     session = _bearer_session(client)
     url = f"{_COMPLIANCE_BASE}{path}"
-    resp = session.post(url, json=body, timeout=timeout)
+    resp = session.post(url, json=body, headers=_region_headers(client, tenant_id), timeout=timeout)
 
     if resp.status_code == 403:
         _raise_403(resp)
@@ -136,12 +269,22 @@ def _compliance_post(
 
 
 def _compliance_put(
-    client: Any, path: str, body: Any = None, params: dict[str, str] | None = None
+    client: Any,
+    path: str,
+    body: Any = None,
+    params: dict[str, str] | None = None,
+    tenant_id: str = "",
 ) -> Any:
     """PUT *path* with JSON *body* and optional query *params*."""
     session = _bearer_session(client)
     url = f"{_COMPLIANCE_BASE}{path}"
-    resp = session.put(url, json=body, params=params or {}, timeout=_TIMEOUT)
+    resp = session.put(
+        url,
+        json=body,
+        params=params or {},
+        headers=_region_headers(client, tenant_id),
+        timeout=_TIMEOUT,
+    )
 
     if resp.status_code == 403:
         _raise_403(resp)
@@ -152,11 +295,11 @@ def _compliance_put(
     return resp.text
 
 
-def _compliance_delete(client: Any, path: str) -> str:
+def _compliance_delete(client: Any, path: str, tenant_id: str = "") -> str:
     """DELETE *path*. Returns a success or error string."""
     session = _bearer_session(client)
     url = f"{_COMPLIANCE_BASE}{path}"
-    resp = session.delete(url, timeout=_TIMEOUT)
+    resp = session.delete(url, headers=_region_headers(client, tenant_id), timeout=_TIMEOUT)
 
     if resp.status_code == 403:
         _raise_403(resp)
@@ -240,7 +383,9 @@ def _score_bar(score: float | int | None) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _do_list_frameworks(client: Any, category: str = "", status_filter: str = "", **__: Any) -> str:
+def _do_list_frameworks(
+    client: Any, category: str = "", status_filter: str = "", tenant_id: str = "", **__: Any
+) -> str:
     """GET /definitions — list compliance frameworks."""
     params: dict[str, str] = {}
     if category:
@@ -248,7 +393,7 @@ def _do_list_frameworks(client: Any, category: str = "", status_filter: str = ""
     if status_filter:
         params["status"] = status_filter
 
-    data = _compliance_get(client, "/definitions", params)
+    data = _compliance_get(client, "/definitions", params, tenant_id=tenant_id)
     frameworks = data if isinstance(data, list) else (data or {}).get("data") or []
 
     ts = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
@@ -278,13 +423,13 @@ def _do_list_frameworks(client: Any, category: str = "", status_filter: str = ""
     return "\n".join(lines)
 
 
-def _do_summaries(client: Any, product: str = "all", **__: Any) -> str:
+def _do_summaries(client: Any, product: str = "all", tenant_id: str = "", **__: Any) -> str:
     """GET /summaries — framework summaries with scores."""
     params: dict[str, str] = {}
     if product:
         params["product"] = product
 
-    data = _compliance_get(client, "/summaries", params)
+    data = _compliance_get(client, "/summaries", params, tenant_id=tenant_id)
     items = data if isinstance(data, list) else (data or {}).get("data") or []
 
     ts = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
@@ -292,6 +437,7 @@ def _do_summaries(client: Any, product: str = "all", **__: Any) -> str:
         "## Framework Summaries",
         "",
         f"*Retrieved: {ts}  |  Product: {product}  |  Count: {len(items)}*",
+        _region_note(client, tenant_id),
         "",
     ]
 
@@ -306,7 +452,11 @@ def _do_summaries(client: Any, product: str = "all", **__: Any) -> str:
     for item in items:
         fw_id = str(item.get("id") or "—")[:36]
         cat = str(item.get("category") or "—")
+        # "benchmark_by " carries a trailing space in the upstream payload.
+        benchmark_by = item.get("benchmark_by") or item.get("benchmark_by ") or ""
         benchmark = "✓" if item.get("benchmark") else "—"
+        if benchmark_by:
+            benchmark = f"✓ {str(benchmark_by).split('@')[0]}"
 
         revisions = item.get("revision_summary") or []
         latest = revisions[0] if revisions else {}
@@ -321,7 +471,9 @@ def _do_summaries(client: Any, product: str = "all", **__: Any) -> str:
     return "\n".join(lines)
 
 
-def _do_scores(client: Any, framework_id: str = "", product: str = "all", **__: Any) -> str:
+def _do_scores(
+    client: Any, framework_id: str = "", product: str = "all", tenant_id: str = "", **__: Any
+) -> str:
     """GET /overall-compliance/{id} — compliance scores."""
     if not framework_id:
         return "Error: `framework_id` is required for the `scores` action."
@@ -330,7 +482,9 @@ def _do_scores(client: Any, framework_id: str = "", product: str = "all", **__: 
     if product:
         params["product"] = product
 
-    data = _compliance_get(client, f"/overall-compliance/{framework_id}", params)
+    data = _compliance_get(
+        client, f"/overall-compliance/{framework_id}", params, tenant_id=tenant_id
+    )
 
     products = data.get("products") or {}
     category = data.get("category", "—")
@@ -339,7 +493,26 @@ def _do_scores(client: Any, framework_id: str = "", product: str = "all", **__: 
         f"## Compliance Scores — {framework_id}",
         "",
         f"*Category: {category}  |  Product filter: {product}*",
+        _region_note(client, tenant_id),
         "",
+    ]
+
+    # An all-empty scoreboard means "no results in the region we asked", which
+    # is not the same as "nothing to report" — say so rather than printing a
+    # column of N/A that reads like a genuine zero score.
+    if not any(pd.get("data_available") for pd in products.values() if isinstance(pd, dict)):
+        region, _src = _resolve_region(client, tenant_id)
+        where = f"region `{region}`" if region else "the default region"
+        lines += [
+            f"> **No assessment results in {where}.** The API returned "
+            "`data_available: false` for every product, so there are no scores to show. "
+            "This means the framework has not been assessed in that region — it is not "
+            "a compliance score of zero.",
+            "",
+        ]
+        return "\n".join(lines)
+
+    lines += [
         "### Scoreboard",
         "",
         "| Product | Data Available | Overall Score | Industry Score |",
@@ -371,7 +544,9 @@ def _do_scores(client: Any, framework_id: str = "", product: str = "all", **__: 
     return "\n".join(lines)
 
 
-def _do_timeline(client: Any, framework_id: str = "", product: str = "all", **__: Any) -> str:
+def _do_timeline(
+    client: Any, framework_id: str = "", product: str = "all", tenant_id: str = "", **__: Any
+) -> str:
     """GET /overall-compliance-timeline/{id} — compliance score timeline."""
     if not framework_id:
         return "Error: `framework_id` is required for the `timeline` action."
@@ -380,7 +555,9 @@ def _do_timeline(client: Any, framework_id: str = "", product: str = "all", **__
     if product:
         params["product"] = product
 
-    data = _compliance_get(client, f"/overall-compliance-timeline/{framework_id}", params)
+    data = _compliance_get(
+        client, f"/overall-compliance-timeline/{framework_id}", params, tenant_id=tenant_id
+    )
 
     timeline_30d = data.get("timeline_30_days") or []
     timeline_1y = data.get("timeline_1_year") or []
@@ -434,7 +611,9 @@ def _do_timeline(client: Any, framework_id: str = "", product: str = "all", **__
     return "\n".join(lines)
 
 
-def _do_controls(client: Any, framework_id: str = "", product: str = "all", **__: Any) -> str:
+def _do_controls(
+    client: Any, framework_id: str = "", product: str = "all", tenant_id: str = "", **__: Any
+) -> str:
     """GET /compliance-controls/{id} — per-control detail."""
     if not framework_id:
         return "Error: `framework_id` is required for the `controls` action."
@@ -443,7 +622,9 @@ def _do_controls(client: Any, framework_id: str = "", product: str = "all", **__
     if product:
         params["product"] = product
 
-    data = _compliance_get(client, f"/compliance-controls/{framework_id}", params)
+    data = _compliance_get(
+        client, f"/compliance-controls/{framework_id}", params, tenant_id=tenant_id
+    )
 
     meta = data.get("compliance_framework_metadata") or {}
     fw_name = meta.get("name", framework_id)
@@ -485,7 +666,9 @@ def _do_controls(client: Any, framework_id: str = "", product: str = "all", **__
     return "\n".join(lines)
 
 
-def _do_assessed(client: Any, framework_id: str = "", product: str = "all", **__: Any) -> str:
+def _do_assessed(
+    client: Any, framework_id: str = "", product: str = "all", tenant_id: str = "", **__: Any
+) -> str:
     """GET /configurations-assessed/{id} — check/assessment counts."""
     if not framework_id:
         return "Error: `framework_id` is required for the `assessed` action."
@@ -494,32 +677,53 @@ def _do_assessed(client: Any, framework_id: str = "", product: str = "all", **__
     if product:
         params["product"] = product
 
-    data = _compliance_get(client, f"/configurations-assessed/{framework_id}", params)
+    data = _compliance_get(
+        client, f"/configurations-assessed/{framework_id}", params, tenant_id=tenant_id
+    )
 
     ca = data.get("configurations_assessed") or {}
+
+    # Upstream spells this key both ways: "total_exceptions" in the empty
+    # response, "total_exception" in the populated one. Accept either.
+    total_exceptions = ca.get("total_exceptions", ca.get("total_exception", "—"))
 
     lines = [
         f"## Configurations Assessed — {framework_id}",
         "",
         f"*Product filter: {product}*",
+        _region_note(client, tenant_id),
         "",
         "| Metric | Count |",
         "|---|---|",
         f"| Checks | {ca.get('checks', '—')} |",
         f"| Assessments | {ca.get('assessments', '—')} |",
-        f"| Total Exceptions | {ca.get('total_exceptions', '—')} |",
+        f"| Total Exceptions | {total_exceptions} |",
         f"| Expiring Exceptions | {ca.get('expiring_exceptions', '—')} |",
     ]
+
+    if not ca.get("checks") and not ca.get("assessments"):
+        region, _src = _resolve_region(client, tenant_id)
+        where = f"region `{region}`" if region else "the default region"
+        lines += [
+            "",
+            f"> **Nothing assessed in {where}.** Zero checks and zero assessments "
+            "usually means the results live in a different region, not that the "
+            "tenant has no configuration to assess.",
+        ]
 
     return "\n".join(lines)
 
 
-def _do_framework_detail(client: Any, framework_id: str = "", **__: Any) -> str:
+def _do_framework_detail(
+    client: Any, framework_id: str = "", tenant_id: str = "", **__: Any
+) -> str:
     """GET /definitions/{id}?op=view_aggregated — full framework JSON."""
     if not framework_id:
         return "Error: `framework_id` is required for the `framework-detail` action."
 
-    data = _compliance_get(client, f"/definitions/{framework_id}", {"op": "view_aggregated"})
+    data = _compliance_get(
+        client, f"/definitions/{framework_id}", {"op": "view_aggregated"}, tenant_id=tenant_id
+    )
 
     lines = [
         f"## Framework Detail — {framework_id}",
@@ -531,7 +735,9 @@ def _do_framework_detail(client: Any, framework_id: str = "", **__: Any) -> str:
     return "\n".join(lines)
 
 
-def _do_monitor_benchmarks(client: Any, request_body: str = "", **__: Any) -> str:
+def _do_monitor_benchmarks(
+    client: Any, request_body: str = "", tenant_id: str = "", **__: Any
+) -> str:
     """POST /benchmark-monitoring — benchmark monitoring data."""
     body: dict[str, Any] = {}
     if request_body:
@@ -540,7 +746,9 @@ def _do_monitor_benchmarks(client: Any, request_body: str = "", **__: Any) -> st
         except json.JSONDecodeError:
             return "Error: `request_body` must be valid JSON (or empty for default filters)."
 
-    data = _compliance_post(client, "/benchmark-monitoring", body, timeout=_LONG_TIMEOUT)
+    data = _compliance_post(
+        client, "/benchmark-monitoring", body, timeout=_LONG_TIMEOUT, tenant_id=tenant_id
+    )
 
     devices = data.get("device_serial") or []
     bpcs = data.get("bpc_id") or []
@@ -604,7 +812,7 @@ def _do_monitor_benchmarks(client: Any, request_body: str = "", **__: Any) -> st
 # ---------------------------------------------------------------------------
 
 
-def _do_create(client: Any, payload_json: str = "", **__: Any) -> str:
+def _do_create(client: Any, payload_json: str = "", tenant_id: str = "", **__: Any) -> str:
     """POST /definitions — create a new framework."""
     if not payload_json:
         return "Error: `payload_json` is required for the `create` action."
@@ -613,7 +821,7 @@ def _do_create(client: Any, payload_json: str = "", **__: Any) -> str:
     except json.JSONDecodeError as exc:
         return f"Error: invalid JSON in `payload_json`: {exc}"
 
-    data = _compliance_post(client, "/definitions", body)
+    data = _compliance_post(client, "/definitions", body, tenant_id=tenant_id)
     fw_id = data.get("id", "?")
     return (
         f"## Framework Created\n\n"
@@ -623,7 +831,12 @@ def _do_create(client: Any, payload_json: str = "", **__: Any) -> str:
 
 
 def _do_update(
-    client: Any, framework_id: str = "", payload_json: str = "", release: bool = False, **__: Any
+    client: Any,
+    framework_id: str = "",
+    payload_json: str = "",
+    release: bool = False,
+    tenant_id: str = "",
+    **__: Any,
 ) -> str:
     """PUT /definitions/{id} — update a framework."""
     if not framework_id:
@@ -636,22 +849,26 @@ def _do_update(
         return f"Error: invalid JSON in `payload_json`: {exc}"
 
     params = {"release": "true"} if release else {}
-    data = _compliance_put(client, f"/definitions/{framework_id}", body, params)
+    data = _compliance_put(
+        client, f"/definitions/{framework_id}", body, params, tenant_id=tenant_id
+    )
     return (
         f"## Framework Updated — `{framework_id}`\n\n"
         f"```json\n{json.dumps(data, indent=2, default=str)}\n```"
     )
 
 
-def _do_delete(client: Any, framework_id: str = "", **__: Any) -> str:
+def _do_delete(client: Any, framework_id: str = "", tenant_id: str = "", **__: Any) -> str:
     """DELETE /definitions/{id} — delete a framework."""
     if not framework_id:
         return "Error: `framework_id` is required for the `delete` action."
-    result = _compliance_delete(client, f"/definitions/{framework_id}")
+    result = _compliance_delete(client, f"/definitions/{framework_id}", tenant_id=tenant_id)
     return f"## Framework Deleted — `{framework_id}`\n\n{result}"
 
 
-def _do_clone(client: Any, framework_id: str = "", payload_json: str = "", **__: Any) -> str:
+def _do_clone(
+    client: Any, framework_id: str = "", payload_json: str = "", tenant_id: str = "", **__: Any
+) -> str:
     """POST /definitions/{id}:clone — clone a framework."""
     if not framework_id:
         return "Error: `framework_id` is required for the `clone` action."
@@ -662,7 +879,9 @@ def _do_clone(client: Any, framework_id: str = "", payload_json: str = "", **__:
         except json.JSONDecodeError as exc:
             return f"Error: invalid JSON in `payload_json`: {exc}"
 
-    data = _compliance_post(client, f"/definitions/{framework_id}:clone", body or None)
+    data = _compliance_post(
+        client, f"/definitions/{framework_id}:clone", body or None, tenant_id=tenant_id
+    )
     fw_id = data.get("id", "?")
     return (
         f"## Framework Cloned — `{framework_id}` → `{fw_id}`\n\n"
@@ -670,26 +889,92 @@ def _do_clone(client: Any, framework_id: str = "", payload_json: str = "", **__:
     )
 
 
-def _do_benchmark(client: Any, framework_id: str = "", **__: Any) -> str:
+def _do_benchmark(client: Any, framework_id: str = "", tenant_id: str = "", **__: Any) -> str:
     """POST /definitions/{id}:benchmark — mark as benchmark."""
     if not framework_id:
         return "Error: `framework_id` is required for the `benchmark` action."
-    data = _compliance_post(client, f"/definitions/{framework_id}:benchmark")
+    data = _compliance_post(client, f"/definitions/{framework_id}:benchmark", tenant_id=tenant_id)
     return (
         f"## Framework Benchmarked — `{framework_id}`\n\n"
         f"```json\n{json.dumps(data, indent=2, default=str)}\n```"
     )
 
 
-def _do_un_benchmark(client: Any, framework_id: str = "", **__: Any) -> str:
+def _do_un_benchmark(client: Any, framework_id: str = "", tenant_id: str = "", **__: Any) -> str:
     """POST /definitions/{id}:un-benchmark — remove benchmark."""
     if not framework_id:
         return "Error: `framework_id` is required for the `un-benchmark` action."
-    data = _compliance_post(client, f"/definitions/{framework_id}:un-benchmark")
+    data = _compliance_post(
+        client, f"/definitions/{framework_id}:un-benchmark", tenant_id=tenant_id
+    )
     return (
         f"## Benchmark Removed — `{framework_id}`\n\n"
         f"```json\n{json.dumps(data, indent=2, default=str)}\n```"
     )
+
+
+_WRITE_METHODS: dict[str, str] = {
+    "create": "POST /definitions",
+    "update": "PUT /definitions/{id}",
+    "delete": "DELETE /definitions/{id}",
+    "clone": "POST /definitions/{id}:clone",
+    "benchmark": "POST /definitions/{id}:benchmark",
+    "un-benchmark": "POST /definitions/{id}:un-benchmark",
+}
+
+
+def _preview_write(
+    client: Any,
+    action: str,
+    ticket_ref: str,
+    framework_id: str = "",
+    payload_json: str = "",
+    release: bool = False,
+    tenant_id: str = "",
+) -> str:
+    """Dry run for scm_compliance_framework — validate inputs and show the target."""
+    if action != "create" and not framework_id:
+        return f"Error: `framework_id` is required for the `{action}` action."
+    if action in ("create", "update") and not payload_json:
+        return f"Error: `payload_json` is required for the `{action}` action."
+    body: Any = None
+    if payload_json:
+        try:
+            body = json.loads(payload_json)
+        except json.JSONDecodeError as exc:
+            return f"Error: invalid JSON in `payload_json`: {exc}"
+
+    method = _WRITE_METHODS[action].replace("{id}", framework_id)
+    lines = [
+        f"## Compliance Framework `{action}` — DRY-RUN",
+        "",
+        f"**Ticket ref:** {ticket_ref}",
+        f"**Would call:** `{method}`" + (" with `release=true`" if release else ""),
+    ]
+    if action == "delete":
+        lines.append("")
+        lines.append("> ⚠️ Delete removes the framework and all its revisions — cannot be undone.")
+    if body is not None:
+        lines += ["", "**Request body:**", "```json", json.dumps(body, indent=2), "```"]
+    if framework_id:
+        try:
+            current = _compliance_get(
+                client,
+                f"/definitions/{framework_id}",
+                {"op": "view_aggregated"},
+                tenant_id=tenant_id,
+            )
+            lines += [
+                "",
+                "**Current framework:**",
+                "```json",
+                json.dumps(current, indent=2, default=str),
+                "```",
+            ]
+        except Exception as exc:
+            lines += ["", f"**Current framework:** could not be read ({exc})"]
+    lines += ["", DRY_RUN_HINT]
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -795,6 +1080,7 @@ def register_compliance_tools(mcp: FastMCP, get_client: Any) -> None:
         try:
             return handler(
                 client,
+                tenant_id=tenant_id,
                 framework_id=framework_id,
                 product=product,
                 category=category,
@@ -815,6 +1101,8 @@ def register_compliance_tools(mcp: FastMCP, get_client: Any) -> None:
         framework_id: str = "",
         payload_json: str = "",
         release: bool = False,
+        dry_run: bool = True,
+        ticket_ref: str = "",
     ) -> str:
         """PAN Compliance Center — write-side framework CRUD.
 
@@ -847,6 +1135,12 @@ def register_compliance_tools(mcp: FastMCP, get_client: Any) -> None:
                           except `create`).
             payload_json: JSON string of the framework body for create/update.
             release: Set to True to release the framework after update.
+            dry_run: If True (default), validate inputs and show the target
+                framework without changing anything.
+            ticket_ref: Mandatory change-ticket reference (never sent to the API).
+
+        **Write safety (SSR pattern):** every action here is a write —
+        ``dry_run=True`` by default and ``ticket_ref`` is mandatory.
         """
         handler = _WRITE_ACTIONS.get(action)
         if handler is None:
@@ -857,9 +1151,32 @@ def register_compliance_tools(mcp: FastMCP, get_client: Any) -> None:
                 f"use `scm_compliance_center`."
             )
 
+        err = ticket_ref_error(ticket_ref)
+        if err:
+            return f"Error: {err}"
+        ticket_ref = normalize_ticket_ref(ticket_ref)
+
         try:
+            if dry_run:
+                return _preview_write(
+                    client,
+                    action,
+                    ticket_ref,
+                    framework_id=framework_id,
+                    payload_json=payload_json,
+                    release=release,
+                    tenant_id=tenant_id,
+                )
+            audit_write(
+                "scm_compliance_framework",
+                ticket_ref,
+                tenant_id,
+                action=action,
+                framework_id=framework_id,
+            )
             return handler(
                 client,
+                tenant_id=tenant_id,
                 framework_id=framework_id,
                 payload_json=payload_json,
                 release=release,

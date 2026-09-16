@@ -778,6 +778,85 @@ def _extract_snapshot_uncached(client: Any, folder: str, tenant_id: str) -> Audi
     return snap
 
 
+def backup_resource_payload(snap: AuditSnapshot) -> dict[str, Any]:
+    """Build the ``resources`` section of a config backup JSON from *snap*.
+
+    Shared by the MCP backup tool and the CLI backup so the two writers can
+    never drift apart.  Covers the full policy layer plus network
+    infrastructure (crypto/QoS/DNS/BGP, GP IP pools) and the GlobalProtect
+    mobile-agent stack; the cloner restores the subset it understands and
+    ignores the rest.
+    """
+    return {
+        # Objects
+        "addresses": snap.addresses,
+        "address_groups": snap.address_groups,
+        "services": snap.services,
+        "service_groups": snap.service_groups,
+        "tags": snap.tags,
+        "edls": snap.edls,
+        "applications": snap.applications,
+        "application_groups": snap.application_groups,
+        "hip_objects": snap.hip_objects,
+        "hip_profiles": snap.hip_profiles,
+        # Security profiles
+        "anti_spyware_profiles": snap.anti_spyware_profiles,
+        "vulnerability_profiles": snap.vulnerability_profiles,
+        "url_categories": snap.url_categories,
+        "wildfire_profiles": snap.wildfire_profiles,
+        "dns_security_profiles": snap.dns_security_profiles,
+        "decryption_profiles": snap.decryption_profiles,
+        "file_blocking_profiles": snap.file_blocking_profiles,
+        # Logging
+        "log_forwarding_profiles": snap.log_forwarding_profiles,
+        "syslog_profiles": snap.syslog_profiles,
+        "http_server_profiles": snap.http_server_profiles,
+        # Policy rules
+        "security_rules_pre": snap.security_rules_pre,
+        "security_rules_post": snap.security_rules_post,
+        # Pre/post are the live keys; the flat "nat_rules" field is the
+        # legacy shape, kept for readers that predate the split.
+        "nat_rules_pre": snap.nat_rules_pre,
+        "nat_rules_post": snap.nat_rules_post,
+        "nat_rules": snap.nat_rules,
+        "decryption_rules": snap.decryption_rules,
+        "app_override_rules": snap.app_override_rules,
+        # Network
+        "zones": snap.zones,
+        "ike_gateways": snap.ike_gateways,
+        "ipsec_tunnels": snap.ipsec_tunnels,
+        "zone_protection_profiles": snap.zone_protection_profiles,
+        # Deployment
+        "remote_networks": snap.remote_networks,
+        "service_connections": snap.service_connections,
+        "bandwidth_allocations": snap.bandwidth_allocations,
+        # Network infrastructure — VPN plumbing, DNS, BGP, GP IP pools
+        "ike_crypto_profiles": snap.ike_crypto_profiles,
+        "ipsec_crypto_profiles": snap.ipsec_crypto_profiles,
+        "qos_profiles": snap.qos_profiles,
+        "url_access_profiles": snap.url_access_profiles,
+        "internal_dns_servers": snap.internal_dns_servers,
+        "network_locations": snap.network_locations,
+        "bgp_routing_config": snap.bgp_routing_config,
+        # Mobile agent (GlobalProtect) settings
+        "mobile_agent_auth_settings": snap.mobile_agent_auth_settings,
+        "mobile_agent_agent_profiles": snap.mobile_agent_agent_profiles,
+        "mobile_agent_tunnel_profiles": snap.mobile_agent_tunnel_profiles,
+        "mobile_agent_infrastructure": snap.mobile_agent_infrastructure,
+        "mobile_agent_global_settings": snap.mobile_agent_global_settings,
+        "forwarding_profiles": snap.forwarding_profiles,
+        "forwarding_profile_destinations": snap.forwarding_profile_destinations,
+        "forwarding_profile_regional_proxies": snap.forwarding_profile_regional_proxies,
+        "forwarding_profile_source_apps": snap.forwarding_profile_source_apps,
+        "forwarding_profile_user_locations": snap.forwarding_profile_user_locations,
+        # Identity — auth profiles referenced by rules and GP
+        "authentication_profiles": snap.authentication_profiles,
+        "saml_server_profiles": snap.saml_server_profiles,
+        "radius_server_profiles": snap.radius_server_profiles,
+        "ldap_server_profiles": snap.ldap_server_profiles,
+    }
+
+
 def extract_licenses(client: Any, snap: AuditSnapshot) -> AuditSnapshot:
     """
     Fetch subscription licences via the Subscription Service API and attach

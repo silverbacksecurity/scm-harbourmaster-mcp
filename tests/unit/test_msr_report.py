@@ -389,6 +389,46 @@ class TestGather:
         comp.assert_called()
         assert "compliance" not in data.errors
 
+    def test_compliance_calls_carry_the_tenant_id(self) -> None:
+        """Every Compliance call from MSR must name the tenant it is for.
+
+        Without a tenant_id the helper skips the tenant's configured
+        compliance_region and caches its auto-detected region under one
+        shared key, so the first tenant's data region answers for every
+        later tenant in the same process.
+        """
+        from scm_harbourmaster_mcp.tools.msr import gather_msr_data
+
+        client = self._client([], [])
+        import contextlib
+
+        with contextlib.ExitStack() as stack:
+            comp = stack.enter_context(
+                patch(
+                    "scm_harbourmaster_mcp.tools.msr._compliance_get",
+                    side_effect=[
+                        [{"id": "PCF-1", "benchmark": True, "revision_summary": [{"name": "CE"}]}],
+                        {"timeline_30_days": []},
+                    ],
+                )
+            )
+            for p in [
+                patch("scm_harbourmaster_mcp.tools.msr.fetch_licenses", return_value=[]),
+                patch(
+                    "scm_harbourmaster_mcp.tools.msr._resolve_tenant_meta",
+                    return_value=("T", "t-1", "eu"),
+                ),
+                patch("scm_harbourmaster_mcp.tools.msr._get_ssr_config", return_value={}),
+                *self._ext_patches(),
+            ]:
+                stack.enter_context(p)
+            data = gather_msr_data(client, month="2026-06", include_insights=False)
+
+        assert comp.call_count == 2
+        for call in comp.call_args_list:
+            assert call.kwargs.get("tenant_id") == "t-1"
+        assert "compliance" not in data.errors
+
     def test_ssr_ledger_gathered_from_object_descriptions(self) -> None:
         from scm_harbourmaster_mcp.tools.msr import gather_msr_data
 

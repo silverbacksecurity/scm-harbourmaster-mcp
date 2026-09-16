@@ -96,6 +96,7 @@ Everything not listed here is `read`.
 | `scm_restart` | also a Planner recovery action (with approval) |
 | `scm_ssr_execute` | the one idempotent write (already_present semantics; dry_run default) |
 | `scm_adnsr_profile_create` | |
+| `scm_compliance_framework` | Compliance Center framework CRUD — `delete` is permanent |
 | `scm_planner_run` | Phase 3b conversational run — can orchestrate writes named in its approved_write_tools list |
 
 ## `scope: cross_tenant` tools (20)

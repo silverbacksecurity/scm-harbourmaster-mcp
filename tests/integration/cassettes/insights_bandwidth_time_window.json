@@ -1,0 +1,117 @@
+{
+  "description": "Insights v3.0 bandwidth resources reject a body without a filter (HTTP 400 GCP10002: the backend inlines the time predicate into a SQL template) and answer once an event_time window is supplied.",
+  "interactions": [
+    {
+      "name": "location_rn_bandwidth - body without filter 400s (time predicate is inlined into a SQL template)",
+      "request": {
+        "method": "POST",
+        "url": "https://api.sase.paloaltonetworks.com/insights/v3.0/resource/query/locations/location_rn_bandwidth",
+        "json_body_lacks": [
+          "filter"
+        ]
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "json": {
+          "header": {
+            "status": "error"
+          },
+          "errors": [
+            {
+              "code": "GCP10002",
+              "message": "Invalid query input - Syntax error: Unexpected keyword AND"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "location_rn_bandwidth - with an event_time window",
+      "request": {
+        "method": "POST",
+        "url": "https://api.sase.paloaltonetworks.com/insights/v3.0/resource/query/locations/location_rn_bandwidth",
+        "json_body_has": [
+          "filter"
+        ]
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "json": {
+          "header": {
+            "status": "success"
+          },
+          "data": [
+            {
+              "edge_location_display_name": "Example Location",
+              "total_consumption": 1234.5,
+              "peak_consumption": 456.7,
+              "rn_sites_up": 2
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "location_sc_bandwidth - body without filter 400s (time predicate is inlined into a SQL template)",
+      "request": {
+        "method": "POST",
+        "url": "https://api.sase.paloaltonetworks.com/insights/v3.0/resource/query/locations/location_sc_bandwidth",
+        "json_body_lacks": [
+          "filter"
+        ]
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "json": {
+          "header": {
+            "status": "error"
+          },
+          "errors": [
+            {
+              "code": "GCP10002",
+              "message": "Invalid query input - Syntax error: Unexpected keyword AND"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "location_sc_bandwidth - with an event_time window",
+      "request": {
+        "method": "POST",
+        "url": "https://api.sase.paloaltonetworks.com/insights/v3.0/resource/query/locations/location_sc_bandwidth",
+        "json_body_has": [
+          "filter"
+        ]
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "json": {
+          "header": {
+            "status": "success"
+          },
+          "data": [
+            {
+              "edge_location_display_name": "Example Location",
+              "total_consumption": 1234.5,
+              "peak_consumption": 456.7,
+              "rn_sites_up": 2
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

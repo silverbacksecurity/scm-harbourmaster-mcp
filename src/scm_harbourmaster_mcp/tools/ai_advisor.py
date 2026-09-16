@@ -151,7 +151,7 @@ def _run_nist_checks(
                         control=control,
                         severity="info",
                         finding=f"NIST baseline object '{name}' not found in folder '{folder}'",
-                        remediation=f"Run scm_create_nist_snippet(dry_run=False) then push to '{folder}'",
+                        remediation=f"Run scm_create_nist_snippet(dry_run=False, ticket_ref=...) then push to '{folder}'",
                     )
                 )
         except Exception as exc:

@@ -18,6 +18,12 @@ from ..utils.errors import handle_scm_exception
 from ..utils.formatting import format_result as _fmt
 from ..utils.logging import get_logger
 from ..utils.tool_decorator import scm_tool
+from ..utils.write_safety import (
+    DRY_RUN_HINT,
+    audit_write,
+    normalize_ticket_ref,
+    ticket_ref_error,
+)
 
 logger = get_logger(__name__)
 
@@ -33,6 +39,17 @@ def _cv_get(client: Any, path: str) -> dict[str, Any]:
     except Exception:
         pass
     return {}
+
+
+def _running_versions(client: Any, folders: list[str]) -> dict[str, Any]:
+    """Running config version per pushed scope, for dry-run previews and rollback."""
+    versions: dict[str, Any] = {}
+    running_raw = _cv_get(client, f"{_CV_BASE}/running")
+    for entry in running_raw.get("data") or []:
+        device = entry.get("device") if isinstance(entry, dict) else None
+        if device in folders:
+            versions[device] = entry.get("version")
+    return versions
 
 
 def _age(ts: str | None) -> str:
@@ -122,26 +139,72 @@ def register_deployment_tools(mcp: FastMCP, get_client: Any) -> None:
 
     @mcp.tool()
     @tool
-    def scm_commit(client: Any, folders: list[str], description: str = "", admin: str = "") -> str:
+    def scm_commit(
+        client: Any,
+        tenant_id: str,
+        folders: list[str],
+        description: str = "",
+        admin: str = "",
+        dry_run: bool = True,
+        ticket_ref: str = "",
+    ) -> str:
         """Commit pending SCM configuration changes.
 
         Commits the candidate config for the listed folders.  This is
         the equivalent of 'commit' on a firewall — required after any
         create/update/delete operation to make changes effective.
 
+        **Write safety (SSR pattern):** ``dry_run=True`` by default reports what
+        would be committed (folders, description, current running versions)
+        without committing; ``ticket_ref`` is mandatory. For a blast-radius
+        analysis of the pending changes run ``scm_commit_preview`` first.
+
         Args:
             folders: Folders whose changes to commit.
-            description: Commit description / change ticket reference.
+            description: Commit description (sent to SCM as-is).
             tenant_id: SCM tenant ID.
             admin: Optional admin name to attribute the commit to.
+            dry_run: If True (default), preview the commit without running it.
+            ticket_ref: Mandatory change-ticket reference (logged and echoed,
+                never added to the commit description).
         """
+        err = ticket_ref_error(ticket_ref)
+        if err:
+            return f"Error: {err}"
+        ticket_ref = normalize_ticket_ref(ticket_ref)
+        if not folders:
+            return "Error: folders is required — list the folders whose changes to commit."
+        desc = description or "Committed via scm-harbourmaster-mcp"
+
+        if dry_run:
+            return _fmt(
+                {
+                    "action": "commit",
+                    "dry_run": True,
+                    "ticket_ref": ticket_ref,
+                    "folders": folders,
+                    "description": desc,
+                    "running_versions": _running_versions(client, folders),
+                    "note": "A commit pushes EVERYTHING pending in these folders, not just "
+                    "this session's changes. Run scm_commit_preview(folder=...) for a "
+                    "blast-radius analysis of the pending changes.",
+                    "hint": DRY_RUN_HINT,
+                }
+            )
+
+        audit_write("scm_commit", ticket_ref, tenant_id, folders=folders, description=desc)
         result = client.commit(
             folders=folders,
-            description=description or "Committed via scm-harbourmaster-mcp",
+            description=desc,
             sync=True,
             timeout=300,
         )
-        logger.info("commit_triggered", folders=folders, job_id=getattr(result, "job_id", None))
+        logger.info(
+            "commit_triggered",
+            folders=folders,
+            job_id=getattr(result, "job_id", None),
+            ticket_ref=ticket_ref,
+        )
         return _fmt(result)
 
     @mcp.tool()
@@ -304,7 +367,7 @@ def register_deployment_tools(mcp: FastMCP, get_client: Any) -> None:
             *rows,
             "```",
             "",
-            "Use `scm_config_rollback(version=N)` to load any version back to candidate.",
+            "Use `scm_config_rollback(version=N, ticket_ref=...)` to preview loading a version back to candidate.",
         ]
         return "\n".join(lines)
 
@@ -317,6 +380,8 @@ def register_deployment_tools(mcp: FastMCP, get_client: Any) -> None:
         description: str = "",
         timeout: int = 300,
         rollback_on_failure: bool = False,
+        dry_run: bool = True,
+        ticket_ref: str = "",
     ) -> str:
         """Push candidate config with async job tracking and optional auto-rollback.
 
@@ -333,24 +398,52 @@ def register_deployment_tools(mcp: FastMCP, get_client: Any) -> None:
             description: Commit description or change-ticket reference.
             timeout: Max seconds to wait for the push job (default 300).
             rollback_on_failure: If True, auto-load the previous running version on failure.
+            dry_run: If True (default), report what would be pushed without pushing.
+            ticket_ref: Mandatory change-ticket reference (logged and echoed,
+                never added to the commit description).
             tenant_id: SCM tenant ID. Defaults to the configured default tenant.
+
+        **Write safety (SSR pattern):** ``dry_run=True`` by default;
+        ``ticket_ref`` is mandatory.
         """
+        err = ticket_ref_error(ticket_ref)
+        if err:
+            return f"Error: {err}"
+        ticket_ref = normalize_ticket_ref(ticket_ref)
+        if not folders:
+            return "Error: folders is required — list the folders whose changes to push."
+
         try:
+            desc = description or "Push via scm-harbourmaster-mcp"
+
+            if dry_run:
+                return _fmt(
+                    {
+                        "action": "push",
+                        "dry_run": True,
+                        "ticket_ref": ticket_ref,
+                        "folders": folders,
+                        "description": desc,
+                        "timeout": timeout,
+                        "rollback_on_failure": rollback_on_failure,
+                        "running_versions": _running_versions(client, folders),
+                        "note": "A push commits EVERYTHING pending in these folders. Run "
+                        "scm_commit_preview(folder=...) for a blast-radius analysis first.",
+                        "hint": DRY_RUN_HINT,
+                    }
+                )
+
             # Snapshot running version per pushed folder (for rollback capability).
             # The /running endpoint reports one running version per scope
             # (e.g. "Remote Networks", "Mobile Users"), not a single global version.
             rollback_versions: dict[str, Any] = {}
             if rollback_on_failure:
-                try:
-                    running_raw = _cv_get(client, f"{_CV_BASE}/running")
-                    for entry in running_raw.get("data") or []:
-                        device = entry.get("device")
-                        if device in folders:
-                            rollback_versions[device] = entry.get("version")
-                except Exception:
-                    pass
+                with suppress(Exception):
+                    rollback_versions = _running_versions(client, folders)
 
-            desc = description or "Push via scm-harbourmaster-mcp"
+            audit_write(
+                "scm_config_push_track", ticket_ref, tenant_id, folders=folders, description=desc
+            )
             logger.info("config_push_start", folders=folders, tenant_id=tenant_id, desc=desc)
 
             # Start push async
@@ -460,6 +553,8 @@ def register_deployment_tools(mcp: FastMCP, get_client: Any) -> None:
         version: int,
         commit_immediately: bool = False,
         description: str = "",
+        dry_run: bool = True,
+        ticket_ref: str = "",
     ) -> str:
         """Load a previous SCM config version back to candidate for recommit.
 
@@ -473,8 +568,20 @@ def register_deployment_tools(mcp: FastMCP, get_client: Any) -> None:
             version: The config version number to roll back to.
             commit_immediately: If True, commit the loaded version immediately after loading.
             description: Commit description when commit_immediately=True.
+            dry_run: If True (default), show the version that would be loaded
+                without loading or committing anything.
+            ticket_ref: Mandatory change-ticket reference (logged and echoed,
+                never added to the commit description).
             tenant_id: SCM tenant ID. Defaults to the configured default tenant.
+
+        **Write safety (SSR pattern):** ``dry_run=True`` by default;
+        ``ticket_ref`` is mandatory.
         """
+        err = ticket_ref_error(ticket_ref)
+        if err:
+            return f"Error: {err}"
+        ticket_ref = normalize_ticket_ref(ticket_ref)
+
         ver_info: dict[str, Any] = {}
         with suppress(Exception):
             raw_ver = client.get(f"{_CV_BASE}/{version}")
@@ -491,6 +598,43 @@ def register_deployment_tools(mcp: FastMCP, get_client: Any) -> None:
         )
         ver_desc = ver_info.get("description") or "—"
         ver_admin = ver_info.get("created_by") or ver_info.get("admin") or "—"
+
+        if dry_run:
+            found = "yes" if ver_info else "no — version details could not be read"
+            commit_step = (
+                "2. Commit all folders immediately (commit_immediately=True)"
+                if commit_immediately
+                else "2. Stop — nothing is committed; run `scm_commit` separately"
+            )
+            return "\n".join(
+                [
+                    f"## Config Rollback — DRY-RUN — Version {version}",
+                    "",
+                    "| Field | Value |",
+                    "|---|---|",
+                    f"| Version | {version} |",
+                    f"| Version details found | {found} |",
+                    f"| Originally committed | {_age(str(ver_date))} ({ver_date}) |",
+                    f"| Original description | {ver_desc} |",
+                    f"| Original admin | {ver_admin} |",
+                    f"| Ticket ref | {ticket_ref} |",
+                    "",
+                    "Would:",
+                    f"1. Load version {version} into the candidate config "
+                    "(replacing any pending candidate changes)",
+                    commit_step,
+                    "",
+                    DRY_RUN_HINT,
+                ]
+            )
+
+        audit_write(
+            "scm_config_rollback",
+            ticket_ref,
+            tenant_id,
+            version=version,
+            commit_immediately=commit_immediately,
+        )
 
         # Load the version to candidate
         logger.info(
@@ -540,8 +684,8 @@ def register_deployment_tools(mcp: FastMCP, get_client: Any) -> None:
                 "",
                 "Next steps:",
                 "1. Review the candidate config in the SCM UI if desired",
-                "2. Run `scm_commit(folders=[...])` to push the rollback to Prisma Access",
-                "   or `scm_config_push_track(folders=[...])` for tracked push with rollback protection",
+                "2. Run `scm_commit(folders=[...], ticket_ref=..., dry_run=False)` to push the rollback",
+                "   or `scm_config_push_track(folders=[...], ticket_ref=..., dry_run=False)` for a tracked push",
             ]
 
         return "\n".join(lines)

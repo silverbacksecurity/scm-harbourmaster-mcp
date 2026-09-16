@@ -28,10 +28,22 @@ from ..config.settings import TenantConfig, load_all_tenant_configs
 from ..utils.errors import handle_scm_exception
 from ..utils.logging import get_logger
 from ..utils.tool_decorator import scm_tool
+from ..utils.write_safety import (
+    DRY_RUN_HINT,
+    audit_write,
+    normalize_ticket_ref,
+    ticket_ref_error,
+)
+from .insights import region_header, resolve_region
 
 logger = get_logger(__name__)
 
 _SCM_BASE = "https://api.sase.paloaltonetworks.com/sse/config/v1"
+# Relative form of _SCM_BASE for client.get()/client.post(), which prepend the
+# host themselves. Certificates and TLS service profiles have no pan-scm-sdk
+# resource, so they are reached over raw REST — and they live under /sse/config/v1,
+# not /config/v1: the latter 404s on every folder.
+_SSE_CONFIG_PATH = "/sse/config/v1"
 _INSIGHTS_BASE = "https://api.sase.paloaltonetworks.com/insights/v3.0/resource/query"
 _CERT_FOLDERS = ["Shared", "Remote Networks", "Mobile Users", "Service Connections"]
 
@@ -207,11 +219,19 @@ def _insights_query(
     tenant_id: str,
     body: dict | None = None,
 ) -> list[dict]:
-    """POST to Insights v3.0 query API; returns data list or [] on any error."""
+    """POST to Insights v3.0 query API; returns data list or [] on any error.
+
+    Returning [] on failure is deliberate — callers treat this as optional
+    enrichment — but it used to be silent as well, which hid both a dead
+    resource name and a malformed region header for months. Failures are
+    logged now; the caller's behaviour is unchanged.
+    """
     headers = {
         "Content-Type": "application/json",
         "Accept": "application/json",
-        "X-PANW-Region": "eu",
+        # Must be a header value, not a settings key: sending "eu" here (as
+        # this did) is accepted and answered with an empty result set.
+        "X-PANW-Region": resolve_region(str(tenant_id)),
         "Prisma-Tenant": str(tenant_id),
     }
     try:
@@ -224,13 +244,23 @@ def _insights_query(
         if r.status_code == 200:
             d = r.json()
             return d.get("data", []) if isinstance(d, dict) else (d if isinstance(d, list) else [])
-    except Exception:
-        pass
+        logger.info(
+            "insights_query_failed",
+            resource=resource,
+            tenant_id=tenant_id,
+            status=r.status_code,
+            detail=(r.text or "")[:200],
+        )
+    except Exception as exc:
+        logger.info("insights_query_error", resource=resource, tenant_id=tenant_id, error=str(exc))
     return []
 
 
 # Insights v3.0 candidate resource names for per-SPN bandwidth, tried in order.
-_SPN_BW_RESOURCES = ("pa_bandwidth_consumption", "sn_bandwidth", "edge_bandwidth")
+# `pa_bandwidth_consumption` was first here until 2026-09-09, when it started
+# returning DATA10003 "Invalid resource" — the name is gone upstream, so it
+# only ever cost a wasted round-trip before the real candidates were tried.
+_SPN_BW_RESOURCES = ("sn_bandwidth", "edge_bandwidth")
 # 5-minute rolling window for throughput calculation.
 _SPN_BW_WINDOW_SEC = 300
 
@@ -411,7 +441,11 @@ def _spec_drift() -> tuple[dict, list[str], list[str], list[str]] | None:
 
 
 def _connected_mu_count(client: Any, tsg_id: str, region: str) -> int | None:
-    """Live connected mobile-user count via Insights v3.0; None on any failure."""
+    """Live connected mobile-user count via Insights v3.0; None on any failure.
+
+    ``region`` arrives as a settings.toml ``insights_region`` key, so it is
+    normalised here rather than going into the header raw.
+    """
     session = getattr(client, "session", None)
     if session is None:
         return None
@@ -425,7 +459,7 @@ def _connected_mu_count(client: Any, tsg_id: str, region: str) -> int | None:
     headers = {
         "Content-Type": "application/json",
         "Accept": "application/json",
-        "X-PANW-Region": region,
+        "X-PANW-Region": region_header(region) or "europe",
     }
     if tsg_id:
         headers["Prisma-Tenant"] = tsg_id
@@ -966,6 +1000,8 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
         pem: str,
         folder: str = "Shared",
         is_ca: bool = False,
+        dry_run: bool = True,
+        ticket_ref: str = "",
     ) -> str:
         """Import a PEM certificate into an SCM tenant folder.
 
@@ -981,8 +1017,54 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
             pem: PEM-encoded certificate text (the full -----BEGIN CERTIFICATE----- block).
             folder: SCM folder to import into (default: Shared).
             is_ca: Mark this certificate as a CA certificate (default False).
+            dry_run: If True (default), parse and describe the certificate
+                without importing it.
+            ticket_ref: Mandatory change-ticket reference (never sent to SCM).
             tenant_id: SCM tenant ID. Defaults to the configured default tenant.
+
+        **Write safety (SSR pattern):** ``dry_run=True`` by default;
+        ``ticket_ref`` is mandatory.
         """
+        err = ticket_ref_error(ticket_ref)
+        if err:
+            return f"Error: {err}"
+        ticket_ref = normalize_ticket_ref(ticket_ref)
+
+        if dry_run:
+            cert_summary: dict[str, Any] = {}
+            try:
+                from cryptography import x509
+
+                cert = x509.load_pem_x509_certificate(pem.strip().encode())
+                cert_summary = {
+                    "subject": cert.subject.rfc4514_string(),
+                    "issuer": cert.issuer.rfc4514_string(),
+                    "serial_number": format(cert.serial_number, "x"),
+                    "not_valid_before": cert.not_valid_before_utc.isoformat(),
+                    "not_valid_after": cert.not_valid_after_utc.isoformat(),
+                }
+            except Exception as exc:
+                cert_summary = {"parse_error": f"PEM could not be parsed: {exc}"}
+            lines = [
+                "## Certificate Import — DRY-RUN",
+                "",
+                "| Field | Value |",
+                "|---|---|",
+                f"| Name | `{name}` |",
+                f"| Folder | `{folder}` |",
+                f"| Type | {'CA' if is_ca else 'leaf'} |",
+                f"| Ticket ref | {ticket_ref} |",
+            ]
+            lines += [f"| {k.replace('_', ' ').title()} | {v} |" for k, v in cert_summary.items()]
+            lines += [
+                "",
+                "Would POST the certificate to `/sse/config/v1/certificates` "
+                "(PEM body not echoed here).",
+                "",
+                DRY_RUN_HINT,
+            ]
+            return "\n".join(lines)
+
         payload: dict[str, Any] = {
             "name": name,
             "folder": folder,
@@ -990,8 +1072,9 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
             "ca": is_ca,
         }
 
+        audit_write("scm_cert_import", ticket_ref, tenant_id, name=name, folder=folder, is_ca=is_ca)
         result = client.post(
-            "/config/v1/certificates",
+            f"{_SSE_CONFIG_PATH}/certificates",
             json=payload,
         )
 
@@ -1018,7 +1101,7 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
                 indent=2,
                 default=str,
             )
-            + f"\n\nRun `scm_commit(folders=['{folder}'])` to activate."
+            + f"\n\nRun `scm_commit(folders=['{folder}'], ticket_ref=..., dry_run=False)` to activate."
         )
 
     @mcp.tool()
@@ -1032,6 +1115,8 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
         max_version: str = "tls1-3",
         cert_profile: str = "",
         folder: str = "Shared",
+        dry_run: bool = True,
+        ticket_ref: str = "",
     ) -> str:
         """List or create TLS service profiles for SSL inspection configuration.
 
@@ -1052,13 +1137,21 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
             max_version: Maximum TLS version ('tls1-2' or 'tls1-3'). Default: 'tls1-3'.
             cert_profile: Optional certificate profile name for client cert validation.
             folder: SCM folder (default: Shared).
+            dry_run: For action='create': if True (default), return the planned
+                profile without creating it.
+            ticket_ref: Mandatory change-ticket reference for action='create'
+                (never sent to SCM).
             tenant_id: SCM tenant ID. Defaults to the configured default tenant.
+
+        **Write safety (SSR pattern):** ``action='create'`` is a write —
+        ``dry_run=True`` by default and ``ticket_ref`` is mandatory.
+        ``action='list'`` is read-only and needs neither.
         """
         import json as _json
 
         if action == "list":
             result = client.get(
-                "/config/v1/tls-service-profiles",
+                f"{_SSE_CONFIG_PATH}/tls-service-profiles",
                 params={"folder": folder, "limit": 200},
             )
             profiles: list[dict[str, Any]] = []
@@ -1100,6 +1193,10 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
             return "\n".join(lines)
 
         elif action == "create":
+            err = ticket_ref_error(ticket_ref)
+            if err:
+                return f"Error: {err}"
+            ticket_ref = normalize_ticket_ref(ticket_ref)
             if not name:
                 return "Error: `name` is required when action='create'."
 
@@ -1123,7 +1220,16 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
             if cert_profile:
                 payload["certificate_profile"] = cert_profile
 
-            result = client.post("/config/v1/tls-service-profiles", json=payload)
+            if dry_run:
+                return (
+                    f"## TLS Service Profile Create — DRY-RUN — `{name}`\n\n"
+                    f"Ticket ref: {ticket_ref}\n\n"
+                    "Would POST to `{_SSE_CONFIG_PATH}/tls-service-profiles`:\n\n"
+                    f"```json\n{_json.dumps(payload, indent=2)}\n```\n\n{DRY_RUN_HINT}"
+                )
+
+            audit_write("scm_tls_profile_manager", ticket_ref, tenant_id, name=name, folder=folder)
+            result = client.post(f"{_SSE_CONFIG_PATH}/tls-service-profiles", json=payload)
             logger.info(
                 "tls_profile_created",
                 name=name,
@@ -1148,7 +1254,7 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
                 f"Settings: TLS {min_version} — {max_version}, strong ciphers only "
                 "(AES-256-GCM, AES-128-GCM, SHA-256/384; no 3DES, RC4, SHA-1).\n"
                 + (f"\n```json\n{detail}\n```\n" if detail else "")
-                + f"\nRun `scm_commit(folders=['{folder}'])` to activate."
+                + f"\nRun `scm_commit(folders=['{folder}'], ticket_ref=..., dry_run=False)` to activate."
             )
         else:
             return f"Error: unknown action '{action}'. Use 'list' or 'create'."
@@ -1345,7 +1451,11 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
             else:
                 client = get_client(tenant_id)
                 label = tenant_id or "active tenant"
-                own_tc = _load_all_tenant_configs().get(tenant_id)
+                # tenant_id may arrive as a section key or (canonicalised) TSG ID.
+                own_cfgs = _load_all_tenant_configs()
+                own_tc = own_cfgs.get(tenant_id) or next(
+                    (c for c in own_cfgs.values() if c.tenant_id == tenant_id), None
+                )
                 metas[label] = (
                     own_tc.tenant_id if own_tc is not None else tenant_id,
                     own_tc.insights_region if own_tc is not None else "eu",
