@@ -193,7 +193,7 @@ def register_mssp_tools(mcp: FastMCP, get_client: Any, get_settings: Any) -> Non
 
     @mcp.tool()
     @tool
-    def scm_mobile_user_stats(client: Any, tenant_id: str, region: str = "eu") -> str:
+    def scm_mobile_user_stats(client: Any, tenant_id: str, region: str = "") -> str:
         """Show Prisma Access mobile user allocation and current logged-in user count.
 
         Uses the Prisma Access Insights API to retrieve live connected user counts,
@@ -201,9 +201,13 @@ def register_mssp_tools(mcp: FastMCP, get_client: Any, get_settings: Any) -> Non
 
         Args:
             tenant_id: SCM tenant ID. Omit to use the default tenant.
-            region: Prisma Access Insights region for X-PANW-Region header
-                    (e.g. 'eu' for Europe, 'us' for US). Default: 'eu'.
+            region: X-PANW-Region override (europe, americas, uk, ...; 'eu'/'us'
+                    accepted). Default: the tenant's settings `region`, else the
+                    region found by mssp_detect_region, else its insights_region.
         """
+        from ..config.region import insights_default, resolve_region
+
+        region = resolve_region(tenant_id, explicit=region, default=insights_default(tenant_id))
         from datetime import UTC, datetime
 
         _INSIGHTS_BASE = "https://api.sase.paloaltonetworks.com"

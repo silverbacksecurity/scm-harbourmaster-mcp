@@ -4,7 +4,7 @@
 
 All tools authenticate via Bearer-token OAuth (SASE client credentials) configured in `settings.toml` / `.secrets.toml`.
 
-**<!-- tool-count -->169<!-- /tool-count --> tools** across <!-- module-count -->39<!-- /module-count --> modules.
+**<!-- tool-count -->170<!-- /tool-count --> tools** across <!-- module-count -->40<!-- /module-count --> modules.
 
 ## Table of Contents
 
@@ -44,6 +44,7 @@ All tools authenticate via Bearer-token OAuth (SASE client credentials) configur
 - [Pab Transfer](#pab-transfer)
 - [Planner Tools](#planner-tools)
 - [Policy Optimizer](#policy-optimizer)
+- [Region Detect](#region-detect)
 - [Service Status](#service-status)
 - [Site Management](#site-management)
 - [Ssr](#ssr)
@@ -1113,9 +1114,10 @@ Args:
                       bandwidth consumption, connected mobile user count,
                       and active alerts. Adds §3.1.2, §3.2.1, §3.3.7,
                       and §3.5 to the AS-BUILT.
-    insights_region:  Prisma Access region for the X-PANW-Region header
-                      used by the Insights API (default: "eu").
-                      Common values: "eu", "us", "uk", "sg", "au".
+    insights_region:  X-PANW-Region override for the Insights API.
+                      Left at "eu", the tenant's settings `region`,
+                      then a region found by mssp_detect_region, then
+                      its insights_region is used instead.
     include_adem:     If True, query the Autonomous DEM Telemetry API for
                       live application experience scores (last 3 days) and
                       aggregate agent scores. Populates §7.1 with a scored
@@ -1974,14 +1976,15 @@ plus bandwidth allocation from SCM config.
 
 Args:
     tenant_id: SCM tenant ID. Omit to use the default tenant.
-    region: Prisma Access Insights region for X-PANW-Region header
-            (e.g. 'eu' for Europe, 'us' for US). Default: 'eu'.
+    region: X-PANW-Region override (europe, americas, uk, ...; 'eu'/'us'
+            accepted). Default: the tenant's settings `region`, else the
+            region found by mssp_detect_region, else its insights_region.
 ```
 
 | Parameter | Type | Default |
 |-----------|------|---------|
 | `tenant_id` | `str` | `''` |
-| `region` | `str` | `'eu'` |
+| `region` | `str` | `''` |
 
 ### `scm_discover_tenants`
 
@@ -5228,6 +5231,43 @@ Returns:
 | `tenant_id` | `str` | `''` |
 | `rule_id` | `str` | `—` |
 | `manager_hostname` | `str` | `'cloud_managed'` |
+
+---
+
+## Region Detect
+
+_mssp_detect_region — find which data region holds a tenant's data._
+
+### `mssp_detect_region`
+
+Detect which data region (X-PANW-Region) holds a tenant's data.
+
+```
+Region-scoped APIs (Insights, Monitor, Compliance) answer a wrong region
+with HTTP 200 and an empty payload, so a tenant whose data lives in `uk`
+but is configured `eu` silently reports nothing. This probes every known
+region (americas, europe, uk, de, au, sg, jp, in, ca) with read-only
+calls — Compliance `data_available` and Insights RN/MU location lists —
+and shows a region -> result table.
+
+Exactly one region with data is cached for this server process and used
+by every region-scoped tool unless settings.toml sets `region`
+explicitly. No data, or data in more than one region, is reported and
+never guessed.
+
+Args:
+    tenant_id: SCM tenant ID (TSG) or settings.toml tenant key.
+    persist: Write `region = "<code>"` into this tenant's
+        [tenants.<key>] table in settings.toml. Default False is a dry
+        run showing the exact line. Never touches .secrets.toml.
+    refresh: Re-probe even if a detection is already cached.
+```
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `tenant_id` | `str` | `''` |
+| `persist` | `bool` | `False` |
+| `refresh` | `bool` | `False` |
 
 ---
 

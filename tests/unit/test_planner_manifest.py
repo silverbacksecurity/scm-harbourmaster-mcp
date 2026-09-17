@@ -55,6 +55,8 @@ EXPECTED_WRITE_TOOLS = {
     # Phase 3b: the conversational planner run can orchestrate approved
     # writes, so invoking it is itself a gated write action.
     "scm_planner_run",
+    # persist=True edits settings.toml; the default is a dry run.
+    "mssp_detect_region",
 }
 
 

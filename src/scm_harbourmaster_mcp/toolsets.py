@@ -68,6 +68,7 @@ TOOLSETS: dict[str, tuple[str, ...]] = {
     ),
     "mssp": (
         "register_mssp_tools",
+        "register_region_tools",
         "register_capability_tools",
         "register_msr_tools",
         "register_spi_tools",

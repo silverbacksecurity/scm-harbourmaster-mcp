@@ -25,10 +25,10 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 from ..audit.extractor import _bearer_session_for
+from ..config.region import insights_default, normalise_region, resolve_region_with_source
 from ..utils.formatting import format_result as _fmt
 from ..utils.logging import get_logger
 from ..utils.tool_decorator import scm_tool
-from .insights import region_header
 
 logger = get_logger(__name__)
 
@@ -519,28 +519,22 @@ def register_mt_monitor_tools(mcp: FastMCP, get_client: Any) -> None:
                     "service-health, url-summary, locations-tenants, tenant-hierarchy, "
                     "license-setup, license-allocated, app-monitor"
                 )
+            region = normalise_region(region)
             if region and region not in _CDL_REGIONS:
                 return f"Error: region must be one of {', '.join(_CDL_REGIONS)}"
 
             session = _bearer_session_for(client)
 
-            if region:
-                candidates = [region]
+            resolved, source = resolve_region_with_source(
+                tenant_id, explicit=region, default=insights_default(tenant_id)
+            )
+            if source in ("override", "configured", "detected"):
+                candidates = [resolved]
             else:
-                mapped = "europe"
-                try:
-                    from ..config.settings import load_all_tenant_configs
-
-                    cfgs = load_all_tenant_configs()
-                    tc = cfgs.get(tenant_id) or next(
-                        (c for c in cfgs.values() if c.tenant_id == tenant_id), None
-                    )
-                    if tc is not None:
-                        mapped = region_header(tc.insights_region or "") or "europe"
-                except Exception:
-                    pass
-                sibling = {"europe": ["uk"], "uk": ["europe"]}.get(mapped, [])
-                candidates = [mapped, *sibling]
+                # Only a guessed default gets the europe/uk sibling retry — a
+                # configured or detected region is trusted as-is.
+                sibling = {"europe": ["uk"], "uk": ["europe"]}.get(resolved, [])
+                candidates = [resolved, *sibling]
 
             # Detect GET vs POST — empty body means GET
             _GET_VIEWS = {

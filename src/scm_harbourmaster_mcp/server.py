@@ -53,6 +53,7 @@ from .tools.pab_transfer import register_pab_transfer_tools
 from .tools.planner_tools import register_planner_tools
 from .tools.policy_optimizer import register_policy_optimizer_tools
 from .tools.posture import register_posture_tools
+from .tools.region_detect import register_region_tools
 from .tools.reload import register_reload_tool
 from .tools.sdwan import register_sdwan_tools
 from .tools.security import register_security_tools
@@ -193,6 +194,7 @@ def _registrars(
         "register_config_orch_tools": lambda m: register_config_orch_tools(m, get_client),
         "register_site_management_tools": lambda m: register_site_management_tools(m, get_client),
         "register_mssp_tools": lambda m: register_mssp_tools(m, get_client, get_settings),
+        "register_region_tools": lambda m: register_region_tools(m, get_client),
         "register_capability_tools": lambda m: register_capability_tools(m, get_client),
         "register_casb_dlp_tools": lambda m: register_casb_dlp_tools(m, get_client),
         "register_ngfw_airs_tools": lambda m: register_ngfw_airs_tools(m, get_client),

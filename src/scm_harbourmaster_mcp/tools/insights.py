@@ -16,6 +16,8 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
+from ..config.region import insights_default, known_region, normalise_region
+from ..config.region import resolve_region as _shared_resolve_region
 from ..utils.errors import handle_scm_exception
 from ..utils.formatting import format_result as _fmt
 from ..utils.logging import get_logger
@@ -33,22 +35,18 @@ _INSIGHTS_BASE_V1 = "https://api.sase.paloaltonetworks.com/api/sase/v1.0/resourc
 # wants `europe` and `americas`. Sending a settings key verbatim is not
 # rejected — the API answers 200 with an empty-looking result — so a mismatch
 # fails silently, which is exactly how it went unnoticed in tools/ops.py.
+# The mapping itself lives in config.region, shared by every header sender.
 REGION_MAP = {"eu": "europe", "uk": "uk", "us": "americas", "sg": "sg", "au": "au"}
-_REGION_HEADERS = frozenset(REGION_MAP.values())
 
 
 def region_header(value: str) -> str:
     """Normalise either vocabulary to an X-PANW-Region header value.
 
     Accepts a settings key (``eu``) or an already-valid header value
-    (``europe``); ``uk``/``sg``/``au`` are legitimately both. Returns "" for
-    anything unrecognised so callers can decide their own fallback.
+    (``europe``), in any case. Returns "" for anything unrecognised so callers
+    can decide their own fallback.
     """
-    if not value:
-        return ""
-    if value in _REGION_HEADERS:
-        return value
-    return REGION_MAP.get(value, "")
+    return known_region(value)
 
 
 DEFAULT_WINDOW_HOURS = 24
@@ -116,27 +114,25 @@ def _insights_error_code(data: Any) -> str:
 def resolve_region(tenant_id: str, region: str = "") -> str:
     """Resolve the X-PANW-Region header value for a tenant.
 
-    An explicit ``region`` wins; otherwise the tenant's configured
-    ``insights_region`` is mapped, falling back to ``europe``. Either
-    vocabulary is accepted on the way in — an unrecognised value is passed
-    through untouched so a region added upstream still works before this map
-    learns about it.
+    Delegates to :func:`config.region.resolve_region`: an explicit ``region``
+    wins, then the tenant's ``region`` setting, then a region detected by
+    mssp_detect_region, then the tenant's ``insights_region`` mapped to a
+    header value, falling back to ``europe``. An unrecognised explicit value is
+    passed through (lowercased) so a region added upstream still works before
+    the known list learns about it.
     """
-    if region:
-        return region_header(region) or region
-    try:
-        from ..config.settings import load_all_tenant_configs
+    if region.strip():
+        return normalise_region(region)
+    if not tenant_id:
+        # No tenant named: the first configured tenant is the implied one.
+        try:
+            from ..config import settings as _settings
 
-        cfgs = load_all_tenant_configs()
-        if tenant_id:
-            tc = next((c for c in cfgs.values() if c.tenant_id == tenant_id), None)
-        else:
-            tc = next(iter(cfgs.values()), None) if cfgs else None
-        if tc is not None:
-            return region_header(tc.insights_region or "") or "europe"
-    except Exception:
-        pass
-    return "europe"
+            first = next(iter(_settings.load_all_tenant_configs().values()), None)
+            tenant_id = first.tenant_id if first is not None else ""
+        except Exception:
+            tenant_id = ""
+    return _shared_resolve_region(tenant_id, explicit=region, default=insights_default(tenant_id))
 
 
 def _refresh_token(client: Any) -> None:
@@ -171,7 +167,7 @@ def _insights_call(
     headers = {
         "Content-Type": "application/json",
         "Accept": "application/json",
-        "X-PANW-Region": region,
+        "X-PANW-Region": normalise_region(region) or "europe",
     }
     if tenant_id:  # never send an empty Prisma-Tenant header
         headers["Prisma-Tenant"] = str(tenant_id)

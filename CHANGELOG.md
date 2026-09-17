@@ -29,6 +29,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   certificates (Forward-Trust CAs, authentication cookie and SAML signing
   certs, predefined roots) unless named, imports roots before intermediates
   before leaves, and never commits
+- **`mssp_detect_region`** (`config/region.py`, `tools/region_detect.py`, new
+  files) — the region-scoped APIs (Insights, the multitenant Monitor API,
+  Compliance Center) answer a wrong `X-PANW-Region` with HTTP 200 and an empty
+  payload, so a tenant configured for the wrong region reports zeroes rather
+  than failing. The tool probes every known region with read-only calls
+  (Compliance `data_available`, Insights RN/MU location lists) and shows a
+  region-by-region table. Exactly one region with data is cached for the
+  server process; none or several are reported and never guessed.
+  `persist=True` writes `region = "<code>"` into the tenant's
+  `[tenants.<key>]` table in settings.toml as a verified one-line edit (the
+  default is a dry run showing the line; `.secrets.toml` is never touched).
+  A new optional per-tenant `region` setting, and every region header sender
+  (Insights, Monitor, Compliance, AS-BUILT, ops) now resolves through one
+  shared order: explicit argument > settings `region` > detected region >
+  the previous per-API default
 - **Dry-run default and mandatory `ticket_ref` on every write tool**
   (`utils/write_safety.py`, new file) — the SSR write-safety contract already
   used by `scm_ssr_execute`, `scm_config_orch_*` and `scm_site_management` now

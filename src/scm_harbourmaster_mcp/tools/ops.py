@@ -24,6 +24,7 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 from ..auth.oauth import fetch_licenses, get_scm_client
+from ..config.region import resolve_region as _shared_resolve_region
 from ..config.settings import TenantConfig, load_all_tenant_configs
 from ..utils.errors import handle_scm_exception
 from ..utils.logging import get_logger
@@ -459,7 +460,7 @@ def _connected_mu_count(client: Any, tsg_id: str, region: str) -> int | None:
     headers = {
         "Content-Type": "application/json",
         "Accept": "application/json",
-        "X-PANW-Region": region_header(region) or "europe",
+        "X-PANW-Region": _shared_resolve_region(tsg_id, default=region_header(region) or "europe"),
     }
     if tsg_id:
         headers["Prisma-Tenant"] = tsg_id

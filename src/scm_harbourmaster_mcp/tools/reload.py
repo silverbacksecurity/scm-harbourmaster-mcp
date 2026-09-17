@@ -101,6 +101,7 @@ _RELOAD_ORDER = [
     "scm_harbourmaster_mcp.tools.adnsr",
     "scm_harbourmaster_mcp.tools.aiops",
     "scm_harbourmaster_mcp.tools.mssp",
+    "scm_harbourmaster_mcp.tools.region_detect",
     "scm_harbourmaster_mcp.tools.mt_interconnect",
     "scm_harbourmaster_mcp.tools.pab",
     "scm_harbourmaster_mcp.tools.pab_transfer",

@@ -7,7 +7,7 @@
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 
-MCP (Model Context Protocol) server for **Palo Alto Networks Strata Cloud Manager (SCM)**, built for Managed Security Service Providers. Exposes <!-- tool-count -->169<!-- /tool-count --> SCM operations as MCP tools consumable by Claude Desktop, Cursor, Copilot Studio, or any MCP-compatible AI assistant.
+MCP (Model Context Protocol) server for **Palo Alto Networks Strata Cloud Manager (SCM)**, built for Managed Security Service Providers. Exposes <!-- tool-count -->170<!-- /tool-count --> SCM operations as MCP tools consumable by Claude Desktop, Cursor, Copilot Studio, or any MCP-compatible AI assistant.
 
 ---
 
@@ -178,7 +178,7 @@ Add to `~/.config/Claude/claude_desktop_config.json`:
 }
 ```
 
-Restart Claude Desktop. The server registers as <!-- tool-count -->169<!-- /tool-count --> tools in Cowork mode.
+Restart Claude Desktop. The server registers as <!-- tool-count -->170<!-- /tool-count --> tools in Cowork mode.
 
 ### Cursor / VS Code
 
@@ -553,6 +553,7 @@ List all tenants, their auth status, and which licences are expiring soonest.
 | `scm_snippet_list` | List configuration snippets |
 | `mssp_list_tenants` | List all loaded tenant IDs and auth status |
 | `mssp_evict_tenant` | Evict a cached client (force re-auth after credential rotation) |
+| `mssp_detect_region` | Probe every data region and find the one holding a tenant's Insights/Compliance data; optionally write it to settings.toml |
 | `mssp_tenant_dashboard` | Summary of all loaded tenants with folder and service term |
 | `scm_license_info` | List Prisma SASE subscription licences with SKU, seats, and expiry |
 | `scm_mobile_user_stats` | Live Prisma Access mobile user allocation and connected user count |

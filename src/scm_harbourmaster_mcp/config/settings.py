@@ -91,6 +91,16 @@ class TenantConfig(BaseSettings):
         ),
     )
 
+    region: str = Field(
+        "",
+        description=(
+            "Data region (X-PANW-Region header value) for this tenant, used by every "
+            "region-scoped API — Insights, Monitor, Compliance. Beats auto-detection "
+            "and insights_region. Settings shorthand eu/us is accepted and mapped to "
+            "europe/americas. Leave blank and run mssp_detect_region to find it."
+        ),
+    )
+
     @field_validator("tenant_id", "client_id")
     @classmethod
     def not_empty(cls, v: str) -> str:
@@ -111,6 +121,21 @@ class TenantConfig(BaseSettings):
         allowed = {"americas", "europe", "uk", "au"}
         if v and v not in allowed:
             raise ValueError(f"must be one of {', '.join(sorted(allowed))} (got {v!r})")
+        return v
+
+    @field_validator("region")
+    @classmethod
+    def known_data_region(cls, v: str) -> str:
+        """Normalise the data region and reject values no API answers to.
+
+        As with compliance_region, a typo would not fail at request time — the
+        APIs return 200 with an empty payload — so it has to fail here.
+        """
+        from .region import KNOWN_REGIONS, normalise_region
+
+        v = normalise_region(v)
+        if v and v not in KNOWN_REGIONS:
+            raise ValueError(f"must be one of {', '.join(KNOWN_REGIONS)} (got {v!r})")
         return v
 
 

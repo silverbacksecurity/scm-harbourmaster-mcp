@@ -2098,13 +2098,19 @@ def _op_user_count(tenant, console, _pause) -> None:
                 _pause()
                 return
 
+            from .config.region import known_region, resolve_region
+
+            region = resolve_region(
+                tid, default=known_region(getattr(tenant, "insights_region", "")) or "europe"
+            )
+
             # GP mobile users
             gp_resp = session.post(
                 "https://api.sase.paloaltonetworks.com/insights/v3.0/resource/query/gp_mobileusers/connected_user_count",
                 json={},
                 headers={
                     "Content-Type": "application/json",
-                    "X-PANW-Region": "eu",
+                    "X-PANW-Region": region,
                     "Prisma-Tenant": str(tid),
                 },
                 timeout=(5, 20),
@@ -2120,7 +2126,7 @@ def _op_user_count(tenant, console, _pause) -> None:
                 json={},
                 headers={
                     "Content-Type": "application/json",
-                    "X-PANW-Region": "eu",
+                    "X-PANW-Region": region,
                     "Prisma-Tenant": str(tid),
                 },
                 timeout=(5, 20),

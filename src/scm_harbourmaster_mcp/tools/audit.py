@@ -1492,9 +1492,10 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
                               bandwidth consumption, connected mobile user count,
                               and active alerts. Adds §3.1.2, §3.2.1, §3.3.7,
                               and §3.5 to the AS-BUILT.
-            insights_region:  Prisma Access region for the X-PANW-Region header
-                              used by the Insights API (default: "eu").
-                              Common values: "eu", "us", "uk", "sg", "au".
+            insights_region:  X-PANW-Region override for the Insights API.
+                              Left at "eu", the tenant's settings `region`,
+                              then a region found by mssp_detect_region, then
+                              its insights_region is used instead.
             include_adem:     If True, query the Autonomous DEM Telemetry API for
                               live application experience scores (last 3 days) and
                               aggregate agent scores. Populates §7.1 with a scored
@@ -1571,11 +1572,15 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
                     extract_allocated_ips(client, snap)
 
                 if include_insights and _cap_ok("insights", snap.insights_errors):
-                    _effective_region = insights_region
-                    if _effective_region == "eu" and tenant_id:
-                        _tc = get_tenant_meta(tenant_id)
-                        if _tc is not None:
-                            _effective_region = _tc.insights_region
+                    # "eu" is this tool's default, so it only counts as an
+                    # override when something else was asked for.
+                    from ..config.region import insights_default, resolve_region
+
+                    _effective_region = resolve_region(
+                        tenant_id,
+                        explicit="" if insights_region == "eu" else insights_region,
+                        default=insights_default(tenant_id),
+                    )
                     extract_insights(client, snap, region=_effective_region)
                 if include_adem and _cap_ok("adem", snap.adem_errors):
                     extract_adem(client, snap)

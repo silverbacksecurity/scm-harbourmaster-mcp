@@ -6,7 +6,7 @@
 #
 # Regenerate/verify coverage: tests/unit/test_planner_manifest.py fails
 # whenever a registered tool lacks an entry here (or vice versa).
-# Tools: 166 | write: 28 | domains: 11
+# Tools: 170 | write: 30 | domains: 11
 
 dlp_backup:
   access: read
@@ -43,6 +43,13 @@ dlp_restore:
   domain: dlp
   idempotent: false
   known_failure_modes: Overwrites live DLP profiles from a backup file — not reversible.
+  retry_policy: fail_fast
+  scope: tenant
+mssp_detect_region:
+  access: write
+  domain: identity
+  idempotent: true
+  known_failure_modes: Read-only probes by default; persist=True edits the tenant's region line in settings.toml. Ambiguous or empty results are never persisted; RBAC 403s read as no data.
   retry_policy: fail_fast
   scope: tenant
 mssp_evict_tenant:

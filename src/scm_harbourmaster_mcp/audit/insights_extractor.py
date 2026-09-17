@@ -23,6 +23,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..config.region import normalise_region
 from ..utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -74,7 +75,7 @@ def extract_insights(
         queries to a specific sub-tenant under an MSSP hierarchy.
     region:
         Prisma Access region for the ``X-PANW-Region`` header.
-        Common values: ``"eu"``, ``"us"``, ``"uk"``, ``"sg"``, ``"au"``.
+        Either vocabulary (``"eu"`` or ``"europe"``); normalised before sending.
 
     Returns
     -------
@@ -82,6 +83,9 @@ def extract_insights(
         Populated dataclass; errors list is non-empty if any call failed.
     """
     data = InsightsData()
+    # The caller's value may be a settings key ("eu") — the header wants
+    # "europe", and a wrong value is answered 200-with-nothing, not rejected.
+    header_region = normalise_region(region) or "europe"
 
     session = getattr(client, "session", None)
     if session is None:
@@ -110,7 +114,7 @@ def extract_insights(
         headers: dict[str, str] = {
             "Content-Type": "application/json",
             "Accept": "application/json",
-            "X-PANW-Region": region,
+            "X-PANW-Region": header_region,
         }
         if tenant_id:
             headers["Prisma-Tenant"] = tenant_id

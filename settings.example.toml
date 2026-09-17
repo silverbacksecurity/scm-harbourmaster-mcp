@@ -45,6 +45,9 @@ scm_default_folder = "Shared"
 # label                  = "Customer A Corp"
 # service_term_years     = 3               # 1 | 2 | 3
 # account_ref            = "CRM-12345"     # CRM / ticketing system reference
+# region                 = "uk"            # Optional data region (X-PANW-Region) for
+#                                          # Insights, Monitor and Compliance. Leave blank
+#                                          # and run mssp_detect_region to find it
 # prisma_access_api_key  = "..."           # Optional — Prisma Access admin portal:
 #                                          # Settings → Service Setup → Prisma Access API Key
 #                                          # Enables live egress IP retrieval in AS-BUILT §8.1

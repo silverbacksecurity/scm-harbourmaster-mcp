@@ -34,6 +34,7 @@ from ..audit.msr_report import (
     summarize_mu_locations,
 )
 from ..auth.oauth import fetch_licenses
+from ..config.region import resolve_region
 from ..config.settings import load_all_tenant_configs
 from ..utils.capabilities import capability_skip_reason
 from ..utils.logging import get_logger
@@ -136,6 +137,9 @@ def gather_msr_data(
     """Gather every MSR source for the period, degrading per-source."""
     start, end, label = month_bounds(month)
     tenant_label, tsg_id, region = _resolve_tenant_meta(tenant_id)
+    # One header value for every region-scoped call below: settings `region` >
+    # detected (mssp_detect_region) > insights_region mapped > europe.
+    region = resolve_region(tsg_id, default=region_header(region) or "europe")
     data = MsrData(
         tenant_label=tenant_label,
         tenant_id=tsg_id,
@@ -221,7 +225,7 @@ def gather_msr_data(
             if session is None:
                 raise RuntimeError("client has no HTTP session")
             _refresh_token(client)
-            mapped = region_header(region) or "europe"
+            mapped = region
             path = f"{_INSIGHTS_BASE_V3}/query/locations/location_rn_bandwidth"
             status, resp = _insights_try(
                 session, path, tsg_id, month_window_filter(start, end), mapped
@@ -275,7 +279,7 @@ def gather_msr_data(
             if session is None:
                 raise RuntimeError("client has no HTTP session")
             _refresh_token(client)
-            mapped = region_header(region) or "europe"
+            mapped = region
             win: dict[str, Any] = month_window_filter(start, end)
             window = f"{label} (calendar month)"
             cpath = f"{_INSIGHTS_BASE_V3}/query/users/agent/connected_user_count"
@@ -370,7 +374,7 @@ def gather_msr_data(
             },
             "properties": [{"property": "total_threats"}, {"property": "blocked_count"}],
         }
-        mapped = region_header(region) or "europe"
+        mapped = region
         candidates = [mapped, *{"europe": ["uk"], "uk": ["europe"]}.get(mapped, [])]
         for cand in candidates:
             resp = mt_session.post(

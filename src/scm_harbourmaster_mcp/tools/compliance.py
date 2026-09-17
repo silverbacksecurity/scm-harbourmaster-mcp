@@ -24,6 +24,7 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
+from ..config.region import resolve_region_with_source
 from ..utils.errors import handle_scm_exception
 from ..utils.logging import get_logger
 from ..utils.tool_decorator import scm_tool
@@ -138,61 +139,81 @@ def _configured_region(tenant_id: str) -> str:
     return (getattr(meta, "compliance_region", "") or "").strip().lower() if meta else ""
 
 
-def _discover_region(client: Any, tenant_id: str) -> str:
-    """Probe the documented regions and return the one holding this tenant's data.
+def compliance_probe(client: Any, region: str, framework_id: str = "") -> tuple[str, str]:
+    """Ask one region whether it holds Compliance results for this tenant.
+
+    Returns ``(verdict, framework_id)`` where verdict is ``"data"``,
+    ``"empty"``, ``"no frameworks"`` or ``"HTTP <code>"``. Pass the returned
+    framework_id back in to skip the /summaries lookup on later regions.
 
     Compliance *definitions* are global (the same predefined frameworks answer
-    in every region), so they cannot be used to identify the right one. The
-    per-tenant assessment results are regional, and ``data_available`` on
-    ``/overall-compliance`` is an explicit flag for exactly that — so pick a
-    framework from /summaries, then ask each region whether it holds results.
-
-    Costs at most four extra GETs, once per tenant per process. Returns "" if
-    no region has data, which is a legitimate state for an unassessed tenant.
+    in every region), so they cannot identify the right one. The per-tenant
+    assessment results are regional, and ``data_available`` on
+    ``/overall-compliance`` is an explicit flag for exactly that.
     """
     session = _bearer_session(client)
-    try:
+    if not framework_id:
         resp = session.get(f"{_COMPLIANCE_BASE}/summaries", timeout=_TIMEOUT)
         if resp.status_code != 200:
-            return ""
+            return f"HTTP {resp.status_code}", ""
         rows = (resp.json() or {}).get("data") or []
-        framework_id = next((r.get("id") for r in rows if r.get("id")), None)
+        framework_id = next((r.get("id") for r in rows if r.get("id")), "") or ""
         if not framework_id:
-            return ""
+            return "no frameworks", ""
+    probe = session.get(
+        f"{_COMPLIANCE_BASE}/overall-compliance/{framework_id}",
+        headers={"X-PANW-Region": region},
+        timeout=_TIMEOUT,
+    )
+    if probe.status_code != 200:
+        return f"HTTP {probe.status_code}", framework_id
+    products = (probe.json() or {}).get("products") or {}
+    has_data = any(p.get("data_available") for p in products.values() if isinstance(p, dict))
+    return ("data" if has_data else "empty"), framework_id
 
+
+def _discover_region(client: Any, tenant_id: str) -> str:
+    """Probe the documented Compliance regions and return the one holding data.
+
+    Costs at most five GETs, once per tenant per process. Returns "" if no
+    region has data, which is a legitimate state for an unassessed tenant. It
+    stops at the first hit, so it cannot tell a single-region tenant from an
+    ambiguous one — which is why the result stays in this module's cache and
+    is not fed to the shared resolver (mssp_detect_region does that).
+    """
+    framework_id = ""
+    try:
         for region in _COMPLIANCE_REGIONS:
-            probe = session.get(
-                f"{_COMPLIANCE_BASE}/overall-compliance/{framework_id}",
-                headers={"X-PANW-Region": region},
-                timeout=_TIMEOUT,
-            )
-            if probe.status_code != 200:
-                continue
-            products = (probe.json() or {}).get("products") or {}
-            if any(p.get("data_available") for p in products.values() if isinstance(p, dict)):
+            verdict, framework_id = compliance_probe(client, region, framework_id)
+            if verdict == "data":
                 logger.info("compliance_region_discovered", tenant_id=tenant_id, region=region)
                 return region
+            if not framework_id:
+                return ""
     except Exception as exc:  # discovery is best-effort — never break the call
         logger.warning("compliance_region_discovery_failed", tenant_id=tenant_id, error=str(exc))
     return ""
 
 
 def _resolve_region(client: Any, tenant_id: str) -> tuple[str, str]:
-    """Return (region, source) for *tenant_id*, discovering it once if needed."""
+    """Return (region, source) for *tenant_id*, discovering it once if needed.
+
+    Order: compliance_region > the tenant's data ``region`` > a region cached
+    by mssp_detect_region > probing the Compliance regions here.
+    """
     key = tenant_id or "<default>"
     with _region_lock:
         cached = _region_cache.get(key)
     if cached is not None:
         return cached
 
-    configured = _configured_region(tenant_id)
-    result = (
-        (configured, "configured")
-        if configured
-        else (_discover_region(client, tenant_id), "auto-detected")
-    )
-    if not result[0]:
-        result = ("", "none")
+    region, source = resolve_region_with_source(tenant_id, explicit=_configured_region(tenant_id))
+    if region:
+        label = {"override": "configured", "detected": "auto-detected"}.get(source, source)
+        result = (region, label)
+    else:
+        discovered = _discover_region(client, tenant_id)
+        result = (discovered, "auto-detected") if discovered else ("", "none")
 
     with _region_lock:
         _region_cache[key] = result
@@ -220,8 +241,9 @@ def _region_note(client: Any, tenant_id: str) -> str:
         "> ⚠️ **No data region identified for this tenant.** The Compliance API returns "
         "an empty result set (scores of `N/A`, zero counts) rather than an error when it "
         "is queried without a matching region, so the figures below may be blank for that "
-        "reason rather than because the tenant is non-compliant. Set `compliance_region` "
-        f"for this tenant in settings.toml — one of: {', '.join(_COMPLIANCE_REGIONS)}."
+        "reason rather than because the tenant is non-compliant. Run `mssp_detect_region` "
+        "for this tenant, or set `compliance_region` in settings.toml — one of: "
+        f"{', '.join(_COMPLIANCE_REGIONS)}."
     )
 
 
