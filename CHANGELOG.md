@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`scm_decryption_rule_copy` and `scm_gp_copy`** (`tools/tenant_copy.py`,
+  new file) — copy SSL decryption rules and Mobile Users GlobalProtect
+  configuration between tenants. Both are dry runs by default, need a
+  `ticket_ref`, and never commit. The rule copy keeps source order, skips
+  snippet placeholders, same-name rules and rules whose decryption profile is
+  missing, warns when enabled decrypt rules meet a target without a readable
+  forward-trust certificate, and can create rules disabled. The GP copy
+  creates infrastructure only when the target has none (with a new portal
+  hostname and optional IP pool and location overrides), sets locations and
+  manual-gateway regions while keeping the target's agent version, creates or
+  updates agent profiles, and creates missing authentication settings. It
+  works around the mobile-agent API's limits found in live use — short
+  infrastructure names, `os: ["any"]`, the connect-method/tunnel-mtu-only app
+  config, no update route for auth settings, tenant-bound Cloud Identity
+  Engine profiles — and lists what must be set in the UI
 - **`scm_pab_backup` and `scm_pab_restore`** (`tools/pab_transfer.py`, new
   file) — back up the Prisma Access Browser objects the Browser Management
   API can re-create (custom applications of all four types, their plugins,

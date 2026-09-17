@@ -4,7 +4,7 @@
 
 All tools authenticate via Bearer-token OAuth (SASE client credentials) configured in `settings.toml` / `.secrets.toml`.
 
-**<!-- tool-count -->170<!-- /tool-count --> tools** across <!-- module-count -->40<!-- /module-count --> modules.
+**<!-- tool-count -->172<!-- /tool-count --> tools** across <!-- module-count -->41<!-- /module-count --> modules.
 
 ## Table of Contents
 
@@ -48,6 +48,7 @@ All tools authenticate via Bearer-token OAuth (SASE client credentials) configur
 - [Service Status](#service-status)
 - [Site Management](#site-management)
 - [Ssr](#ssr)
+- [Tenant Copy](#tenant-copy)
 
 ---
 
@@ -5473,3 +5474,92 @@ Args:
 | `folder` | `str` | `''` |
 | `action` | `str` | `'add'` |
 | `dry_run` | `bool` | `True` |
+
+---
+
+## Tenant Copy
+
+_Copy SSL decryption rules and Mobile Users GlobalProtect settings between tenants._
+
+### `scm_decryption_rule_copy`
+
+Copy SSL decryption rules from one tenant to another.
+
+```
+Copies the named rules — or every real rule in the folder/position,
+skipping snippet placeholders — in source rulebase order, appended to
+the bottom of the target position. Never overwrites: same-name rules
+are skipped, as are rules whose decryption profile is missing in the
+target. Warns when enabled ``decrypt`` rules would reach a target
+without a forward-trust certificate (the push would fail);
+``create_disabled=True`` creates every copied rule disabled. Never
+commits — run scm_commit afterwards.
+
+Args:
+    tenant_id: Source tenant ID.
+    target_tenant_id: Destination tenant ID.
+    names: Rule names to copy (default: all real rules).
+    folder: Folder of the rules in both tenants (default: Shared).
+    position: Rulebase position, ``pre`` or ``post`` (default: pre).
+    create_disabled: Create every copied rule disabled.
+    dry_run: If True (default), report without writing.
+    ticket_ref: Mandatory change-ticket reference (never sent to SCM).
+
+**Write safety (SSR pattern):** ``dry_run=True`` by default;
+``ticket_ref`` is mandatory.
+```
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `tenant_id` | `str` | `—` |
+| `target_tenant_id` | `str` | `—` |
+| `names` | `list[str] \| None` | `None` |
+| `folder` | `str` | `'Shared'` |
+| `position` | `str` | `'pre'` |
+| `create_disabled` | `bool` | `False` |
+| `dry_run` | `bool` | `True` |
+| `ticket_ref` | `str` | `''` |
+
+### `scm_gp_copy`
+
+Copy Mobile Users GlobalProtect configuration from one tenant to another.
+
+```
+Applies, in order: infrastructure settings (only if the target has
+none — then ``portal_hostname`` is required, since portal names are
+globally unique), locations, global settings (manual-gateway regions;
+the target keeps its agent version unless ``copy_agent_version``),
+agent profiles (created or updated), and missing authentication
+settings. Handles the mobile-agent API's limits: app settings other
+than connect-method and tunnel-mtu, existing authentication settings,
+and Cloud Identity Engine profiles cannot be written — they are listed
+for the UI. Onboarding infrastructure deploys Prisma Access Mobile
+Users locations. Never commits — run scm_commit on ``Mobile Users``
+with ``admin="all"`` afterwards.
+
+Args:
+    tenant_id: Source tenant ID.
+    target_tenant_id: Destination tenant ID.
+    portal_hostname: Portal hostname for new target infrastructure
+        (short form, e.g. "acme-lab"; SCM appends the domain).
+    ip_pool: Mobile Users IP pool for new infrastructure (default: source's).
+    locations: Location override for a single-region source, e.g.
+        ["eu-west-1", "eu-west-2"] (default: source's).
+    copy_agent_version: Also copy the source's GlobalProtect agent version.
+    dry_run: If True (default), report without writing.
+    ticket_ref: Mandatory change-ticket reference (never sent to SCM).
+
+**Write safety (SSR pattern):** ``dry_run=True`` by default;
+``ticket_ref`` is mandatory.
+```
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `tenant_id` | `str` | `—` |
+| `target_tenant_id` | `str` | `—` |
+| `portal_hostname` | `str` | `''` |
+| `ip_pool` | `str` | `''` |
+| `locations` | `list[str] \| None` | `None` |
+| `copy_agent_version` | `bool` | `False` |
+| `dry_run` | `bool` | `True` |
+| `ticket_ref` | `str` | `''` |

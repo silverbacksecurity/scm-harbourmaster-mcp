@@ -6,7 +6,7 @@
 #
 # Regenerate/verify coverage: tests/unit/test_planner_manifest.py fails
 # whenever a registered tool lacks an entry here (or vice versa).
-# Tools: 170 | write: 30 | domains: 11
+# Tools: 172 | write: 32 | domains: 11
 
 dlp_backup:
   access: read
@@ -385,6 +385,13 @@ scm_csp_licensing_query:
     managed tenant''s SCM OAuth, so results are independent of the `tenant`
     argument. A 401 means the CSP client_id/secret are stale or the
     fwflex-service scope was revoked, not a bad managed-tenant token.'
+scm_decryption_rule_copy:
+  access: write
+  domain: config_change
+  idempotent: true
+  known_failure_modes: Never overwrites — same-name rules and rules whose decryption profile is missing are skipped. Enabled decrypt rules fail the push unless the target selects a forward-trust certificate (create_disabled=True avoids it). Never commits.
+  retry_policy: fail_fast
+  scope: cross_tenant
 scm_decrypt_policy_audit:
   access: read
   domain: threat_coverage
@@ -489,6 +496,13 @@ scm_folder_list:
   idempotent: true
   retry_policy: retry
   scope: tenant
+scm_gp_copy:
+  access: write
+  domain: deployment
+  idempotent: false
+  known_failure_modes: Creating infrastructure onboards Mobile Users locations (licence capacity). Existing target infrastructure and auth settings are not replaced; app settings other than connect-method/tunnel-mtu and CIE auth profiles must be set in the UI. Never commits.
+  retry_policy: fail_fast
+  scope: cross_tenant
 scm_gp_session_summary:
   access: read
   domain: operational_health

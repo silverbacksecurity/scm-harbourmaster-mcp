@@ -61,6 +61,7 @@ from .tools.service_status import register_service_status_tools
 from .tools.setup import register_setup_tools
 from .tools.site_management import register_site_management_tools
 from .tools.ssr import register_ssr_tools
+from .tools.tenant_copy import register_tenant_copy_tools
 from .toolsets import (
     ALWAYS_ON_TOOLS,
     PROFILES,
@@ -209,6 +210,7 @@ def _registrars(
         "register_adnsr_tools": lambda m: register_adnsr_tools(m, get_client),
         "register_ops_tools": lambda m: register_ops_tools(m, get_client),
         "register_cert_transfer_tools": lambda m: register_cert_transfer_tools(m, get_client),
+        "register_tenant_copy_tools": lambda m: register_tenant_copy_tools(m, get_client),
         "register_msr_tools": lambda m: register_msr_tools(m, get_client),
         "register_spi_tools": lambda m: register_spi_tools(m, get_client),
         "register_pab_msp_tools": lambda m: register_pab_msp_tools(m, get_client),

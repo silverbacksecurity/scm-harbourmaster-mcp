@@ -7,7 +7,7 @@
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 
-MCP (Model Context Protocol) server for **Palo Alto Networks Strata Cloud Manager (SCM)**, built for Managed Security Service Providers. Exposes <!-- tool-count -->170<!-- /tool-count --> SCM operations as MCP tools consumable by Claude Desktop, Cursor, Copilot Studio, or any MCP-compatible AI assistant.
+MCP (Model Context Protocol) server for **Palo Alto Networks Strata Cloud Manager (SCM)**, built for Managed Security Service Providers. Exposes <!-- tool-count -->172<!-- /tool-count --> SCM operations as MCP tools consumable by Claude Desktop, Cursor, Copilot Studio, or any MCP-compatible AI assistant.
 
 ---
 
@@ -178,7 +178,7 @@ Add to `~/.config/Claude/claude_desktop_config.json`:
 }
 ```
 
-Restart Claude Desktop. The server registers as <!-- tool-count -->170<!-- /tool-count --> tools in Cowork mode.
+Restart Claude Desktop. The server registers as <!-- tool-count -->172<!-- /tool-count --> tools in Cowork mode.
 
 ### Cursor / VS Code
 
@@ -573,6 +573,8 @@ List all tenants, their auth status, and which licences are expiring soonest.
 | `scm_cert_scan` | Scan all certificate objects across folders, flag expiring within N days (default 90) with CRITICAL/WARNING/CAUTION/OK status |
 | `scm_cert_export` | Export a tenant's certificates: public PEM, CA/system flags and whether a private key is exportable (keys never shown) |
 | `scm_cert_copy` | Copy certificates (with exportable private keys) between tenants; dry run by default, never overwrites same-name certs |
+| `scm_decryption_rule_copy` | Copy SSL decryption rules between tenants; dry run by default, skips same-name rules and missing profiles, warns on forward-trust prerequisite, optional create-disabled |
+| `scm_gp_copy` | Copy Mobile Users GlobalProtect config (infrastructure, locations, global settings, agent profiles, auth settings) between tenants; lists API-unsupported settings for the UI |
 | `scm_licence_forecast` | Licence expiry and seat utilisation per tenant; `all_tenants=True` scans every MSSP tenant in one call |
 | `scm_tenant_dashboard` | NOC wallboard: rules, remote networks, tunnels, nearest licence expiry, and RAG status for every MSSP tenant |
 | `scm_spn_bandwidth` | SPN bandwidth allocation vs branch count; per-branch Mbps share and oversubscription risk (HIGH/MEDIUM/LOW) |

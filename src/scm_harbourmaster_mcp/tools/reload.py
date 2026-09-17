@@ -116,6 +116,7 @@ _RELOAD_ORDER = [
     "scm_harbourmaster_mcp.audit.incident_rca",
     "scm_harbourmaster_mcp.tools.ops",
     "scm_harbourmaster_mcp.tools.cert_transfer",
+    "scm_harbourmaster_mcp.tools.tenant_copy",
     "scm_harbourmaster_mcp.tools.mt_monitor",
     "scm_harbourmaster_mcp.audit.msr_report",
     "scm_harbourmaster_mcp.tools.audit",

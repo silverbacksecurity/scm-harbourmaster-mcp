@@ -44,6 +44,7 @@ DESTRUCTIVE_TOOLS: frozenset[str] = frozenset(
         "scm_config_rollback",  # replaces candidate config with an older version
         "scm_config_push_track",  # rollback_on_failure reloads an older version
         "scm_config_clone",  # on_conflict="overwrite" replaces target objects
+        "scm_gp_copy",  # replaces target agent profiles and Mobile Users locations
         "scm_compliance_framework",  # action=delete
         "scm_config_orch_remote_networks",  # action=delete
         "scm_config_orch_bandwidth",  # action=delete
@@ -66,6 +67,7 @@ IDEMPOTENT_WRITE_TOOLS: frozenset[str] = frozenset(
         "scm_reload",
         "scm_cert_copy",  # same-name certs in the target are skipped
         "scm_pab_restore",  # same-name objects in the target are skipped
+        "scm_decryption_rule_copy",  # same-name rules in the target are skipped
     }
 )
 
