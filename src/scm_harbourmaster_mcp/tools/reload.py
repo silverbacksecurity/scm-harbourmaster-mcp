@@ -103,6 +103,7 @@ _RELOAD_ORDER = [
     "scm_harbourmaster_mcp.tools.mssp",
     "scm_harbourmaster_mcp.tools.mt_interconnect",
     "scm_harbourmaster_mcp.tools.pab",
+    "scm_harbourmaster_mcp.tools.pab_transfer",
     "scm_harbourmaster_mcp.tools.pab_msp",
     "scm_harbourmaster_mcp.tools.sdwan",
     "scm_harbourmaster_mcp.tools.setup",

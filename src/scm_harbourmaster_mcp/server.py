@@ -49,6 +49,7 @@ from .tools.objects import register_object_tools
 from .tools.ops import register_ops_tools
 from .tools.pab import register_pab_tools
 from .tools.pab_msp import register_pab_msp_tools
+from .tools.pab_transfer import register_pab_transfer_tools
 from .tools.planner_tools import register_planner_tools
 from .tools.policy_optimizer import register_policy_optimizer_tools
 from .tools.posture import register_posture_tools
@@ -210,6 +211,7 @@ def _registrars(
         "register_spi_tools": lambda m: register_spi_tools(m, get_client),
         "register_pab_msp_tools": lambda m: register_pab_msp_tools(m, get_client),
         "register_pab_tools": lambda m: register_pab_tools(m, get_client),
+        "register_pab_transfer_tools": lambda m: register_pab_transfer_tools(m, get_client),
         "register_service_status_tools": lambda m: register_service_status_tools(m, get_client),
         "register_planner_tools": lambda m: register_planner_tools(m, get_client),
         "register_insights_tools": lambda m: register_insights_tools(m, get_client),

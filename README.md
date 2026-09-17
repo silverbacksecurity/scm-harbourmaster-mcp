@@ -7,7 +7,7 @@
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 
-MCP (Model Context Protocol) server for **Palo Alto Networks Strata Cloud Manager (SCM)**, built for Managed Security Service Providers. Exposes <!-- tool-count -->167<!-- /tool-count --> SCM operations as MCP tools consumable by Claude Desktop, Cursor, Copilot Studio, or any MCP-compatible AI assistant.
+MCP (Model Context Protocol) server for **Palo Alto Networks Strata Cloud Manager (SCM)**, built for Managed Security Service Providers. Exposes <!-- tool-count -->169<!-- /tool-count --> SCM operations as MCP tools consumable by Claude Desktop, Cursor, Copilot Studio, or any MCP-compatible AI assistant.
 
 ---
 
@@ -178,7 +178,7 @@ Add to `~/.config/Claude/claude_desktop_config.json`:
 }
 ```
 
-Restart Claude Desktop. The server registers as <!-- tool-count -->167<!-- /tool-count --> tools in Cowork mode.
+Restart Claude Desktop. The server registers as <!-- tool-count -->169<!-- /tool-count --> tools in Cowork mode.
 
 ### Cursor / VS Code
 
@@ -560,6 +560,8 @@ List all tenants, their auth status, and which licences are expiring soonest.
 | `scm_casb_list` | List CASB SaaS tenant restriction policies |
 | `scm_ztna_connector_list` | List ZTNA Connector infrastructure (connectors and groups) |
 | `scm_browser_list` | List Prisma Browser device/user/application group configuration |
+| `scm_pab_backup` | Back up Prisma Access Browser config (custom apps, plugins, app/device/user groups) to a local JSON file |
+| `scm_pab_restore` | Restore a PAB backup onto a tenant; dry run by default, skips same-name objects, remaps app IDs and user emails, optional draft publish |
 | `scm_ngfw_device_list` | List NGFW managed devices onboarded to Strata Cloud Manager |
 | `scm_airs_list` | List Prisma AIRS (AI Runtime Security) configuration and profiles |
 

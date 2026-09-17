@@ -4,7 +4,7 @@
 
 All tools authenticate via Bearer-token OAuth (SASE client credentials) configured in `settings.toml` / `.secrets.toml`.
 
-**<!-- tool-count -->167<!-- /tool-count --> tools** across <!-- module-count -->38<!-- /module-count --> modules.
+**<!-- tool-count -->169<!-- /tool-count --> tools** across <!-- module-count -->39<!-- /module-count --> modules.
 
 ## Table of Contents
 
@@ -41,6 +41,7 @@ All tools authenticate via Bearer-token OAuth (SASE client credentials) configur
 - [Msr](#msr)
 - [Mt Monitor](#mt-monitor)
 - [Pab](#pab)
+- [Pab Transfer](#pab-transfer)
 - [Planner Tools](#planner-tools)
 - [Policy Optimizer](#policy-optimizer)
 - [Service Status](#service-status)
@@ -4934,6 +4935,71 @@ Returns:
 | `status` | `str` | `''` |
 | `request_type` | `str` | `''` |
 | `limit` | `int` | `50` |
+
+---
+
+## Pab Transfer
+
+_Prisma Access Browser configuration backup and restore._
+
+### `scm_pab_backup`
+
+Back up a tenant's Prisma Access Browser configuration to a local JSON file.
+
+```
+Read-only. Saves every object the Browser Management API can re-create:
+custom applications (custom, private, non-web, local desktop) and their
+plugins, application groups, device groups, and user groups (members as
+emails). Browser policy rules, data controls, security settings and
+customisation have no API and are NOT included — copy those in the UI.
+
+The file (which can contain user emails) is written locally and not
+returned inline. Pass its path to scm_pab_restore.
+
+Args:
+    tenant_id: Source tenant ID.
+    output_dir: Directory for the backup file (default: ./backups or
+        $SCM_MCP_BACKUP_DIR).
+```
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `tenant_id` | `str` | `''` |
+| `output_dir` | `str` | `''` |
+
+### `scm_pab_restore`
+
+Restore a scm_pab_backup file onto a tenant's Prisma Access Browser config.
+
+```
+Creates, in dependency order: custom applications, their plugins,
+application groups, device groups, user groups. Never overwrites — an
+object whose name already exists in the target is skipped (so
+predefined groups such as "Microsoft 365" are left alone). Custom
+application IDs are mapped by name and user-group members by email;
+members not enrolled in the target are left out and counted.
+
+Changes land in the Prisma Browser draft. ``publish=True`` publishes
+it after a successful restore; otherwise publish in the SCM UI.
+
+Args:
+    tenant_id: Target tenant ID.
+    backup_file: Path to a file written by scm_pab_backup.
+    publish: Publish the draft after creating objects (default False).
+    dry_run: If True (default), report what would be created without writing.
+    ticket_ref: Mandatory change-ticket reference (never sent to the API).
+
+**Write safety (SSR pattern):** ``dry_run=True`` by default;
+``ticket_ref`` is mandatory.
+```
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `tenant_id` | `str` | `''` |
+| `backup_file` | `str` | `—` |
+| `publish` | `bool` | `False` |
+| `dry_run` | `bool` | `True` |
+| `ticket_ref` | `str` | `''` |
 
 ---
 

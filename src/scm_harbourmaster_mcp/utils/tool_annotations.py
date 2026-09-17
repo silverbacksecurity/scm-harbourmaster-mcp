@@ -65,6 +65,7 @@ IDEMPOTENT_WRITE_TOOLS: frozenset[str] = frozenset(
         "mssp_evict_tenant",
         "scm_reload",
         "scm_cert_copy",  # same-name certs in the target are skipped
+        "scm_pab_restore",  # same-name objects in the target are skipped
     }
 )
 

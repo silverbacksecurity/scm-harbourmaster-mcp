@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`scm_pab_backup` and `scm_pab_restore`** (`tools/pab_transfer.py`, new
+  file) — back up the Prisma Access Browser objects the Browser Management
+  API can re-create (custom applications of all four types, their plugins,
+  application groups, device groups, user groups with members as emails) to
+  a local JSON file, and restore that file onto another tenant. The restore
+  is a dry run by default, needs a `ticket_ref`, never overwrites same-name
+  objects, maps custom application IDs by name and users by email, aborts
+  before writing if the target cannot be read, and publishes the draft only
+  with `publish=True`. Browser policy rules, data controls, security settings
+  and customisation have no API and are not included
 - **`scm_cert_export` and `scm_cert_copy`** (`tools/cert_transfer.py`, new
   file) — `scm_cert_export` lists every certificate in a tenant with its
   public PEM, CA and Prisma Access system flags, and whether SCM will release

@@ -685,6 +685,12 @@ scm_pab_apps:
   idempotent: true
   retry_policy: retry
   scope: tenant
+scm_pab_backup:
+  access: read
+  domain: pab
+  idempotent: true
+  retry_policy: retry
+  scope: tenant
 scm_pab_inventory:
   access: read
   domain: pab
@@ -708,6 +714,13 @@ scm_pab_msp_summary:
   domain: pab
   idempotent: true
   retry_policy: retry
+  scope: tenant
+scm_pab_restore:
+  access: write
+  domain: pab
+  idempotent: true
+  known_failure_modes: Never overwrites — same-name objects are skipped. Browser policy rules, data controls and customisation have no API and are not restored. User-group members not enrolled in the target are dropped.
+  retry_policy: fail_fast
   scope: tenant
 scm_pab_user_requests:
   access: read

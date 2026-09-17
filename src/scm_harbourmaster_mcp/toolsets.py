@@ -76,6 +76,7 @@ TOOLSETS: dict[str, tuple[str, ...]] = {
     "sase": (
         "register_casb_dlp_tools",
         "register_pab_tools",
+        "register_pab_transfer_tools",
         "register_pab_msp_tools",
     ),
     "ngfw": ("register_ngfw_airs_tools", "register_adnsr_tools"),
