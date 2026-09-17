@@ -34,9 +34,11 @@ from ..audit.commit_preview import (
     bpa_delta,
     build_address_index,
     find_shadowed_rules,
+    is_evaluable_rule,
     render_commit_preview,
     render_shadow_audit,
     rule_identity,
+    snippet_anchor_keys,
     unresolved_address_names,
 )
 from ..audit.drift_baseline import (
@@ -2150,6 +2152,7 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
                 focus,
                 addresses=candidate.addresses,
                 address_groups=candidate.address_groups,
+                snippet_anchors=snippet_anchor_keys(candidate.scm_folders, candidate.scm_snippets),
             )
             if focus
             else []
@@ -2214,7 +2217,8 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
         snap = extract_snapshot(client, folder, tsg)
 
         all_rules = snap.security_rules_pre + snap.security_rules_post
-        enabled = [r for r in all_rules if not r.get("disabled")]
+        anchors = snippet_anchor_keys(snap.scm_folders, snap.scm_snippets)
+        enabled = [r for r in all_rules if is_evaluable_rule(r, anchors)]
         # Keyed by rule_identity(), not bare name — a name can legitimately
         # repeat across the pre- and post-rulebase (or across the folders
         # merged into `all_rules`), and a bare-name key would let a later
@@ -2235,7 +2239,7 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
         # resolution internally, doubling the cost of the slowest part of
         # this tool for no benefit.
         index = build_address_index(snap.addresses, snap.address_groups)
-        shadows = find_shadowed_rules(all_rules, index=index)
+        shadows = find_shadowed_rules(all_rules, index=index, snippet_anchors=anchors)
         unresolved = unresolved_address_names(index)
 
         report = render_shadow_audit(

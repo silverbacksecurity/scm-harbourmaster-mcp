@@ -263,6 +263,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `/etc` are unchanged.
 
 ### Fixed
+- **Commit preview and shadow audit flagged non-rules as shadowing**
+  (`audit/commit_preview.py`, `tools/audit.py`) — snippet placeholder entries
+  in a rulebase (id/name/folder only, which the SDK fills with allow/any
+  defaults) and Internet-policy rules were compared as allow-all security
+  rules, burying real findings under dozens of false shadows. Both are now
+  skipped (placeholders identified from each folder's attached snippets), and
+  `source_user`, `source_hip`, `destination_hip` and `category` now narrow
+  coverage, so a HIP-, user- or category-scoped rule no longer "covers" an
+  unscoped one
 - **Config backups put every security rule in both pre and post**
   (`audit/extractor.py`) — cloud leaf folders (Mobile Users, Remote Networks,
   Explicit Proxy) ignore the position selector and return the whole effective

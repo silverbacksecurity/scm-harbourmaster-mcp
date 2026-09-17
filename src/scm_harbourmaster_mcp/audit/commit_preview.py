@@ -40,6 +40,12 @@ _LITERAL_MATCH_FIELDS = [
     ("to_", "to"),
     ("application", "application"),
     ("service", "service"),
+    # A rule scoped to a HIP profile, user or URL category matches less than
+    # an otherwise identical "any" rule, so these narrow coverage too.
+    ("source_user", "source_user"),
+    ("source_hip", "source_hip"),
+    ("destination_hip", "destination_hip"),
+    ("category", "category"),
 ]
 _ADDRESS_FIELDS = [
     ("source", "source", "negate_source"),
@@ -229,6 +235,47 @@ def _scopes_overlap(a_folder: str | None, b_folder: str | None) -> bool:
     return a == b
 
 
+# Objects report the Prisma Access container as "Shared"; folder listings use
+# the display name.
+_FOLDER_LABELS = {"Prisma Access": "Shared"}
+
+
+def snippet_anchor_keys(
+    folders: list[dict[str, Any]], snippets: list[dict[str, Any]] | None = None
+) -> set[tuple[str, str]]:
+    """(folder label, name) keys of the snippet placeholders in a rulebase.
+
+    Each snippet attached to a folder appears in that folder's rulebase as a
+    bare entry named after the snippet (id/name/folder only); the SDK fills in
+    allow/any defaults, which would otherwise read as an allow-all rule.
+    Without folder data, every known snippet name is treated as a placeholder
+    in any folder (``("*", name)``).
+    """
+    keys = {
+        (_FOLDER_LABELS.get(str(f.get("name")), str(f.get("name"))), str(sn))
+        for f in folders or []
+        for sn in f.get("snippets") or []
+    }
+    if not keys:
+        keys = {("*", str(sn.get("name"))) for sn in snippets or [] if sn.get("name")}
+    return keys
+
+
+def is_evaluable_rule(rule: dict[str, Any], anchors: set[tuple[str, str]] | None = None) -> bool:
+    """False for entries that don't match traffic as a security rule:
+    disabled rules, non-Security policy types (e.g. Internet/web-security
+    rules, which use different match fields) and snippet placeholders."""
+    if rule.get("disabled"):
+        return False
+    if str(rule.get("policy_type") or "Security") != "Security":
+        return False
+    if anchors:
+        name = str(rule.get("name", ""))
+        if (str(rule.get("folder") or ""), name) in anchors or ("*", name) in anchors:
+            return False
+    return True
+
+
 def rule_identity(rule: dict[str, Any]) -> str:
     """Best-effort unique identity for one rule *instance*.
 
@@ -290,6 +337,7 @@ def find_shadowed_rules(
     addresses: list[dict[str, Any]] | None = None,
     address_groups: list[dict[str, Any]] | None = None,
     index: dict[str, set[_IPNetwork] | None] | None = None,
+    snippet_anchors: set[tuple[str, str]] | None = None,
 ) -> list[dict[str, str]]:
     """Detect rules that an earlier rule fully covers (classic shadow).
 
@@ -339,13 +387,17 @@ def find_shadowed_rules(
     rulebases, since a bare-name entry matches that name in *either*
     rulebase (see `_in_focus`). None means report everything.
 
+    Disabled rules, non-Security policy types and snippet placeholders
+    (`snippet_anchors`, from `snippet_anchor_keys()`) are never compared —
+    see `is_evaluable_rule`.
+
     Each finding carries `shadowed_id`/`by_id` (see `rule_identity()`)
     alongside the bare-name `shadowed`/`by` fields, for callers needing to
     look up per-instance metadata without risking a same-name collision.
     """
     if index is None:
         index = build_address_index(addresses, address_groups)
-    active = [r for r in rules if not r.get("disabled")]
+    active = [r for r in rules if is_evaluable_rule(r, snippet_anchors)]
 
     # Precompute each rule's field values, resolved CIDR sets, and identity
     # ONCE up front rather than inside the O(n^2) pair loop below — without

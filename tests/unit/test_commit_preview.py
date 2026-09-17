@@ -12,9 +12,11 @@ from scm_harbourmaster_mcp.audit.commit_preview import (
     bpa_delta,
     build_address_index,
     find_shadowed_rules,
+    is_evaluable_rule,
     preview_verdict,
     render_commit_preview,
     render_shadow_audit,
+    snippet_anchor_keys,
     unresolved_address_names,
 )
 from scm_harbourmaster_mcp.audit.models import AuditSnapshot, Finding, Severity, Status
@@ -472,3 +474,67 @@ class TestFindShadowedRulesCrossRulebase:
         ]
         (s,) = find_shadowed_rules(pre + post)
         assert s["shadowed"] == "post-narrow" and s["by"] == "pre-broad"
+
+
+class TestNonEvaluableEntries:
+    """Rulebase entries that must never count as shadowing (or shadowed)."""
+
+    FOLDERS = [
+        {"name": "All", "snippets": ["default", "hip-default"]},
+        {"name": "Prisma Access", "snippets": ["optional-default"]},
+    ]
+
+    def test_snippet_placeholders_do_not_shadow(self) -> None:
+        anchors = snippet_anchor_keys(self.FOLDERS)
+        rules = [
+            _rule("default", folder="All"),
+            _rule("optional-default", folder="Shared"),
+            _rule("block-quic", folder="Shared", action="deny", application=["quic"]),
+        ]
+        assert find_shadowed_rules(rules, snippet_anchors=anchors) == []
+
+    def test_snippet_name_in_another_folder_is_a_real_rule(self) -> None:
+        anchors = snippet_anchor_keys(self.FOLDERS)
+        rules = [
+            _rule("optional-default", folder="Mobile Users"),
+            _rule("later", folder="Mobile Users", application=["ssl"]),
+        ]
+        (s,) = find_shadowed_rules(rules, snippet_anchors=anchors)
+        assert s["by"] == "optional-default"
+
+    def test_without_folder_data_snippet_names_match_any_folder(self) -> None:
+        anchors = snippet_anchor_keys([], [{"name": "rbi"}])
+        assert not is_evaluable_rule(_rule("rbi", folder="Shared"), anchors)
+        assert is_evaluable_rule(_rule("real", folder="Shared"), anchors)
+
+    def test_internet_policy_rules_are_skipped(self) -> None:
+        rules = [
+            _rule("internet-access-default", policy_type="Internet"),
+            _rule("later", policy_type="Security", application=["ssl"]),
+        ]
+        assert find_shadowed_rules(rules) == []
+
+
+class TestNarrowingMatchFields:
+    def test_hip_scoped_deny_does_not_cover_any_rule(self) -> None:
+        rules = [
+            _rule("block-fw-off", action="deny", source_hip=["if-firewall-disabled"]),
+            _rule("allow-all"),
+        ]
+        assert find_shadowed_rules(rules) == []
+
+    def test_category_and_user_scoping_narrow_coverage(self) -> None:
+        rules = [
+            _rule("news-only", action="deny", category=["news"]),
+            _rule("user-only", action="deny", source_user=["corp\\alice"]),
+            _rule("allow-all"),
+        ]
+        assert find_shadowed_rules(rules) == []
+
+    def test_any_hip_still_covers_specific_hip(self) -> None:
+        rules = [
+            _rule("allow-all"),
+            _rule("hip-scoped", source_hip=["is-mac"], category=["news"]),
+        ]
+        (s,) = find_shadowed_rules(rules)
+        assert s["shadowed"] == "hip-scoped"
