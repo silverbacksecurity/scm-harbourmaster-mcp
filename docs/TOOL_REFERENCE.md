@@ -2995,7 +2995,9 @@ Args:
     private_key_pem: PEM private key for ``pem`` imports (optional).
     certificate_file_b64: Base64 file content for pkcs12/der imports.
     format: ``pem`` (default), ``pkcs12`` or ``der``.
-    passphrase: Key/PKCS#12 passphrase (optional for pem, required for pkcs12).
+    passphrase: Key/PKCS#12 passphrase (required for pkcs12 and for an
+        encrypted pem key). An unencrypted pem key is encrypted locally
+        before sending — SCM rejects a key without a passphrase.
     dry_run: If True (default), parse and describe the certificate
         without importing it.
     ticket_ref: Mandatory change-ticket reference (never sent to SCM).

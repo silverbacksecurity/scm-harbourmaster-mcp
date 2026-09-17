@@ -263,6 +263,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `/etc` are unchanged.
 
 ### Fixed
+- **`scm_cert_import` rejected by SCM for keys without a passphrase** — a
+  live import of a PEM certificate with an unencrypted private key failed
+  with `400 API_I00035: passphrase is required when key file is presented`.
+  An unencrypted PEM key is now encrypted locally (PKCS#8, with the caller's
+  passphrase or a random one) and sent with that passphrase; an encrypted key
+  is sent unchanged and now fails early if no passphrase is given. A
+  passphrase over SCM's 31-character limit (`400 API_I00013`) is rejected
+  before the call. Verified by a live import of a CA with its key into a lab
+  tenant (then deleted)
 - **`scm_cert_import` posted to the wrong endpoint and couldn't import keys**
   (`tools/ops.py`) — it sent `{"certificate", "ca"}` to
   `/sse/config/v1/certificates`, the certificate *generate* endpoint, whose

@@ -606,6 +606,8 @@ def _renewal_talking_points(
 # Fields of a certificate import that carry key material; never echoed.
 _CERT_SECRET_FIELDS = frozenset({"key_file", "passphrase", "certificate_file"})
 _CERT_FORMATS = ("pem", "pkcs12", "der")
+# SCM refuses a longer key passphrase (400 API_I00013, "at most 31 characters").
+_CERT_PASSPHRASE_MAX = 31
 
 
 def _redact_secrets(text: str, payload: dict[str, Any]) -> str:
@@ -635,22 +637,35 @@ def _describe_cert(cert: Any) -> dict[str, str]:
 
 def _prepare_cert_import(
     *, pem: str, private_key_pem: str, certificate_file_b64: str, fmt: str, passphrase: str
-) -> tuple[str, str, list[dict[str, str]], bool] | str:
+) -> tuple[str, str, str, list[dict[str, str]], bool] | str:
     """Validate the inputs and build the import API's base64 fields.
 
-    Returns (certificate_file, key_file, per-cert summaries, has_key), or an
-    error message. Parsing errors never include key material.
+    Returns (certificate_file, key_file, passphrase, per-cert summaries,
+    has_key), or an error message. Parsing errors never include key material.
+
+    SCM rejects a key without a passphrase (400 API_I00035) even when the key
+    is unencrypted, so an unencrypted PEM key is re-encrypted locally — with
+    the caller's passphrase, or a random one — and sent with that passphrase.
     """
     import base64
     import binascii
+    import secrets
 
     from cryptography import x509
-    from cryptography.hazmat.primitives.serialization import load_pem_private_key, pkcs12
+    from cryptography.hazmat.primitives.serialization import (
+        BestAvailableEncryption,
+        Encoding,
+        PrivateFormat,
+        load_pem_private_key,
+        pkcs12,
+    )
 
     if fmt not in _CERT_FORMATS:
         return f"format must be one of {', '.join(_CERT_FORMATS)}"
     if bool(pem.strip()) == bool(certificate_file_b64.strip()):
         return "supply exactly one of pem or certificate_file_b64"
+    if len(passphrase) > _CERT_PASSPHRASE_MAX:
+        return f"passphrase must be at most {_CERT_PASSPHRASE_MAX} characters (SCM limit)"
     secret = passphrase.encode() if passphrase else None
 
     if pem.strip():
@@ -661,14 +676,28 @@ def _prepare_cert_import(
         except ValueError:
             return "pem could not be parsed as one or more PEM certificates"
         key_file = ""
-        if private_key_pem.strip():
+        key_bytes = private_key_pem.strip().encode()
+        if key_bytes:
             try:
-                load_pem_private_key(private_key_pem.strip().encode(), password=secret)
-            except (ValueError, TypeError):
+                plain_key = load_pem_private_key(key_bytes, password=None)
+            except TypeError:  # encrypted: sent unchanged once the passphrase opens it
+                if not secret:
+                    return "private_key_pem is encrypted — pass its passphrase"
+                try:
+                    load_pem_private_key(key_bytes, password=secret)
+                except (ValueError, TypeError):
+                    return "private_key_pem could not be loaded (wrong format or passphrase)"
+            except ValueError:
                 return "private_key_pem could not be loaded (wrong format or passphrase)"
-            key_file = base64.b64encode(private_key_pem.strip().encode()).decode()
+            else:
+                passphrase = passphrase or secrets.token_urlsafe(18)  # 24 chars
+                key_bytes = plain_key.private_bytes(
+                    Encoding.PEM, PrivateFormat.PKCS8, BestAvailableEncryption(passphrase.encode())
+                )
+            key_file = base64.b64encode(key_bytes).decode()
         certificate_file = base64.b64encode(pem.strip().encode()).decode()
-        return certificate_file, key_file, [_describe_cert(c) for c in certs], bool(key_file)
+        summaries = [_describe_cert(c) for c in certs]
+        return certificate_file, key_file, passphrase, summaries, bool(key_file)
 
     if private_key_pem.strip():
         return "private_key_pem is only used with pem input; a pkcs12 file carries its own key"
@@ -684,13 +713,20 @@ def _prepare_cert_import(
         except (ValueError, TypeError):
             return "pkcs12 file could not be opened (wrong passphrase or not PKCS#12)"
         certs = [c for c in [cert, *extra] if c is not None]
-        return certificate_file_b64.strip(), "", [_describe_cert(c) for c in certs], key is not None
+        summaries = [_describe_cert(c) for c in certs]
+        return certificate_file_b64.strip(), "", passphrase, summaries, key is not None
     if fmt == "der":
         try:
             certs = [x509.load_der_x509_certificate(raw)]
         except ValueError:
             return "der file could not be parsed as a certificate"
-        return certificate_file_b64.strip(), "", [_describe_cert(c) for c in certs], False
+        return (
+            certificate_file_b64.strip(),
+            "",
+            passphrase,
+            [_describe_cert(c) for c in certs],
+            False,
+        )
     return "pem format requires the pem argument"
 
 
@@ -1126,7 +1162,9 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
             private_key_pem: PEM private key for ``pem`` imports (optional).
             certificate_file_b64: Base64 file content for pkcs12/der imports.
             format: ``pem`` (default), ``pkcs12`` or ``der``.
-            passphrase: Key/PKCS#12 passphrase (optional for pem, required for pkcs12).
+            passphrase: Key/PKCS#12 passphrase (required for pkcs12 and for an
+                encrypted pem key). An unencrypted pem key is encrypted locally
+                before sending — SCM rejects a key without a passphrase.
             dry_run: If True (default), parse and describe the certificate
                 without importing it.
             ticket_ref: Mandatory change-ticket reference (never sent to SCM).
@@ -1149,7 +1187,7 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
         )
         if isinstance(prepared, str):
             return f"Error: {prepared}"
-        certificate_file, key_file, summaries, has_key = prepared
+        certificate_file, key_file, passphrase, summaries, has_key = prepared
 
         if dry_run:
             lines = [

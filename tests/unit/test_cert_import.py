@@ -96,10 +96,79 @@ def test_pem_chain_with_key_uses_import_endpoint(chain: dict[str, Any]) -> None:
     body = _post_payload(client)
     assert body["format"] == "pem"
     assert base64.b64decode(body["certificate_file"]).decode() == chain["chain_pem"].strip()
-    assert base64.b64decode(body["key_file"]).decode() == chain["key_pem"].strip()
-    assert "passphrase" not in body and "certificate" not in body and "ca" not in body
+    assert "certificate" not in body and "ca" not in body
+    # SCM 400s (API_I00035) on a key without a passphrase, so the unencrypted
+    # key goes out encrypted under a generated one — the same key underneath.
+    _assert_key_matches(body, chain["key_pem"])
     assert "with its private key" in out
     assert "PRIVATE KEY" not in out and body["key_file"] not in out
+    assert body["passphrase"] not in out
+    assert len(body["passphrase"]) <= 31
+
+
+def _assert_key_matches(body: dict[str, Any], key_pem: str) -> None:
+    sent = base64.b64decode(body["key_file"])
+    assert b"ENCRYPTED PRIVATE KEY" in sent
+    loaded = serialization.load_pem_private_key(sent, password=body["passphrase"].encode())
+    original = serialization.load_pem_private_key(key_pem.encode(), password=None)
+    assert loaded.private_numbers() == original.private_numbers()  # type: ignore[union-attr]
+
+
+def test_unencrypted_key_uses_caller_passphrase(chain: dict[str, Any]) -> None:
+    client = MagicMock()
+    client.post.return_value = {"id": "c-3"}
+    _tool(client)(
+        name="fwd-trust",
+        pem=chain["chain_pem"],
+        private_key_pem=chain["key_pem"],
+        passphrase=PASSPHRASE,
+        dry_run=False,
+        ticket_ref=TICKET,
+    )
+    body = _post_payload(client)
+    assert body["passphrase"] == PASSPHRASE
+    _assert_key_matches(body, chain["key_pem"])
+
+
+def test_encrypted_key_is_sent_unchanged_with_its_passphrase() -> None:
+    root, root_key = _cert("enc-key-ok", ca=True)
+    encrypted = root_key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.BestAvailableEncryption(b"right"),
+    ).decode()
+    client = MagicMock()
+    client.post.return_value = {"id": "c-4"}
+    _tool(client)(
+        name="c",
+        pem=root.public_bytes(serialization.Encoding.PEM).decode(),
+        private_key_pem=encrypted,
+        passphrase="right",
+        dry_run=False,
+        ticket_ref=TICKET,
+    )
+    body = _post_payload(client)
+    assert base64.b64decode(body["key_file"]).decode() == encrypted.strip()
+    assert body["passphrase"] == "right"
+
+
+def test_encrypted_key_without_passphrase_rejected() -> None:
+    root, root_key = _cert("enc-key-nopass", ca=True)
+    encrypted = root_key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.BestAvailableEncryption(b"right"),
+    ).decode()
+    client = MagicMock()
+    out = _tool(client)(
+        name="c",
+        pem=root.public_bytes(serialization.Encoding.PEM).decode(),
+        private_key_pem=encrypted,
+        dry_run=False,
+        ticket_ref=TICKET,
+    )
+    assert "encrypted — pass its passphrase" in out
+    client.post.assert_not_called()
 
 
 def test_pkcs12_sends_file_and_passphrase_but_never_echoes_them(chain: dict[str, Any]) -> None:
@@ -166,6 +235,10 @@ def test_api_error_is_redacted(chain: dict[str, Any]) -> None:
         ({"pem": "x", "certificate_file_b64": "eA=="}, "exactly one of"),
         ({"pem": "not a cert"}, "could not be parsed as one or more PEM"),
         ({"certificate_file_b64": "eA==", "format": "pkcs12"}, "requires passphrase"),
+        (
+            {"certificate_file_b64": "eA==", "format": "pkcs12", "passphrase": "x" * 32},
+            "at most 31 characters",
+        ),
         (
             {"certificate_file_b64": "eA==", "format": "pkcs12", "passphrase": "wrong"},
             "could not be opened",
