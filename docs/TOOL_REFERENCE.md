@@ -572,7 +572,12 @@ Args:
     folders: Folders whose changes to commit.
     description: Commit description (sent to SCM as-is).
     tenant_id: SCM tenant ID.
-    admin: Optional admin name to attribute the commit to.
+    admin: Whose pending changes to push. Empty (default) pushes only
+        this service account's own changes — SCM makes it a partial
+        commit, so edits made by another admin (e.g. in the UI) are
+        left behind. A comma-separated list of admin/service-account
+        logins pushes those admins' changes. ``all`` pushes every
+        pending change in the folders, whoever made it.
     dry_run: If True (default), preview the commit without running it.
     ticket_ref: Mandatory change-ticket reference (logged and echoed,
         never added to the commit description).

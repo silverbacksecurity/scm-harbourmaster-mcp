@@ -163,7 +163,12 @@ def register_deployment_tools(mcp: FastMCP, get_client: Any) -> None:
             folders: Folders whose changes to commit.
             description: Commit description (sent to SCM as-is).
             tenant_id: SCM tenant ID.
-            admin: Optional admin name to attribute the commit to.
+            admin: Whose pending changes to push. Empty (default) pushes only
+                this service account's own changes — SCM makes it a partial
+                commit, so edits made by another admin (e.g. in the UI) are
+                left behind. A comma-separated list of admin/service-account
+                logins pushes those admins' changes. ``all`` pushes every
+                pending change in the folders, whoever made it.
             dry_run: If True (default), preview the commit without running it.
             ticket_ref: Mandatory change-ticket reference (logged and echoed,
                 never added to the commit description).
@@ -175,6 +180,17 @@ def register_deployment_tools(mcp: FastMCP, get_client: Any) -> None:
         if not folders:
             return "Error: folders is required — list the folders whose changes to commit."
         desc = description or "Committed via scm-harbourmaster-mcp"
+        admins = [a.strip() for a in (admin or "").split(",") if a.strip()]
+        push_all = any(a.lower() == "all" for a in admins)
+        if push_all and len(admins) > 1:
+            return "Error: admin='all' cannot be combined with named admins."
+        scope = (
+            "all admins"
+            if push_all
+            else ", ".join(admins)
+            if admins
+            else "this service account's own changes only"
+        )
 
         if dry_run:
             return _fmt(
@@ -184,24 +200,41 @@ def register_deployment_tools(mcp: FastMCP, get_client: Any) -> None:
                     "ticket_ref": ticket_ref,
                     "folders": folders,
                     "description": desc,
+                    "admin_scope": scope,
                     "running_versions": _running_versions(client, folders),
-                    "note": "A commit pushes EVERYTHING pending in these folders, not just "
-                    "this session's changes. Run scm_commit_preview(folder=...) for a "
-                    "blast-radius analysis of the pending changes.",
+                    "note": "A commit pushes every pending change in these folders made by "
+                    "the admins in admin_scope — not just this session's changes. Run "
+                    "scm_commit_preview(folder=...) for a blast-radius analysis.",
                     "hint": DRY_RUN_HINT,
                 }
             )
 
-        audit_write("scm_commit", ticket_ref, tenant_id, folders=folders, description=desc)
-        result = client.commit(
-            folders=folders,
-            description=desc,
-            sync=True,
-            timeout=300,
+        audit_write(
+            "scm_commit", ticket_ref, tenant_id, folders=folders, description=desc, admin=scope
         )
+        if push_all:
+            # The SDK always sends an admin list (defaulting to the service
+            # account); the push API only covers every admin when the field is
+            # omitted, so this path calls the endpoint directly.
+            result = client.post(
+                "/config/operations/v1/config-versions/candidate:push",
+                json={"folders": folders, "description": desc},
+            )
+            job_id = result.get("job_id") if isinstance(result, dict) else None
+            if job_id:
+                client.wait_for_job(job_id, timeout=300)
+        else:
+            result = client.commit(
+                folders=folders,
+                description=desc,
+                admin=admins or None,
+                sync=True,
+                timeout=300,
+            )
         logger.info(
             "commit_triggered",
             folders=folders,
+            admin=scope,
             job_id=getattr(result, "job_id", None),
             ticket_ref=ticket_ref,
         )

@@ -274,6 +274,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `/etc` are unchanged.
 
 ### Fixed
+- **`scm_commit` ignored `admin`, so UI changes were never pushed** — the
+  argument was accepted but not passed on, and pan-scm-sdk always scopes a
+  commit to the calling service account. SCM then makes a partial commit that
+  leaves out anything another admin changed (for example, SSL decryption
+  settings edited in the UI). `admin` now takes a comma-separated list of
+  admins, or `all` to push every pending change in the folders (the push API
+  covers all admins only when its admin field is omitted, so that path calls
+  the endpoint directly). The dry run shows the admin scope, and its note no
+  longer claims a commit always pushes everything pending
 - **`scm_cert_import` rejected by SCM for keys without a passphrase** — a
   live import of a PEM certificate with an unencrypted private key failed
   with `400 API_I00035: passphrase is required when key file is presented`.

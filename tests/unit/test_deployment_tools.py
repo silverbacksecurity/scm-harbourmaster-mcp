@@ -95,6 +95,49 @@ class TestSimpleTools:
         assert kwargs["sync"] is True and kwargs["timeout"] == 300
         assert "scm-harbourmaster-mcp" in kwargs["description"]
 
+    def test_commit_default_scope_is_service_account(self) -> None:
+        client = MagicMock()
+        client.commit.return_value = {"job_id": "7"}
+        _tools(client)["scm_commit"](tenant_id=TENANT, folders=["Shared"])
+        assert client.commit.call_args.kwargs["admin"] is None
+        client.post.assert_not_called()
+
+    def test_commit_named_admins_are_passed_through(self) -> None:
+        client = MagicMock()
+        client.commit.return_value = {"job_id": "7"}
+        _tools(client)["scm_commit"](
+            tenant_id=TENANT, folders=["Shared"], admin="svc@example.com, ops@example.com"
+        )
+        assert client.commit.call_args.kwargs["admin"] == ["svc@example.com", "ops@example.com"]
+
+    def test_commit_all_admins_omits_admin_field(self) -> None:
+        client = MagicMock()
+        client.post.return_value = {"success": True, "job_id": "22"}
+        out = _tools(client)["scm_commit"](tenant_id=TENANT, folders=["Shared"], admin="ALL")
+        client.commit.assert_not_called()
+        (path,) = client.post.call_args.args
+        assert path == "/config/operations/v1/config-versions/candidate:push"
+        assert client.post.call_args.kwargs["json"] == {
+            "folders": ["Shared"],
+            "description": "Committed via scm-harbourmaster-mcp",
+        }
+        client.wait_for_job.assert_called_once_with("22", timeout=300)
+        assert "22" in out
+
+    def test_commit_all_cannot_mix_with_named_admins(self) -> None:
+        client = MagicMock()
+        out = _tools(client)["scm_commit"](tenant_id=TENANT, folders=["x"], admin="all,a@b.c")
+        assert out.startswith("Error:")
+        client.commit.assert_not_called()
+        client.post.assert_not_called()
+
+    def test_commit_dry_run_shows_admin_scope(self) -> None:
+        client = MagicMock()
+        fn = _tools(client)["scm_commit"]
+        out = fn.func(tenant_id=TENANT, folders=["Shared"], ticket_ref="CHG-1")
+        assert "this service account's own changes only" in out
+        client.commit.assert_not_called()
+
     def test_commit_error_is_normalised(self) -> None:
         client = MagicMock()
         client.commit.side_effect = RuntimeError("commit locked")
