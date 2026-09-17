@@ -28,6 +28,7 @@ from .tools.aiops import register_aiops_tools
 from .tools.audit import register_audit_tools
 from .tools.capabilities import register_capability_tools
 from .tools.cdl_logforwarding import register_cdl_logforwarding_tools
+from .tools.cert_transfer import register_cert_transfer_tools
 from .tools.compliance import register_compliance_tools
 from .tools.config_cleanup import register_config_cleanup_tools
 from .tools.config_index_tools import register_config_index_tools
@@ -204,6 +205,7 @@ def _registrars(
         "register_posture_tools": lambda m: register_posture_tools(m, get_client),
         "register_adnsr_tools": lambda m: register_adnsr_tools(m, get_client),
         "register_ops_tools": lambda m: register_ops_tools(m, get_client),
+        "register_cert_transfer_tools": lambda m: register_cert_transfer_tools(m, get_client),
         "register_msr_tools": lambda m: register_msr_tools(m, get_client),
         "register_spi_tools": lambda m: register_spi_tools(m, get_client),
         "register_pab_msp_tools": lambda m: register_pab_msp_tools(m, get_client),

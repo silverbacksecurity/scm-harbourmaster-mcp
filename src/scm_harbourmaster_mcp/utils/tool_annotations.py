@@ -64,6 +64,7 @@ IDEMPOTENT_WRITE_TOOLS: frozenset[str] = frozenset(
         "scm_security_rule_delete",
         "mssp_evict_tenant",
         "scm_reload",
+        "scm_cert_copy",  # same-name certs in the target are skipped
     }
 )
 

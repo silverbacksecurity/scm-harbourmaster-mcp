@@ -34,6 +34,7 @@ EXPECTED_WRITE_TOOLS = {
     "scm_config_clone",
     "mssp_evict_tenant",
     "scm_cert_import",
+    "scm_cert_copy",
     "scm_tls_profile_manager",
     "scm_apply_ncsc_baseline",
     "scm_attach_ncsc_profiles",

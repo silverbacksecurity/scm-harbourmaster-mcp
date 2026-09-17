@@ -81,7 +81,7 @@ TOOLSETS: dict[str, tuple[str, ...]] = {
     "ngfw": ("register_ngfw_airs_tools", "register_adnsr_tools"),
     "dlp": ("register_dlp_tools", "register_email_dlp_tools"),
     "sdwan": ("register_sdwan_tools",),
-    "ops": ("register_ops_tools", "register_service_status_tools"),
+    "ops": ("register_ops_tools", "register_cert_transfer_tools", "register_service_status_tools"),
     "planner": ("register_planner_tools",),
 }
 

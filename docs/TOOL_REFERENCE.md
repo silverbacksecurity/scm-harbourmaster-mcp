@@ -4,7 +4,7 @@
 
 All tools authenticate via Bearer-token OAuth (SASE client credentials) configured in `settings.toml` / `.secrets.toml`.
 
-**<!-- tool-count -->165<!-- /tool-count --> tools** across <!-- module-count -->37<!-- /module-count --> modules.
+**<!-- tool-count -->167<!-- /tool-count --> tools** across <!-- module-count -->38<!-- /module-count --> modules.
 
 ## Table of Contents
 
@@ -29,6 +29,7 @@ All tools authenticate via Bearer-token OAuth (SASE client credentials) configur
 - [Adem](#adem)
 - [Capabilities](#capabilities)
 - [Cdl Logforwarding](#cdl-logforwarding)
+- [Cert Transfer](#cert-transfer)
 - [Compliance](#compliance)
 - [Config Cleanup](#config-cleanup)
 - [Config Index Tools](#config-index-tools)
@@ -4013,6 +4014,83 @@ Returns:
 | `tenant_id` | `str` | `''` |
 | `profile_type` | `str` | `'email'` |
 | `profile_id` | `str` | `''` |
+
+---
+
+## Cert Transfer
+
+_Certificate export and tenant-to-tenant copy._
+
+### `scm_cert_export`
+
+Export a tenant's certificates: public PEM plus whether a private key is exportable.
+
+```
+Read-only. Lists every certificate object (all folders), exports each
+through the certificate export API and reports its folder, CA flag,
+subject, issuer, expiry, whether it is a Prisma Access system cert, and
+whether SCM released a private key. Private keys are NEVER returned —
+use scm_cert_copy to move a certificate with its key to another tenant.
+
+Args:
+    tenant_id: SCM tenant ID to export from.
+    names: Only these certificate names (default: all).
+    include_pem: Append each public certificate PEM (default True).
+```
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `tenant_id` | `str` | `''` |
+| `names` | `list[str] \| None` | `None` |
+| `include_pem` | `bool` | `True` |
+
+### `scm_cert_copy`
+
+Copy certificates (with private keys where exportable) from one tenant to another.
+
+```
+Exports each certificate from the source tenant and imports it into the
+target in the same process — an exported key only exists in memory,
+encrypted under a one-time passphrase, and is never logged or shown.
+
+Never overwrites: a certificate whose name already exists anywhere in
+the target is skipped. Prisma Access system certs (Root CA,
+Forward-Trust/UnTrust CAs, authentication cookie and SAML signing
+certs, predefined roots) are excluded unless named in ``names`` or
+``include_system=True`` — every tenant has its own, and a copy in a
+child folder overrides the target's working set. Imports run roots
+first, then intermediate CAs, then leaves. Nothing is committed: run
+scm_commit on the target afterwards.
+
+Known refusals: SCM rejects a self-signed non-CA certificate (e.g. a
+SAML IdP cert from IdP metadata — re-import that metadata instead), and
+most Prisma Access CAs export without their private key.
+
+Args:
+    tenant_id: Source tenant ID.
+    target_tenant_id: Destination tenant ID.
+    names: Certificate names to copy (default: all non-system certs).
+    include_system: Also copy Prisma Access system certs when ``names`` is empty.
+    include_keys: Import private keys that the source releases (default True).
+    target_folder: Import every cert into this folder (default: each
+        cert's source folder).
+    dry_run: If True (default), export and check for clashes without importing.
+    ticket_ref: Mandatory change-ticket reference (never sent to SCM).
+
+**Write safety (SSR pattern):** ``dry_run=True`` by default;
+``ticket_ref`` is mandatory.
+```
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `tenant_id` | `str` | `—` |
+| `target_tenant_id` | `str` | `—` |
+| `names` | `list[str] \| None` | `None` |
+| `include_system` | `bool` | `False` |
+| `include_keys` | `bool` | `True` |
+| `target_folder` | `str` | `''` |
+| `dry_run` | `bool` | `True` |
+| `ticket_ref` | `str` | `''` |
 
 ---
 

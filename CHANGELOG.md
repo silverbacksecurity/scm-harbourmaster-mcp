@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`scm_cert_export` and `scm_cert_copy`** (`tools/cert_transfer.py`, new
+  file) — `scm_cert_export` lists every certificate in a tenant with its
+  public PEM, CA and Prisma Access system flags, and whether SCM will release
+  its private key; key material is never returned. `scm_cert_copy` exports
+  from one tenant and imports into another in the same process, carrying
+  exportable private keys in memory under a one-time passphrase. It is a dry
+  run by default, needs a `ticket_ref`, skips any certificate whose name
+  already exists in the target, excludes each tenant's own Prisma Access
+  certificates (Forward-Trust CAs, authentication cookie and SAML signing
+  certs, predefined roots) unless named, imports roots before intermediates
+  before leaves, and never commits
 - **Dry-run default and mandatory `ticket_ref` on every write tool**
   (`utils/write_safety.py`, new file) — the SSR write-safety contract already
   used by `scm_ssr_execute`, `scm_config_orch_*` and `scm_site_management` now

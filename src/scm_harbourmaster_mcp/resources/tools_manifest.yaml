@@ -6,7 +6,7 @@
 #
 # Regenerate/verify coverage: tests/unit/test_planner_manifest.py fails
 # whenever a registered tool lacks an entry here (or vice versa).
-# Tools: 164 | write: 27 | domains: 11
+# Tools: 166 | write: 28 | domains: 11
 
 dlp_backup:
   access: read
@@ -206,6 +206,19 @@ scm_casb_list:
 scm_cdl_logforwarding:
   access: read
   domain: deployment
+  idempotent: true
+  retry_policy: retry
+  scope: tenant
+scm_cert_copy:
+  access: write
+  domain: certificates
+  idempotent: true
+  known_failure_modes: Never overwrites — same-name certs in the target are skipped. Most Prisma Access CAs export without keys; SCM refuses self-signed non-CA certs (SAML IdP certs from metadata).
+  retry_policy: fail_fast
+  scope: cross_tenant
+scm_cert_export:
+  access: read
+  domain: certificates
   idempotent: true
   retry_policy: retry
   scope: tenant
