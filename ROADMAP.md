@@ -356,6 +356,40 @@ Planner API-key smoke testing._
   - **Open questions:** a single async job with `scm_job_status` progress
     (likely, for large rulebases) vs a synchronous call; and whether this
     joins the Planner epic as a multi-step plan.
+- **Reference preflight for `scm_config_backup` / `scm_config_clone`** —
+  found in a 2026-09 tenant-to-tenant restore. Every object was created
+  without error, but the Remote Networks push failed: a restored application
+  group still listed a retired App-ID. SCM accepts dangling references at
+  create time and only rejects them at push validation (one push, ~40 min).
+  That validation reports the first bad reference, not all of them. Goal:
+  catch every unresolvable reference in the clone dry run, not at push time.
+  - **Resolve every name reference** in the backup before any write:
+    application group and filter members, rule `application`/`service`/
+    `category`/`source_hip`/profile-group references, and profile-group
+    members. Check each against the target tenant's predefined content plus
+    objects already in the target plus objects the clone itself creates.
+  - **Report and choose:** list each unresolved reference with the objects
+    using it. Offer `on_missing_reference`: `fail` (default), `skip_object`,
+    or `strip_member` (drop just the bad member and keep the object). Never
+    silently.
+  - **Open problems found while debugging:**
+    - The backup's `applications` list is truncated (identical 5,498
+      entries on two tenants; common apps missing), so the predefined
+      catalogue needs proper pagination.
+    - A per-name `GET /config/objects/v1/applications?name=` returns 404 for
+      valid container apps, so it can't be the check.
+    - Evaluate whether an SCM candidate-validation endpoint exists that
+      could run instead of (or as well as) the local resolver.
+  - **Also cover:** references to object types the service account can't
+    read (e.g. AI Security or DLP data-filtering profiles returning 403).
+    Report these as "unverifiable", distinct from "missing".
+  - **Tenant prerequisites, not just references:** a second push in the same
+    restore failed with "forward decrypt trust cert is not configured". An
+    enabled `decrypt` rule was restored into a tenant with no forward-trust
+    certificate selected. Certificates and SSL decryption settings are
+    tenant-bound and not cloned. Flag enabled decrypt rules when the target
+    has no forward-trust cert (or the settings API is unreadable), and offer
+    `disable_rule`/`skip_object`.
 
 ### Blocked
 
