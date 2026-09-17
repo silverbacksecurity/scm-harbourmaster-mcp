@@ -368,6 +368,7 @@ class TestCertImport:
         fn = _tool(register_ops_tools, "scm_cert_import", client)
         fn(name="Inspect-CA", pem=pem, dry_run=False, ticket_ref=TICKET)
         client.post.assert_called_once()
+        assert client.post.call_args.args[0] == "/sse/config/v1/certificates:import"
         assert TICKET not in json.dumps(client.post.call_args.kwargs["json"])
 
 

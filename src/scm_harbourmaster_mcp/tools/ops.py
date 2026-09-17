@@ -603,6 +603,97 @@ def _renewal_talking_points(
     return list(dict.fromkeys(points))
 
 
+# Fields of a certificate import that carry key material; never echoed.
+_CERT_SECRET_FIELDS = frozenset({"key_file", "passphrase", "certificate_file"})
+_CERT_FORMATS = ("pem", "pkcs12", "der")
+
+
+def _redact_secrets(text: str, payload: dict[str, Any]) -> str:
+    for field in _CERT_SECRET_FIELDS:
+        value = payload.get(field)
+        if value:
+            text = text.replace(str(value), f"<{field} redacted>")
+    return text
+
+
+def _describe_cert(cert: Any) -> dict[str, str]:
+    from cryptography import x509
+
+    try:
+        is_ca = cert.extensions.get_extension_for_class(x509.BasicConstraints).value.ca
+    except x509.ExtensionNotFound:
+        is_ca = False
+    return {
+        "Subject": cert.subject.rfc4514_string(),
+        "Issuer": cert.issuer.rfc4514_string(),
+        "CA": "yes" if is_ca else "no",
+        "Serial Number": format(cert.serial_number, "x"),
+        "Not Valid Before": cert.not_valid_before_utc.isoformat(),
+        "Not Valid After": cert.not_valid_after_utc.isoformat(),
+    }
+
+
+def _prepare_cert_import(
+    *, pem: str, private_key_pem: str, certificate_file_b64: str, fmt: str, passphrase: str
+) -> tuple[str, str, list[dict[str, str]], bool] | str:
+    """Validate the inputs and build the import API's base64 fields.
+
+    Returns (certificate_file, key_file, per-cert summaries, has_key), or an
+    error message. Parsing errors never include key material.
+    """
+    import base64
+    import binascii
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives.serialization import load_pem_private_key, pkcs12
+
+    if fmt not in _CERT_FORMATS:
+        return f"format must be one of {', '.join(_CERT_FORMATS)}"
+    if bool(pem.strip()) == bool(certificate_file_b64.strip()):
+        return "supply exactly one of pem or certificate_file_b64"
+    secret = passphrase.encode() if passphrase else None
+
+    if pem.strip():
+        if fmt != "pem":
+            return "pem input requires format='pem'"
+        try:
+            certs = x509.load_pem_x509_certificates(pem.strip().encode())
+        except ValueError:
+            return "pem could not be parsed as one or more PEM certificates"
+        key_file = ""
+        if private_key_pem.strip():
+            try:
+                load_pem_private_key(private_key_pem.strip().encode(), password=secret)
+            except (ValueError, TypeError):
+                return "private_key_pem could not be loaded (wrong format or passphrase)"
+            key_file = base64.b64encode(private_key_pem.strip().encode()).decode()
+        certificate_file = base64.b64encode(pem.strip().encode()).decode()
+        return certificate_file, key_file, [_describe_cert(c) for c in certs], bool(key_file)
+
+    if private_key_pem.strip():
+        return "private_key_pem is only used with pem input; a pkcs12 file carries its own key"
+    try:
+        raw = base64.b64decode(certificate_file_b64.strip(), validate=True)
+    except (binascii.Error, ValueError):
+        return "certificate_file_b64 is not valid base64"
+    if fmt == "pkcs12":
+        if not secret:
+            return "a pkcs12 import requires passphrase"
+        try:
+            key, cert, extra = pkcs12.load_key_and_certificates(raw, secret)
+        except (ValueError, TypeError):
+            return "pkcs12 file could not be opened (wrong passphrase or not PKCS#12)"
+        certs = [c for c in [cert, *extra] if c is not None]
+        return certificate_file_b64.strip(), "", [_describe_cert(c) for c in certs], key is not None
+    if fmt == "der":
+        try:
+            certs = [x509.load_der_x509_certificate(raw)]
+        except ValueError:
+            return "der file could not be parsed as a certificate"
+        return certificate_file_b64.strip(), "", [_describe_cert(c) for c in certs], False
+    return "pem format requires the pem argument"
+
+
 def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
     """Register operational visibility and MSSP dashboard tools."""
     tool = scm_tool(get_client)
@@ -997,26 +1088,45 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
         client: Any,
         tenant_id: str,
         name: str,
-        pem: str,
+        pem: str = "",
         folder: str = "Shared",
         is_ca: bool = False,
+        private_key_pem: str = "",
+        certificate_file_b64: str = "",
+        format: str = "pem",
+        passphrase: str = "",
         dry_run: bool = True,
         ticket_ref: str = "",
     ) -> str:
-        """Import a PEM certificate into an SCM tenant folder.
+        """Import a certificate (optionally with its private key) into an SCM folder.
 
-        Uploads a certificate object to the SCM config store. Use this to
-        deploy a new SSL inspection CA, replace an expiring cert, or add
-        a trusted root CA. Does not import private keys — use the SCM UI
-        for PKCS12 imports that include private keys.
+        Uses the certificate import API (``POST /sse/config/v1/certificates:import``).
+        Use it to deploy an SSL inspection CA (forward-trust needs the private
+        key), replace an expiring cert, or add a trusted root CA.
 
+        Supply ONE of:
+          - ``pem``: PEM certificate text (a chain of several blocks is fine),
+            plus ``private_key_pem`` when the key is needed (and ``passphrase``
+            if that key is encrypted); ``format`` stays ``pem``.
+          - ``certificate_file_b64``: base64 of a binary file with
+            ``format="pkcs12"`` (certificate + key, needs ``passphrase``) or
+            ``format="der"``.
+
+        Private keys and passphrases are never echoed, logged or written to
+        the audit log. Importing a CA does not make it the decryption
+        forward-trust certificate — select that in SSL decryption settings.
         After import, run scm_commit to activate the new certificate.
 
         Args:
             name: Certificate object name in SCM (e.g. "SSL-Inspect-CA-2026").
-            pem: PEM-encoded certificate text (the full -----BEGIN CERTIFICATE----- block).
+            pem: PEM certificate text (the -----BEGIN CERTIFICATE----- block(s)).
             folder: SCM folder to import into (default: Shared).
-            is_ca: Mark this certificate as a CA certificate (default False).
+            is_ca: Deprecated and ignored — the import API has no CA flag; SCM
+                reads CA status from the certificate itself.
+            private_key_pem: PEM private key for ``pem`` imports (optional).
+            certificate_file_b64: Base64 file content for pkcs12/der imports.
+            format: ``pem`` (default), ``pkcs12`` or ``der``.
+            passphrase: Key/PKCS#12 passphrase (optional for pem, required for pkcs12).
             dry_run: If True (default), parse and describe the certificate
                 without importing it.
             ticket_ref: Mandatory change-ticket reference (never sent to SCM).
@@ -1030,21 +1140,18 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
             return f"Error: {err}"
         ticket_ref = normalize_ticket_ref(ticket_ref)
 
-        if dry_run:
-            cert_summary: dict[str, Any] = {}
-            try:
-                from cryptography import x509
+        prepared = _prepare_cert_import(
+            pem=pem,
+            private_key_pem=private_key_pem,
+            certificate_file_b64=certificate_file_b64,
+            fmt=format,
+            passphrase=passphrase,
+        )
+        if isinstance(prepared, str):
+            return f"Error: {prepared}"
+        certificate_file, key_file, summaries, has_key = prepared
 
-                cert = x509.load_pem_x509_certificate(pem.strip().encode())
-                cert_summary = {
-                    "subject": cert.subject.rfc4514_string(),
-                    "issuer": cert.issuer.rfc4514_string(),
-                    "serial_number": format(cert.serial_number, "x"),
-                    "not_valid_before": cert.not_valid_before_utc.isoformat(),
-                    "not_valid_after": cert.not_valid_after_utc.isoformat(),
-                }
-            except Exception as exc:
-                cert_summary = {"parse_error": f"PEM could not be parsed: {exc}"}
+        if dry_run:
             lines = [
                 "## Certificate Import — DRY-RUN",
                 "",
@@ -1052,14 +1159,17 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
                 "|---|---|",
                 f"| Name | `{name}` |",
                 f"| Folder | `{folder}` |",
-                f"| Type | {'CA' if is_ca else 'leaf'} |",
+                f"| Format | {format} |",
+                f"| Private key | {'included' if has_key else 'not included'} |",
                 f"| Ticket ref | {ticket_ref} |",
             ]
-            lines += [f"| {k.replace('_', ' ').title()} | {v} |" for k, v in cert_summary.items()]
+            for i, summary in enumerate(summaries, 1):
+                prefix = f"Cert {i} " if len(summaries) > 1 else ""
+                lines += [f"| {prefix}{k} | {v} |" for k, v in summary.items()]
             lines += [
                 "",
-                "Would POST the certificate to `/sse/config/v1/certificates` "
-                "(PEM body not echoed here).",
+                "Would POST to `/sse/config/v1/certificates:import` "
+                "(certificate, key and passphrase not echoed here).",
                 "",
                 DRY_RUN_HINT,
             ]
@@ -1068,39 +1178,48 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
         payload: dict[str, Any] = {
             "name": name,
             "folder": folder,
-            "certificate": pem.strip(),
-            "ca": is_ca,
+            "certificate_file": certificate_file,
+            "format": format,
         }
+        if key_file:
+            payload["key_file"] = key_file
+        if passphrase:
+            payload["passphrase"] = passphrase
 
-        audit_write("scm_cert_import", ticket_ref, tenant_id, name=name, folder=folder, is_ca=is_ca)
-        result = client.post(
-            f"{_SSE_CONFIG_PATH}/certificates",
-            json=payload,
+        audit_write(
+            "scm_cert_import",
+            ticket_ref,
+            tenant_id,
+            name=name,
+            folder=folder,
+            format=format,
+            private_key=has_key,
         )
+        try:
+            result = client.post(f"{_SSE_CONFIG_PATH}/certificates:import", json=payload)
+        except Exception as exc:
+            return f"Error: certificate import failed: {_redact_secrets(str(exc), payload)}"
 
         logger.info(
             "cert_imported",
             name=name,
             folder=folder,
-            is_ca=is_ca,
+            format=format,
+            private_key=has_key,
             tenant_id=tenant_id,
         )
 
-        if result is None:
-            return (
-                f"✅ Certificate `{name}` imported into folder `{folder}` "
-                f"({'CA' if is_ca else 'leaf'} type). Run `scm_commit` to activate."
-            )
-
         import json as _json
 
+        shown = (
+            {k: v for k, v in result.items() if k not in _CERT_SECRET_FIELDS}
+            if isinstance(result, dict)
+            else {"result": str(result)}
+        )
         return (
-            "✅ Certificate imported successfully.\n\n"
-            + _json.dumps(
-                result if isinstance(result, dict) else {"result": str(result)},
-                indent=2,
-                default=str,
-            )
+            f"✅ Certificate `{name}` imported into folder `{folder}`"
+            f"{' with its private key' if has_key else ''}.\n\n"
+            + _json.dumps(shown, indent=2, default=str)
             + f"\n\nRun `scm_commit(folders=['{folder}'], ticket_ref=..., dry_run=False)` to activate."
         )
 

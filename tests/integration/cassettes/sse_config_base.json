@@ -114,7 +114,7 @@
       "name": "certificate import - correct base",
       "request": {
         "method": "POST",
-        "url": "https://api.strata.paloaltonetworks.com/sse/config/v1/certificates"
+        "url": "https://api.strata.paloaltonetworks.com/sse/config/v1/certificates:import"
       },
       "response": {
         "status": 201,
@@ -132,7 +132,7 @@
       "name": "certificate import - wrong base",
       "request": {
         "method": "POST",
-        "url": "https://api.strata.paloaltonetworks.com/config/v1/certificates"
+        "url": "https://api.strata.paloaltonetworks.com/config/v1/certificates:import"
       },
       "response": {
         "status": 404,

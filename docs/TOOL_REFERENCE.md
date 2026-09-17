@@ -27,6 +27,7 @@ All tools authenticate via Bearer-token OAuth (SASE client credentials) configur
 - [Prisma Access Browser for MSP](#prisma-access-browser-for-msp)
 - [Utility](#utility)
 - [Adem](#adem)
+- [Capabilities](#capabilities)
 - [Cdl Logforwarding](#cdl-logforwarding)
 - [Compliance](#compliance)
 - [Config Cleanup](#config-cleanup)
@@ -94,6 +95,11 @@ Create an address object in SCM.
 ```
 Provide exactly one of ip_netmask, fqdn, or ip_range.
 
+**Write safety (SSR pattern):** ``dry_run=True`` by default returns the
+planned payload and any existing object of the same name without
+writing; ``ticket_ref`` is mandatory. Commit is a separate
+``scm_commit`` step.
+
 Args:
     name: Object name.
     folder: SCM folder.
@@ -101,6 +107,8 @@ Args:
     fqdn: Fully qualified domain name.
     ip_range: IP range (e.g. 10.0.0.1-10.0.0.100).
     description: Optional description.
+    dry_run: If True (default), preview the change without applying it.
+    ticket_ref: Mandatory change-ticket reference (never sent to SCM).
     tenant_id: SCM tenant ID.
 ```
 
@@ -113,15 +121,23 @@ Args:
 | `fqdn` | `str` | `''` |
 | `ip_range` | `str` | `''` |
 | `description` | `str` | `''` |
+| `dry_run` | `bool` | `True` |
+| `ticket_ref` | `str` | `''` |
 
 ### `scm_address_delete`
 
 Delete an address object by name.
 
 ```
+**Write safety (SSR pattern):** ``dry_run=True`` by default fetches and
+returns the object that would be deleted without deleting it;
+``ticket_ref`` is mandatory. Commit is a separate ``scm_commit`` step.
+
 Args:
     name: Address object name.
     folder: SCM folder.
+    dry_run: If True (default), preview the deletion without applying it.
+    ticket_ref: Mandatory change-ticket reference (never sent to SCM).
     tenant_id: SCM tenant ID.
 ```
 
@@ -130,6 +146,8 @@ Args:
 | `tenant_id` | `str` | `''` |
 | `name` | `str` | `—` |
 | `folder` | `str` | `—` |
+| `dry_run` | `bool` | `True` |
+| `ticket_ref` | `str` | `''` |
 
 ### `scm_address_group_list`
 
@@ -246,6 +264,10 @@ Args:
 Create a security policy rule.
 
 ```
+**Write safety (SSR pattern):** ``dry_run=True`` by default returns the
+planned rule and any existing rule of the same name without writing;
+``ticket_ref`` is mandatory. Commit is a separate ``scm_commit`` step.
+
 Args:
     name: Rule name.
     folder: SCM folder.
@@ -259,6 +281,8 @@ Args:
     profile_setting: Security profile group dict.
     description: Optional description.
     disabled: Whether the rule is disabled.
+    dry_run: If True (default), preview the change without applying it.
+    ticket_ref: Mandatory change-ticket reference (never sent to SCM).
     tenant_id: SCM tenant ID.
 ```
 
@@ -277,15 +301,23 @@ Args:
 | `profile_setting` | `dict[str, Any] \| None` | `None` |
 | `description` | `str` | `''` |
 | `disabled` | `bool` | `False` |
+| `dry_run` | `bool` | `True` |
+| `ticket_ref` | `str` | `''` |
 
 ### `scm_security_rule_delete`
 
 Delete a security rule by name.
 
 ```
+**Write safety (SSR pattern):** ``dry_run=True`` by default fetches and
+returns the rule that would be deleted without deleting it;
+``ticket_ref`` is mandatory. Commit is a separate ``scm_commit`` step.
+
 Args:
     name: Rule name.
     folder: SCM folder.
+    dry_run: If True (default), preview the deletion without applying it.
+    ticket_ref: Mandatory change-ticket reference (never sent to SCM).
     tenant_id: SCM tenant ID.
 ```
 
@@ -294,6 +326,8 @@ Args:
 | `tenant_id` | `str` | `''` |
 | `name` | `str` | `—` |
 | `folder` | `str` | `—` |
+| `dry_run` | `bool` | `True` |
+| `ticket_ref` | `str` | `''` |
 
 ### `scm_anti_spyware_profile_list`
 
@@ -528,11 +562,19 @@ Commits the candidate config for the listed folders.  This is
 the equivalent of 'commit' on a firewall — required after any
 create/update/delete operation to make changes effective.
 
+**Write safety (SSR pattern):** ``dry_run=True`` by default reports what
+would be committed (folders, description, current running versions)
+without committing; ``ticket_ref`` is mandatory. For a blast-radius
+analysis of the pending changes run ``scm_commit_preview`` first.
+
 Args:
     folders: Folders whose changes to commit.
-    description: Commit description / change ticket reference.
+    description: Commit description (sent to SCM as-is).
     tenant_id: SCM tenant ID.
     admin: Optional admin name to attribute the commit to.
+    dry_run: If True (default), preview the commit without running it.
+    ticket_ref: Mandatory change-ticket reference (logged and echoed,
+        never added to the commit description).
 ```
 
 | Parameter | Type | Default |
@@ -541,6 +583,8 @@ Args:
 | `folders` | `list[str]` | `—` |
 | `description` | `str` | `''` |
 | `admin` | `str` | `''` |
+| `dry_run` | `bool` | `True` |
+| `ticket_ref` | `str` | `''` |
 
 ### `scm_job_status`
 
@@ -619,7 +663,13 @@ Args:
     description: Commit description or change-ticket reference.
     timeout: Max seconds to wait for the push job (default 300).
     rollback_on_failure: If True, auto-load the previous running version on failure.
+    dry_run: If True (default), report what would be pushed without pushing.
+    ticket_ref: Mandatory change-ticket reference (logged and echoed,
+        never added to the commit description).
     tenant_id: SCM tenant ID. Defaults to the configured default tenant.
+
+**Write safety (SSR pattern):** ``dry_run=True`` by default;
+``ticket_ref`` is mandatory.
 ```
 
 | Parameter | Type | Default |
@@ -629,6 +679,8 @@ Args:
 | `description` | `str` | `''` |
 | `timeout` | `int` | `300` |
 | `rollback_on_failure` | `bool` | `False` |
+| `dry_run` | `bool` | `True` |
+| `ticket_ref` | `str` | `''` |
 
 ### `scm_config_rollback`
 
@@ -645,7 +697,14 @@ Args:
     version: The config version number to roll back to.
     commit_immediately: If True, commit the loaded version immediately after loading.
     description: Commit description when commit_immediately=True.
+    dry_run: If True (default), show the version that would be loaded
+        without loading or committing anything.
+    ticket_ref: Mandatory change-ticket reference (logged and echoed,
+        never added to the commit description).
     tenant_id: SCM tenant ID. Defaults to the configured default tenant.
+
+**Write safety (SSR pattern):** ``dry_run=True`` by default;
+``ticket_ref`` is mandatory.
 ```
 
 | Parameter | Type | Default |
@@ -654,6 +713,8 @@ Args:
 | `version` | `int` | `—` |
 | `commit_immediately` | `bool` | `False` |
 | `description` | `str` | `''` |
+| `dry_run` | `bool` | `True` |
+| `ticket_ref` | `str` | `''` |
 
 ---
 
@@ -758,10 +819,14 @@ _Configuration backup, BPA, NCSC/NIST/DSPT/ISO 27001, AS-BUILT & HLD reports, co
 Export a complete SCM configuration snapshot to a JSON backup file.
 
 ```
-Pulls all resource types for the folder (addresses, security rules,
-profiles, zones, VPN, deployment, etc.) and writes a timestamped JSON
-file. The backup file can be used as input to scm_config_diff and as
-the data source for the AS-BUILT report.
+Pulls all resource types for the folder — addresses, security rules,
+profiles, zones, VPN and deployment objects, network infrastructure
+(crypto/QoS profiles, internal DNS, BGP routing, GP IP pools) and the
+GlobalProtect mobile-agent stack (auth settings, tunnel and forwarding
+profiles, portals/gateways, SAML/Radius/LDAP auth profiles) — and
+writes a timestamped JSON file. The backup file can be used as input
+to scm_config_diff and scm_config_clone, and as the data source for
+the AS-BUILT report.
 
 Args:
     folder: SCM folder to back up.
@@ -1379,6 +1444,15 @@ pushes it to the target folder in dependency order:
   Tags → Addresses → Groups → Security profiles → Log profiles →
   Zones → Rules (pre, post, NAT, decryption) → Deployment (optional)
 
+Beyond the policy layer, the cloner also restores GlobalProtect and
+identity configuration from the backup: auth settings, tunnel
+profiles, agent profiles, forwarding profiles and portal/gateway
+infrastructure settings (into the fixed 'Mobile Users' folder), plus
+SAML/Radius/LDAP auth profiles (customer folder).  With
+include_deployment it additionally clones network infrastructure —
+IKE/IPSec crypto profiles, QoS profiles, internal DNS servers and
+bandwidth allocations (fixed 'Remote Networks' folder).
+
 Typical use-cases
 -----------------
 - MSSP golden-config template → new customer tenant (speed up onboarding)
@@ -1416,6 +1490,10 @@ Args:
     dry_run: If True (default), preview what would be created without
              making any API calls. Set to False to execute the push.
     save_to: Optional file path to write the clone report.
+    ticket_ref: Mandatory change-ticket reference (never sent to SCM).
+
+**Write safety (SSR pattern):** ``dry_run=True`` by default;
+``ticket_ref`` is mandatory.
 
 Returns:
     Markdown clone report showing per-object status and PSK warnings.
@@ -1433,6 +1511,7 @@ Returns:
 | `on_conflict` | `str` | `'skip'` |
 | `dry_run` | `bool` | `True` |
 | `save_to` | `str` | `''` |
+| `ticket_ref` | `str` | `''` |
 
 ---
 
@@ -1463,6 +1542,7 @@ Args:
     folder: Target SCM folder (e.g. "Shared" or a tenant folder name).
     tenant_id: SCM tenant ID. Defaults to the active tenant.
     dry_run: If True (default) show what WOULD be created without writing.
+    ticket_ref: Mandatory change-ticket reference (never sent to SCM).
     syslog_profile: Optional syslog server profile name to add to log forwarding.
     overwrite_existing: If True, skip objects that already exist silently.
 ```
@@ -1472,6 +1552,7 @@ Args:
 | `tenant_id` | `str` | `''` |
 | `folder` | `str` | `—` |
 | `dry_run` | `bool` | `True` |
+| `ticket_ref` | `str` | `''` |
 | `syslog_profile` | `str` | `''` |
 | `overwrite_existing` | `bool` | `False` |
 
@@ -1500,6 +1581,7 @@ NCSC compliance mapping:
 Args:
     snippet_name: Name of the SCM snippet to create (default: "NCSC-Compliance").
     dry_run: If True (default) show what WOULD be created without writing.
+    ticket_ref: Mandatory change-ticket reference (never sent to SCM).
     syslog_profile: Optional syslog server profile name to add to log forwarding.
     description: Description for the snippet container.
     tenant_id: Tenant to target (default: first loaded tenant).
@@ -1510,6 +1592,7 @@ Args:
 | `tenant_id` | `str` | `''` |
 | `snippet_name` | `str` | `'NCSC-Compliance'` |
 | `dry_run` | `bool` | `True` |
+| `ticket_ref` | `str` | `''` |
 | `syslog_profile` | `str` | `''` |
 | `description` | `str` | `'NCSC CAF v4.0 / CE v3.2 compliance baseline — managed by scm-harbourmaster-mcp'` |
 
@@ -1539,6 +1622,7 @@ NIST compliance mapping:
 Args:
     snippet_name: Name of the SCM snippet to create (default: "NIST-Compliance").
     dry_run: If True (default) show what WOULD be created without writing.
+    ticket_ref: Mandatory change-ticket reference (never sent to SCM).
     syslog_profile: Optional syslog server profile name to add to log forwarding.
     description: Description for the snippet container.
     tenant_id: Tenant to target (default: first loaded tenant).
@@ -1549,6 +1633,7 @@ Args:
 | `tenant_id` | `str` | `''` |
 | `snippet_name` | `str` | `'NIST-Compliance'` |
 | `dry_run` | `bool` | `True` |
+| `ticket_ref` | `str` | `''` |
 | `syslog_profile` | `str` | `''` |
 | `description` | `str` | `'NIST CSF v2.0 / SP 800-53 Rev 5 compliance baseline — managed by scm-harbourmaster-mcp'` |
 
@@ -1573,6 +1658,7 @@ Args:
     folder: SCM folder to search for rules (e.g. 'Prisma Access').
     tenant_id: SCM tenant ID. Defaults to the active tenant.
     dry_run: If True (default) show what WOULD be changed without writing.
+    ticket_ref: Mandatory change-ticket reference (never sent to SCM).
     profile_group_name: Name of the profile group to create/use.
     skip_already_profiled: If True (default), skip rules that already have
                            a profile group set.
@@ -1583,6 +1669,7 @@ Args:
 | `tenant_id` | `str` | `''` |
 | `folder` | `str` | `—` |
 | `dry_run` | `bool` | `True` |
+| `ticket_ref` | `str` | `''` |
 | `profile_group_name` | `str` | `'NCSC-Baseline'` |
 | `skip_already_profiled` | `bool` | `True` |
 
@@ -1737,6 +1824,10 @@ Args:
                    Auto-discovered if blank.
     dry_run:       If True (default), only report what would be created.
                    Set to False to apply changes.
+    ticket_ref:    Mandatory change-ticket reference (never sent to the API).
+
+**Write safety (SSR pattern):** ``dry_run=True`` by default;
+``ticket_ref`` is mandatory.
 
 Returns:
     Markdown restore report listing created / skipped / failed objects.
@@ -1751,6 +1842,7 @@ Ref: https://pan.dev/dlp/api/
 | `target_folder` | `str` | `—` |
 | `company_id` | `str` | `''` |
 | `dry_run` | `bool` | `True` |
+| `ticket_ref` | `str` | `''` |
 
 ### `dlp_incidents_list`
 
@@ -1829,7 +1921,9 @@ Show a summary dashboard of all loaded MSSP tenants.
 
 ```
 Lists every tenant currently cached in the server, showing their
-folder, label, and service term.
+folder, label, service term, and the cached API-capability summary
+from mssp_tenant_capabilities (never probes — "not probed" until that
+tool has run for the tenant).
 
 Args:
     tenant_id: Not used for filtering — returns all loaded tenants.
@@ -2872,31 +2966,58 @@ Args:
 
 ### `scm_cert_import`
 
-Import a PEM certificate into an SCM tenant folder.
+Import a certificate (optionally with its private key) into an SCM folder.
 
 ```
-Uploads a certificate object to the SCM config store. Use this to
-deploy a new SSL inspection CA, replace an expiring cert, or add
-a trusted root CA. Does not import private keys — use the SCM UI
-for PKCS12 imports that include private keys.
+Uses the certificate import API (``POST /sse/config/v1/certificates:import``).
+Use it to deploy an SSL inspection CA (forward-trust needs the private
+key), replace an expiring cert, or add a trusted root CA.
 
+Supply ONE of:
+  - ``pem``: PEM certificate text (a chain of several blocks is fine),
+    plus ``private_key_pem`` when the key is needed (and ``passphrase``
+    if that key is encrypted); ``format`` stays ``pem``.
+  - ``certificate_file_b64``: base64 of a binary file with
+    ``format="pkcs12"`` (certificate + key, needs ``passphrase``) or
+    ``format="der"``.
+
+Private keys and passphrases are never echoed, logged or written to
+the audit log. Importing a CA does not make it the decryption
+forward-trust certificate — select that in SSL decryption settings.
 After import, run scm_commit to activate the new certificate.
 
 Args:
     name: Certificate object name in SCM (e.g. "SSL-Inspect-CA-2026").
-    pem: PEM-encoded certificate text (the full -----BEGIN CERTIFICATE----- block).
+    pem: PEM certificate text (the -----BEGIN CERTIFICATE----- block(s)).
     folder: SCM folder to import into (default: Shared).
-    is_ca: Mark this certificate as a CA certificate (default False).
+    is_ca: Deprecated and ignored — the import API has no CA flag; SCM
+        reads CA status from the certificate itself.
+    private_key_pem: PEM private key for ``pem`` imports (optional).
+    certificate_file_b64: Base64 file content for pkcs12/der imports.
+    format: ``pem`` (default), ``pkcs12`` or ``der``.
+    passphrase: Key/PKCS#12 passphrase (optional for pem, required for pkcs12).
+    dry_run: If True (default), parse and describe the certificate
+        without importing it.
+    ticket_ref: Mandatory change-ticket reference (never sent to SCM).
     tenant_id: SCM tenant ID. Defaults to the configured default tenant.
+
+**Write safety (SSR pattern):** ``dry_run=True`` by default;
+``ticket_ref`` is mandatory.
 ```
 
 | Parameter | Type | Default |
 |-----------|------|---------|
 | `tenant_id` | `str` | `''` |
 | `name` | `str` | `—` |
-| `pem` | `str` | `—` |
+| `pem` | `str` | `''` |
 | `folder` | `str` | `'Shared'` |
 | `is_ca` | `bool` | `False` |
+| `private_key_pem` | `str` | `''` |
+| `certificate_file_b64` | `str` | `''` |
+| `format` | `str` | `'pem'` |
+| `passphrase` | `str` | `''` |
+| `dry_run` | `bool` | `True` |
+| `ticket_ref` | `str` | `''` |
 
 ### `scm_tls_profile_manager`
 
@@ -2920,7 +3041,15 @@ Args:
     max_version: Maximum TLS version ('tls1-2' or 'tls1-3'). Default: 'tls1-3'.
     cert_profile: Optional certificate profile name for client cert validation.
     folder: SCM folder (default: Shared).
+    dry_run: For action='create': if True (default), return the planned
+        profile without creating it.
+    ticket_ref: Mandatory change-ticket reference for action='create'
+        (never sent to SCM).
     tenant_id: SCM tenant ID. Defaults to the configured default tenant.
+
+**Write safety (SSR pattern):** ``action='create'`` is a write —
+``dry_run=True`` by default and ``ticket_ref`` is mandatory.
+``action='list'`` is read-only and needs neither.
 ```
 
 | Parameter | Type | Default |
@@ -2932,6 +3061,8 @@ Args:
 | `max_version` | `str` | `'tls1-3'` |
 | `cert_profile` | `str` | `''` |
 | `folder` | `str` | `'Shared'` |
+| `dry_run` | `bool` | `True` |
+| `ticket_ref` | `str` | `''` |
 
 ### `scm_licence_forecast`
 
@@ -3369,7 +3500,12 @@ Args:
     action: Default action for threat domains — "sinkhole" (default),
             "block", or "allow".
     log_queries: Enable DNS query logging (default True).
+    dry_run: If True (default), return the planned profile without creating it.
+    ticket_ref: Mandatory change-ticket reference (never sent to SCM).
     tenant_id: SCM tenant ID. Defaults to active tenant.
+
+**Write safety (SSR pattern):** ``dry_run=True`` by default;
+``ticket_ref`` is mandatory.
 ```
 
 | Parameter | Type | Default |
@@ -3379,6 +3515,8 @@ Args:
 | `folder` | `str` | `'Shared'` |
 | `action` | `str` | `'sinkhole'` |
 | `log_queries` | `bool` | `True` |
+| `dry_run` | `bool` | `True` |
+| `ticket_ref` | `str` | `''` |
 
 ### `scm_ngfw_local_config_list`
 
@@ -3805,6 +3943,42 @@ Returns:
 
 ---
 
+## Capabilities
+
+_MCP tool for per-tenant API capability probing — ``mssp_tenant_capabilities``._
+
+### `mssp_tenant_capabilities`
+
+Probe which API families a tenant's service account can actually use.
+
+```
+Sends one cheap, read-only request per API family (SCM config jobs,
+allocated egress IPs, licences, Incidents, Insights, ADEM, Compliance
+Center, Enterprise DLP, Email DLP, ZTNA Connector, SSPM, IAM, Tenancy,
+SD-WAN sites and audit log) and classifies each as available,
+forbidden (403 RBAC), unprovisioned (not licensed/enabled) or error
+(inconclusive). Results are cached per tenant for 6 hours.
+
+Run this before a long report: scm_asbuilt_report and scm_msr_report
+skip sections the cache marks forbidden/unprovisioned and disclose the
+skip, instead of discovering the 403 mid-run. mssp_tenant_dashboard
+shows the cached summary per tenant.
+
+Args:
+    tenant_id: SCM tenant ID (TSG ID). Omit for the default tenant.
+    refresh: Re-probe even when a cached result exists.
+
+Returns:
+    Markdown table of capability results.
+```
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `tenant_id` | `str` | `''` |
+| `refresh` | `bool` | `False` |
+
+---
+
 ## Cdl Logforwarding
 
 _MCP tools for CDL Log Forwarding profile management._
@@ -3937,6 +4111,12 @@ Args:
                   except `create`).
     payload_json: JSON string of the framework body for create/update.
     release: Set to True to release the framework after update.
+    dry_run: If True (default), validate inputs and show the target
+        framework without changing anything.
+    ticket_ref: Mandatory change-ticket reference (never sent to the API).
+
+**Write safety (SSR pattern):** every action here is a write —
+``dry_run=True`` by default and ``ticket_ref`` is mandatory.
 ```
 
 | Parameter | Type | Default |
@@ -3946,6 +4126,8 @@ Args:
 | `framework_id` | `str` | `''` |
 | `payload_json` | `str` | `''` |
 | `release` | `bool` | `False` |
+| `dry_run` | `bool` | `True` |
+| `ticket_ref` | `str` | `''` |
 
 ---
 

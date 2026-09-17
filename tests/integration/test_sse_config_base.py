@@ -21,7 +21,30 @@ from scm_harbourmaster_mcp.tools.ops import register_ops_tools
 
 pytestmark = pytest.mark.integration
 
-_PEM = "-----BEGIN CERTIFICATE-----\nMIIBexample\n-----END CERTIFICATE-----"
+
+def _example_pem() -> str:
+    """A real self-signed certificate — scm_cert_import parses the PEM."""
+    from datetime import UTC, datetime, timedelta
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.x509.oid import NameOID
+
+    key = ec.generate_private_key(ec.SECP256R1())
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "example-import")])
+    now = datetime.now(UTC)
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now)
+        .not_valid_after(now + timedelta(days=1))
+        .sign(key, hashes.SHA256())
+    )
+    return cert.public_bytes(serialization.Encoding.PEM).decode()
 
 
 def _paths(http: responses.RequestsMock) -> list[str]:
@@ -103,12 +126,12 @@ def test_cert_import_uses_sse_base(
         "scm_cert_import",
         scm_client,
         name="example-import",
-        pem=_PEM,
+        pem=_example_pem(),
         dry_run=False,
         ticket_ref="CHG-TEST",
     )
 
-    assert "imported successfully" in out, out
+    assert "imported into folder" in out, out
     _assert_only_sse_base(http)
 
 

@@ -263,6 +263,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `/etc` are unchanged.
 
 ### Fixed
+- **`scm_cert_import` posted to the wrong endpoint and couldn't import keys**
+  (`tools/ops.py`) — it sent `{"certificate", "ca"}` to
+  `/sse/config/v1/certificates`, the certificate *generate* endpoint, whose
+  schema has no such fields, and had no way to carry a private key. So an
+  SSL-inspection forward-trust CA could never be imported. It now uses
+  `/sse/config/v1/certificates:import` with base64 `certificate_file` and
+  `format`. It accepts a PEM certificate or chain with an optional PEM
+  private key (and key passphrase), or a base64 PKCS#12/DER file, and
+  validates all of it locally before any call (the dry run lists every cert
+  in the chain, its CA flag, and whether a key is included). Keys and
+  passphrases are never echoed, logged, audit-logged or shown in API errors.
+  `is_ca` is kept for compatibility but ignored: the import API reads CA
+  status from the certificate
 - **`scm_reload` missed 24 modules and reloaded some before their imports**
   (`tools/reload.py`) — the hand-kept reload list lacked modules added since
   (including `audit.commit_preview`, `audit.drift_baseline`,
