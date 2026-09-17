@@ -31,30 +31,58 @@ from ..utils.tool_annotations import annotations_for
 
 logger = get_logger(__name__)
 
-# Explicit reload order: leaf modules first so that when an importer is
-# reloaded its `from X import Y` statements pull in already-fresh modules.
+# Modules scm_reload must never reload.
+_RELOAD_EXCLUDED = {
+    # Reloading it creates a new TenantConfig class object; existing cached
+    # instances (auth.oauth._tenant_configs) are then instances of the OLD
+    # class and fail isinstance() checks in auth modules.
+    "scm_harbourmaster_mcp.config.settings",
+    # Holds the authenticated per-tenant Scm client cache; a reload would drop
+    # every loaded tenant until the server restarts.
+    "scm_harbourmaster_mcp.auth.oauth",
+    # This module — it is executing the reload.
+    "scm_harbourmaster_mcp.tools.reload",
+}
+
+# Every utils/auth/audit/tools module except _RELOAD_EXCLUDED, ordered so a
+# module is reloaded after every package module it imports at top level (its
+# `from X import Y` then binds already-fresh objects).  Audit and tools
+# modules interleave where one imports the other.  Kept complete and ordered
+# by tests/unit/test_reload_order.py.
 _RELOAD_ORDER = [
-    # Utilities (no intra-package deps)
     "scm_harbourmaster_mcp.utils.logging",
     "scm_harbourmaster_mcp.utils.errors",
-    "scm_harbourmaster_mcp.utils.ipenrich",
-    # NOTE: config.settings is intentionally excluded.  Reloading it creates a
-    # new TenantConfig class object; existing cached instances (auth.oauth._tenant_configs)
-    # are then instances of the OLD class and fail isinstance() checks in auth modules.
-    # Auth modules
-    "scm_harbourmaster_mcp.auth.sdwan",
-    # Audit — leaves first
+    "scm_harbourmaster_mcp.utils.family_probe",
+    "scm_harbourmaster_mcp.utils.formatting",
+    "scm_harbourmaster_mcp.utils.validation",
     "scm_harbourmaster_mcp.audit.models",
     "scm_harbourmaster_mcp.audit.pan_references",
+    "scm_harbourmaster_mcp.audit.ncsc_controls",
+    "scm_harbourmaster_mcp.audit.dspt_controls",
+    "scm_harbourmaster_mcp.audit.iso27001_controls",
+    "scm_harbourmaster_mcp.audit.ncsc_templates",
+    "scm_harbourmaster_mcp.audit.nist_templates",
+    "scm_harbourmaster_mcp.utils.ipenrich",
+    "scm_harbourmaster_mcp.utils.capabilities",
+    "scm_harbourmaster_mcp.utils.tool_annotations",
+    "scm_harbourmaster_mcp.utils.tool_decorator",
+    "scm_harbourmaster_mcp.utils.write_safety",
+    "scm_harbourmaster_mcp.auth.sdwan",
     "scm_harbourmaster_mcp.audit.sdwan_topo",
     "scm_harbourmaster_mcp.audit.insights_extractor",
     "scm_harbourmaster_mcp.audit.asbuilt_report",
     "scm_harbourmaster_mcp.audit.bpa_checks",
-    "scm_harbourmaster_mcp.audit.ncsc_controls",
     "scm_harbourmaster_mcp.audit.report",
     "scm_harbourmaster_mcp.audit.extractor",
     "scm_harbourmaster_mcp.audit.cloner",
-    # Tools — after all audit modules are fresh
+    "scm_harbourmaster_mcp.audit.asbuilt_verify",
+    "scm_harbourmaster_mcp.audit.config_index",
+    "scm_harbourmaster_mcp.tools.ssr",
+    "scm_harbourmaster_mcp.tools.service_status",
+    "scm_harbourmaster_mcp.tools.ai_advisor",
+    "scm_harbourmaster_mcp.tools.csp_licensing",
+    "scm_harbourmaster_mcp.tools.planner_tools",
+    "scm_harbourmaster_mcp.audit.drift_baseline",
     "scm_harbourmaster_mcp.tools.objects",
     "scm_harbourmaster_mcp.tools.security",
     "scm_harbourmaster_mcp.tools.network",
@@ -70,21 +98,24 @@ _RELOAD_ORDER = [
     "scm_harbourmaster_mcp.tools.site_management",
     "scm_harbourmaster_mcp.tools.cdl_logforwarding",
     "scm_harbourmaster_mcp.tools.insights",
-    "scm_harbourmaster_mcp.tools.ssr",
     "scm_harbourmaster_mcp.tools.adnsr",
     "scm_harbourmaster_mcp.tools.aiops",
-    "scm_harbourmaster_mcp.tools.audit",
-    "scm_harbourmaster_mcp.tools.ops",
     "scm_harbourmaster_mcp.tools.mssp",
     "scm_harbourmaster_mcp.tools.mt_interconnect",
     "scm_harbourmaster_mcp.tools.pab",
-    "scm_harbourmaster_mcp.tools.mt_monitor",
     "scm_harbourmaster_mcp.tools.pab_msp",
-    "scm_harbourmaster_mcp.tools.service_status",
     "scm_harbourmaster_mcp.tools.sdwan",
     "scm_harbourmaster_mcp.tools.setup",
     "scm_harbourmaster_mcp.tools.ncsc_baseline",
-    "scm_harbourmaster_mcp.tools.ai_advisor",
+    "scm_harbourmaster_mcp.tools.adem",
+    "scm_harbourmaster_mcp.tools.capabilities",
+    "scm_harbourmaster_mcp.tools.config_index_tools",
+    "scm_harbourmaster_mcp.audit.commit_preview",
+    "scm_harbourmaster_mcp.audit.incident_rca",
+    "scm_harbourmaster_mcp.tools.ops",
+    "scm_harbourmaster_mcp.tools.mt_monitor",
+    "scm_harbourmaster_mcp.audit.msr_report",
+    "scm_harbourmaster_mcp.tools.audit",
     "scm_harbourmaster_mcp.tools.msr",
 ]
 
@@ -162,17 +193,20 @@ def register_reload_tool(mcp: FastMCP, reregister: Callable[[], None] | None = N
         Returns:
             Summary of reloaded modules, patched references, and any errors.
         """
+        errors: list[str] = []
         target_names: list[str]
         if modules:
-            # Map short names → full dotted names
-            short_map = {n.split(".")[-1]: n for n in _RELOAD_ORDER}
-            target_names = [short_map.get(m, m) for m in modules]
+            # A short name can match more than one module (utils.capabilities
+            # and tools.capabilities); reload every match, in reload order.
+            wanted = set(modules)
+            target_names = [n for n in _RELOAD_ORDER if n in wanted or n.split(".")[-1] in wanted]
+            matched = {n.split(".")[-1] for n in target_names} | set(target_names)
+            errors.extend(f"{m}: not in the reload list" for m in modules if m not in matched)
         else:
             target_names = list(_RELOAD_ORDER)
 
         reloaded: list[str] = []
         skipped: list[str] = []
-        errors: list[str] = []
 
         for full_name in target_names:
             mod = sys.modules.get(full_name)

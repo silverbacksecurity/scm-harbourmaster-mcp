@@ -263,6 +263,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `/etc` are unchanged.
 
 ### Fixed
+- **`scm_reload` missed 24 modules and reloaded some before their imports**
+  (`tools/reload.py`) — the hand-kept reload list lacked modules added since
+  (including `audit.commit_preview`, `audit.drift_baseline`,
+  `audit.asbuilt_verify`), so a change there failed mid-reload with an
+  import error and still needed a full restart. Five modules were also
+  reloaded before a package module they import. The list now covers every
+  utils/auth/audit/tools module in top-level import order, with the
+  deliberate exclusions (`config.settings`, `auth.oauth`'s client cache, the
+  reload tool itself) named in `_RELOAD_EXCLUDED`. A new test fails when a
+  module is added without a list entry or out of order. A short name
+  matching two modules (e.g. `capabilities`) now reloads both, and an
+  unknown name is reported as an error instead of "skipped (not loaded)"
 - **Commit preview and shadow audit flagged non-rules as shadowing**
   (`audit/commit_preview.py`, `tools/audit.py`) — snippet placeholder entries
   in a rulebase (id/name/folder only, which the SDK fills with allow/any
