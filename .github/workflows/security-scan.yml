@@ -42,8 +42,19 @@ jobs:
           # Dependabot alert GHSA-h35f-9h28-mq5c / CVE-2026-59890 (same advisory,
           # different DB ID) — also ignored in dependabot.yml so it isn't retried
           # weekly. Upgrade tracked pending upstream SDK update.
+          # PYSEC-2026-3552 (cryptography 49.0.0, CVE-2026-69247) suppressed:
+          # pan-scm-sdk==0.15.1 pins cryptography<50.0.0. The flaw is a
+          # Bleichenbacher oracle in pkcs7_decrypt_der/pem/smime, which nothing
+          # in this codebase calls (cert tools use PKCS#12, not PKCS#7).
+          # PYSEC-2026-4114 (oauthlib 3.3.1, CVE-2026-49265) suppressed:
+          # pan-scm-sdk==0.15.1 pins oauthlib<4.0.0. The flaw is a timing leak
+          # in server-side PKCE code_verifier checks; we are only an OAuth2
+          # client (client-credentials grant) and never verify PKCE.
+          # Re-check all three whenever pan-scm-sdk is upgraded.
           uvx pip-audit --require-hashes --strict \
             --ignore-vuln PYSEC-2026-3447 \
+            --ignore-vuln PYSEC-2026-3552 \
+            --ignore-vuln PYSEC-2026-4114 \
             --requirement /tmp/requirements.txt
 
   sast:

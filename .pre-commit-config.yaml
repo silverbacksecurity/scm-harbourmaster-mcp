@@ -47,8 +47,10 @@ repos:
         # suppress it: pip < 26.2 mishandles doubly-encoded package URLs from
         # an index and can write files to arbitrary paths (CVE-2026-13346 /
         # PYSEC-2026-3721). Not a project dependency — pip is not in
-        # pyproject.toml or uv.lock.
-        additional_dependencies: ["pip>=26.2"]
+        # pyproject.toml or uv.lock. Same for urllib3, which pip-audit pulls
+        # in through requests: < 2.8.0 hits PYSEC-2026-4175/4176/4177 (the
+        # project's own urllib3 is pinned in uv.lock).
+        additional_dependencies: ["pip>=26.2", "urllib3>=2.8.0"]
 
   # Block pushes to the public mirror (`pub` remote) that contain
   # tenant-identifying content — gitleaks catches secrets, not customer

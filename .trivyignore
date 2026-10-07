@@ -5,3 +5,12 @@
 # Risk acceptance: pan-scm-sdk uses cryptography only for OAuth2 token handling
 # over HTTPS; the TLS connection itself is handled by the OS/httpx stack.
 GHSA-537c-gmf6-5ccf
+
+# CVE-2026-69247 (GHSA-g6cj-pr64-35w5 / PYSEC-2026-3552) — Bleichenbacher
+# oracle in cryptography's PKCS#7 EnvelopedData decryption
+# Severity: HIGH | Fix requires cryptography>=50.0.0, but pan-scm-sdk==0.15.1
+# pins cryptography<50.0.0.
+# Risk acceptance: only pkcs7_decrypt_der/pem/smime are affected and nothing
+# in this codebase calls them (cert import uses PKCS#12, not PKCS#7).
+# Tracked: remove once pan-scm-sdk relaxes its cryptography constraint.
+CVE-2026-69247
