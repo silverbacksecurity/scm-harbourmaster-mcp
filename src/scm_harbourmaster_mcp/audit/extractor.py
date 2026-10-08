@@ -170,6 +170,22 @@ def _extract_snapshot_uncached(client: Any, folder: str, tenant_id: str) -> Audi
     snap = AuditSnapshot(folder=folder, tenant_id=tenant_id)
     errors_lock = threading.Lock()
 
+    def _validation_fallback(attr: str, params: dict[str, Any]) -> list[dict[str, Any]]:
+        """Raw-REST re-list for when the SDK model is too strict for tenant data
+        (e.g. a name with spaces, or an extra field such as a log forwarding
+        match-list entry's auto-tag ``actions``) so one bad record doesn't drop
+        the whole resource. Returns [] if REST is unavailable or fails."""
+        session = getattr(client, "session", None)
+        if session is None:
+            return []
+        try:
+            raw = _rest_list(session, _rest_fallback_url(client, attr), _rest_params(params))
+        except Exception:
+            return []
+        if raw:
+            logger.info("sdk_validation_fallback", resource=attr, count=len(raw))
+        return raw
+
     def _safe(attr: str, **kwargs: Any) -> list[dict[str, Any]]:
         try:
             resource = getattr(client, attr)
@@ -181,19 +197,10 @@ def _extract_snapshot_uncached(client: Any, folder: str, tenant_id: str) -> Audi
             return []
         except Exception as exc:
             err = str(exc)
-            # SDK model too strict for tenant data (e.g. name with spaces, extra fields).
-            # Fall back to raw REST so we don't lose all items because of one bad record.
             if "validation error" in err.lower():
-                session = getattr(client, "session", None)
-                if session is not None:
-                    url = _rest_fallback_url(client, attr)
-                    try:
-                        raw = _rest_list(session, url, _rest_params(kwargs))
-                        if raw:
-                            logger.info("sdk_validation_fallback", resource=attr, count=len(raw))
-                            return raw
-                    except Exception:
-                        pass
+                raw = _validation_fallback(attr, kwargs)
+                if raw:
+                    return raw
             # Folder-not-found is expected when a resource type isn't provisioned
             # in this folder (e.g. no Remote Networks in a Mobile-Users-only tenant).
             # Silently skip — these are not actionable errors for the operator.
@@ -215,21 +222,30 @@ def _extract_snapshot_uncached(client: Any, folder: str, tenant_id: str) -> Audi
     def _safe_mf(attr: str, folders: list[str], **extra: Any) -> list[dict[str, Any]]:
         seen: set[str] = set()
         combined: list[dict[str, Any]] = []
+
+        def _add(item: dict[str, Any]) -> None:
+            key = item.get("id") or item.get("name") or str(item)
+            if key not in seen:
+                seen.add(key)
+                combined.append(item)
+
         for f in folders:
             try:
                 resource = getattr(client, attr)
                 for r in resource.list(folder=f, **extra):
-                    item = _dump(r)
-                    key = item.get("id") or item.get("name") or str(item)
-                    if key not in seen:
-                        seen.add(key)
-                        combined.append(item)
+                    _add(_dump(r))
             except AttributeError:
                 with errors_lock:
                     snap.extraction_errors.append(f"SDK attribute not found: client.{attr}")
                 break
             except Exception as exc:
                 err = str(exc)
+                if "validation error" in err.lower():
+                    raw = _validation_fallback(attr, {"folder": f, **extra})
+                    if raw:
+                        for item in raw:
+                            _add(item)
+                        continue
                 if any(m in err for m in _FOLDER_DOES_NOT_EXIST):
                     continue
                 exc_status = _exc_status(exc)

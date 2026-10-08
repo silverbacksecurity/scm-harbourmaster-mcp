@@ -17,6 +17,7 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 from ..audit import nist_templates as _nist
+from ..audit.extractor import list_with_rest_fallback
 from ..audit.ncsc_templates import (
     ANTI_SPYWARE_NAME,
     DENY_ALL_RULE_NAME,
@@ -698,7 +699,7 @@ def register_ncsc_tools(mcp: FastMCP, get_client: Callable[..., Any]) -> None:
 
         # Log forwarding profiles
         try:
-            lfp = client.log_forwarding_profile.list(folder=folder)
+            lfp = list_with_rest_fallback(client, "log_forwarding_profile", folder=folder)
             gaps += check_log_forwarding(lfp)
         except Exception as exc:
             warnings.append(f"Could not fetch log forwarding profiles: {exc}")
@@ -706,8 +707,10 @@ def register_ncsc_tools(mcp: FastMCP, get_client: Callable[..., Any]) -> None:
         # Check baseline object presence
         def _check_exists(sdk_attr: str, name: str, control: str) -> None:
             try:
-                objs = getattr(client, sdk_attr).list(folder=folder)
-                names = {getattr(o, "name", None) for o in objs}
+                objs = list_with_rest_fallback(client, sdk_attr, folder=folder)
+                names = {
+                    o.get("name") if isinstance(o, dict) else getattr(o, "name", None) for o in objs
+                }
                 if name not in names:
                     gaps.append(
                         GapItem(
@@ -837,7 +840,7 @@ def register_ncsc_tools(mcp: FastMCP, get_client: Callable[..., Any]) -> None:
             warnings.append(f"Could not fetch anti-spyware profiles: {exc}")
 
         try:
-            lfp = client.log_forwarding_profile.list(folder=folder)
+            lfp = list_with_rest_fallback(client, "log_forwarding_profile", folder=folder)
             for gap in check_log_forwarding(lfp):
                 ctrl = gap.control.replace("CAF C5", "SP 800-53 AU-12").replace(
                     "CE", "SP 800-53 AU-2"
@@ -851,8 +854,10 @@ def register_ncsc_tools(mcp: FastMCP, get_client: Callable[..., Any]) -> None:
         # Check NIST baseline profile objects exist
         def _check_exists(sdk_attr: str, name: str, control: str) -> None:
             try:
-                objs = getattr(client, sdk_attr).list(folder=folder)
-                names = {getattr(o, "name", None) for o in objs}
+                objs = list_with_rest_fallback(client, sdk_attr, folder=folder)
+                names = {
+                    o.get("name") if isinstance(o, dict) else getattr(o, "name", None) for o in objs
+                }
                 if name not in names:
                     gaps.append(
                         GapItem(

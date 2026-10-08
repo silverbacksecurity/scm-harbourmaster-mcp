@@ -420,3 +420,70 @@ class TestGapReports:
         assert "Could not fetch log forwarding profiles: lfp down" in out
         assert "Could not fetch anti-spyware profiles" in out
         assert "All checks passed — no NIST gaps" in out
+
+
+# ── SDK validation errors fall back to raw REST ─────────────────────────────
+
+# pan-scm-sdk's log forwarding response model forbids extra fields, so a
+# match-list entry carrying an auto-tag ``actions`` block makes list() raise.
+_LFP_VALIDATION_ERROR = ValueError(
+    "1 validation error for LogForwardingProfileResponseModel\n"
+    "match_list.4.actions\n  Extra inputs are not permitted [type=extra_forbidden]"
+)
+
+AUTO_TAG_LOG = {
+    "name": nist.LOG_FORWARDING_NAME,
+    "match_list": [{"log_type": t} for t in ("traffic", "threat", "wildfire", "url")]
+    + [{"log_type": "threat", "actions": [{"name": "tag-src"}]}],
+}
+
+
+def _rest_fallback_client(present: set[str]) -> MagicMock:
+    client = _gap_client(
+        rules=[{"name": "naked", "action": "allow"}],
+        anti_spyware=[],
+        log_profiles=[],
+        present=present,
+    )
+    client.log_forwarding_profile.list.side_effect = _LFP_VALIDATION_ERROR
+    client.log_forwarding_profile.ENDPOINT = "/config/objects/v1/log-forwarding-profiles"
+    resp = MagicMock(status_code=200)
+    resp.json.return_value = {"data": [AUTO_TAG_LOG]}
+    client.session.get.return_value = resp
+    return client
+
+
+class TestLogForwardingRestFallback:
+    def test_nist_gap_reads_log_profiles_over_rest(self) -> None:
+        client = _rest_fallback_client(present=set())
+
+        out = _tools(client)["scm_nist_gap"](tenant_id=TENANT, folder="Branch")
+
+        assert "Could not fetch log forwarding profiles" not in out
+        assert "Could not check log_forwarding_profile" not in out
+        assert "missing log types" not in out
+        # The dict from REST satisfies the baseline-object existence check too.
+        assert f"NIST baseline object '{nist.LOG_FORWARDING_NAME}' not found" not in out
+        url = client.session.get.call_args.args[0]
+        assert url.endswith("/config/objects/v1/log-forwarding-profiles")
+
+    def test_ncsc_gap_reads_log_profiles_over_rest(self) -> None:
+        client = _rest_fallback_client(present=set())
+        client.session.get.return_value.json.return_value = {
+            "data": [{"name": "partial", "match_list": [{"log_type": "traffic"}]}]
+        }
+
+        out = _tools(client)["scm_ncsc_gap"](tenant_id=TENANT, folder="Branch")
+
+        assert "Could not fetch log forwarding profiles" not in out
+        assert "Log profile 'partial' missing log types: threat, url, wildfire" in out
+
+    def test_ai_advisor_checks_read_log_profiles_over_rest(self) -> None:
+        from scm_harbourmaster_mcp.tools.ai_advisor import _run_ncsc_checks, _run_nist_checks
+
+        client = _rest_fallback_client(present=set())
+
+        for run in (_run_ncsc_checks, _run_nist_checks):
+            gaps, warnings = run(client, "Branch", "pre")
+            assert not [w for w in warnings if "log forwarding" in w or "log_forwarding" in w]
+            assert not [g for g in gaps if "missing log types" in g.finding]

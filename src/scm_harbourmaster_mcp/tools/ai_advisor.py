@@ -15,6 +15,7 @@ from typing import Any, Literal
 from mcp.server.fastmcp import FastMCP
 
 from ..audit import nist_templates as _nist
+from ..audit.extractor import list_with_rest_fallback
 from ..audit.ncsc_templates import (
     GapItem,
     check_anti_spyware_profiles,
@@ -117,7 +118,11 @@ def _run_ncsc_checks(
     except Exception as exc:
         warnings.append(f"Could not fetch anti-spyware profiles: {exc}")
     try:
-        gaps.extend(check_log_forwarding(client.log_forwarding_profile.list(folder=folder)))
+        gaps.extend(
+            check_log_forwarding(
+                list_with_rest_fallback(client, "log_forwarding_profile", folder=folder)
+            )
+        )
     except Exception as exc:
         warnings.append(f"Could not fetch log forwarding profiles: {exc}")
     return gaps, warnings
@@ -143,8 +148,10 @@ def _run_nist_checks(
     # NIST baseline object existence checks
     def _check(sdk_attr: str, name: str, control: str) -> None:
         try:
-            objs = getattr(client, sdk_attr).list(folder=folder)
-            names = {getattr(o, "name", None) for o in objs}
+            objs = list_with_rest_fallback(client, sdk_attr, folder=folder)
+            names = {
+                o.get("name") if isinstance(o, dict) else getattr(o, "name", None) for o in objs
+            }
             if name not in names:
                 gaps.append(
                     GapItem(

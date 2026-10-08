@@ -333,6 +333,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   those categories fell through to allow. The cloner now pushes these three
   types over REST with the keys renamed to the API's spelling, for creates
   and overwrites.
+- **Backups lost every log forwarding profile when one used auto-tagging** —
+  pan-scm-sdk's log forwarding response model forbids extra fields, so a
+  match-list entry with an auto-tag `actions` block made `list()` fail in
+  every folder, and the multi-folder extraction recorded an error per folder
+  and saved none. It now re-lists the failing folder over REST on a
+  validation error, as single-folder extraction already did. The shared
+  fallback moved into `_validation_fallback()`. `scm_ncsc_gap`,
+  `scm_nist_gap` and `scm_ai_compliance_advisor` hit the same error listing
+  log forwarding profiles and reported them as missing; they now go through
+  `list_with_rest_fallback()`, and their baseline-object checks accept the
+  plain dicts it can return.
 - **`scm_commit` ignored `admin`, so UI changes were never pushed** — the
   argument was accepted but not passed on, and pan-scm-sdk always scopes a
   commit to the calling service account. SCM then makes a partial commit that
