@@ -8,6 +8,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Reference preflight for `scm_config_clone`** (`audit/clone_preflight.py`,
+  new file) — before any write, dry run included, the clone reads the target
+  folder and resolves every name reference in the objects it will push:
+  application-group and service-group members, rule application, service,
+  URL category, HIP, profile-group and log-forwarding references, decryption
+  profiles and profile-group members. SCM accepts dangling references at
+  create time and rejects them one per push at push validation; the preflight
+  lists them all up front. New `on_missing_reference`: `fail` (default,
+  nothing is pushed), `skip_object` (skips cascade to dependants) or
+  `strip_member` (drops the bad member from groups and allow rules only;
+  anything where dropping it would loosen policy is skipped instead).
+  References to catalogues the service account cannot read (DLP, AI/SaaS
+  Security) are reported as unverifiable and never block. Enabled decrypt
+  rules are checked against the target's forward-trust certificate, with a
+  new `on_missing_trust_cert`: `fail`, `disable_rule` or `skip_object`. The
+  App-ID catalogue is leaf App-IDs plus their `container` values: the
+  applications API never lists container apps (`zoom`, `ms-office365`) as
+  rows, which is what looked like a truncated backup list. Pages are fetched
+  in parallel (~60s on a lab tenant, down from ~240s sequential). The CLI
+  clone menu now always authenticates, since the preflight reads the target
 - **`scm_decryption_rule_copy` and `scm_gp_copy`** (`tools/tenant_copy.py`,
   new file) — copy SSL decryption rules and Mobile Users GlobalProtect
   configuration between tenants. Both are dry runs by default, need a

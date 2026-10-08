@@ -356,40 +356,42 @@ Planner API-key smoke testing._
   - **Open questions:** a single async job with `scm_job_status` progress
     (likely, for large rulebases) vs a synchronous call; and whether this
     joins the Planner epic as a multi-step plan.
-- **Reference preflight for `scm_config_backup` / `scm_config_clone`** —
-  found in a 2026-09 tenant-to-tenant restore. Every object was created
-  without error, but the Remote Networks push failed: a restored application
-  group still listed a retired App-ID. SCM accepts dangling references at
-  create time and only rejects them at push validation (one push, ~40 min).
-  That validation reports the first bad reference, not all of them. Goal:
-  catch every unresolvable reference in the clone dry run, not at push time.
-  - **Resolve every name reference** in the backup before any write:
-    application group and filter members, rule `application`/`service`/
-    `category`/`source_hip`/profile-group references, and profile-group
-    members. Check each against the target tenant's predefined content plus
-    objects already in the target plus objects the clone itself creates.
-  - **Report and choose:** list each unresolved reference with the objects
-    using it. Offer `on_missing_reference`: `fail` (default), `skip_object`,
-    or `strip_member` (drop just the bad member and keep the object). Never
-    silently.
-  - **Open problems found while debugging:**
-    - The backup's `applications` list is truncated (identical 5,498
-      entries on two tenants; common apps missing), so the predefined
-      catalogue needs proper pagination.
-    - A per-name `GET /config/objects/v1/applications?name=` returns 404 for
-      valid container apps, so it can't be the check.
-    - Evaluate whether an SCM candidate-validation endpoint exists that
-      could run instead of (or as well as) the local resolver.
-  - **Also cover:** references to object types the service account can't
-    read (e.g. AI Security or DLP data-filtering profiles returning 403).
-    Report these as "unverifiable", distinct from "missing".
-  - **Tenant prerequisites, not just references:** a second push in the same
-    restore failed with "forward decrypt trust cert is not configured". An
-    enabled `decrypt` rule was restored into a tenant with no forward-trust
-    certificate selected. Certificates and SSL decryption settings are
-    tenant-bound and not cloned. Flag enabled decrypt rules when the target
-    has no forward-trust cert (or the settings API is unreadable), and offer
-    `disable_rule`/`skip_object`.
+- ✅ **Reference preflight for `scm_config_clone`** — shipped 2026-09-25
+  (`audit/clone_preflight.py`). Found in a 2026-09 tenant-to-tenant restore
+  where every create succeeded but each push (~40 min) failed on one dangling
+  reference at a time. The clone now resolves every reference against the
+  target before any write, with `on_missing_reference` (`fail`/`skip_object`/
+  `strip_member`), "unverifiable" for 403 catalogues, and a forward-trust
+  certificate check for enabled decrypt rules (`on_missing_trust_cert`).
+  The "truncated applications list" turned out not to be truncation: the
+  applications API lists leaf App-IDs only (each twice), and container apps
+  are reachable only via the children's `container` field. Follow-ups:
+  - The extractor's custom-app filter tests `snippet != "predefined"` but
+    PAN content is `predefined-snippet`, so every backup carries the full
+    ~11k-row App-ID catalogue. Fix the filter so custom apps are what's kept.
+  - The backup carries no application filters, so a rule using one resolves
+    only if the target already has it. Back them up and clone them.
+  - `name_prefix` renames cloned objects but not the references to them; the
+    preflight flags this, but the cloner should rewrite the references.
+  - Not yet checked: address/address-group, zone and tag references.
+  - SCM candidate validation (checked 2026-09-25 against pan.dev `1f192ff`):
+    there is no public endpoint. The jobs schema lists a `Validate` job
+    type (`type_str`), presumably the UI push dialog's Validate button, but
+    no documented call starts one, and 1,334 lab-tenant jobs include none.
+    `candidate:push` has no validate-only or dry-run field. The undocumented
+    `GET config-versions/candidate` (used by pan-os-php) returns version
+    metadata, not config. Probed 2026-09-29 on an empty lab tenant (no
+    config versions or jobs): POSTs to `config-versions/candidate:validate`,
+    `config-versions/validate`, `config-versions:validate`,
+    `candidate:validate`, `jobs:validate` and `validate` on both the `sse`
+    and `config/operations` bases all matched the responses for made-up
+    paths (backend 404 under `config-versions/`, otherwise gateway 403).
+    Probing GETs tells you nothing: anything under `config-versions/` hits
+    `GET /{version}` (200 `[]`), and the gateway 403s every method without
+    a route. The gateway 403 couldn't be confirmed as "no route" rather
+    than RBAC without a positive control on a real POST route. Next step:
+    capture the UI Validate request in the browser; until then the local
+    resolver is the only pre-push check.
 
 ### Blocked
 

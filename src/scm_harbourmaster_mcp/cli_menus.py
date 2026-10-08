@@ -2757,13 +2757,10 @@ def _op_config_clone(tenant, console, _pause) -> None:
     with console.status("[cyan]Cloning config...[/cyan]"):
         try:
             from .audit.cloner import clone_config
+            from .auth.oauth import get_scm_client
 
-            # A dry run makes no API calls, so don't force an auth round-trip.
-            client = None
-            if not dry_run:
-                from .auth.oauth import get_scm_client
-
-                client = get_scm_client(tenant)
+            # The reference preflight reads the target, dry run included
+            client = get_scm_client(tenant)
             report = clone_config(
                 client,
                 source_backup_file=str(source),
@@ -2771,6 +2768,7 @@ def _op_config_clone(tenant, console, _pause) -> None:
                 name_prefix=name_prefix,
                 include_deployment=include_deployment,
                 dry_run=dry_run,
+                on_missing_reference="fail",
             )
             report.target_tenant_id = tenant.tenant_id
             console.print(Markdown(report.to_markdown()))

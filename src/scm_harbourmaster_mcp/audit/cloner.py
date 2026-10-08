@@ -44,6 +44,14 @@ from typing import Any
 from pydantic import BaseModel
 
 from ..utils.logging import get_logger
+from .clone_preflight import (
+    MISSING_REFERENCE_MODES,
+    MISSING_TRUST_CERT_MODES,
+    PreflightResult,
+    TargetInventory,
+    check_references,
+    fetch_target_inventory,
+)
 
 logger = get_logger(__name__)
 
@@ -173,6 +181,7 @@ class PushResult:
     resource_type: str
     name: str
     # "created" | "skipped" | "overwritten" | "dry_run" | "failed" | "predefined"
+    # | "ref_skipped"
     status: str
     detail: str = ""
 
@@ -185,6 +194,7 @@ class CloneReport:
     dry_run: bool
     results: list[PushResult] = field(default_factory=list)
     psk_warnings: list[str] = field(default_factory=list)
+    preflight: PreflightResult | None = None
 
     # ── Counts ──────────────────────────────────────────────────────────
     @property
@@ -207,9 +217,16 @@ class CloneReport:
     def predefined(self) -> int:
         return sum(1 for r in self.results if r.status == "predefined")
 
+    @property
+    def ref_skipped(self) -> int:
+        return sum(1 for r in self.results if r.status == "ref_skipped")
+
     def to_markdown(self) -> str:
         lines: list[str] = []
-        mode = "DRY RUN PREVIEW" if self.dry_run else "PUSH COMPLETE"
+        if self.preflight and self.preflight.blocked and not self.dry_run:
+            mode = "BLOCKED BY PREFLIGHT"
+        else:
+            mode = "DRY RUN PREVIEW" if self.dry_run else "PUSH COMPLETE"
         lines.append(f"# SCM Config Clone — {mode}")
         lines.append(f"\n**Source:** `{self.source_file}`  ")
         lines.append(f"**Target folder:** `{self.target_folder}`  ")
@@ -225,10 +242,15 @@ class CloneReport:
         lines.append(f"| Skipped (conflict) | {self.skipped} |")
         if self.predefined:
             lines.append(f"| Skipped (PAN predefined) | {self.predefined} |")
+        if self.ref_skipped:
+            lines.append(f"| Skipped (preflight) | {self.ref_skipped} |")
         if not self.dry_run:
             lines.append(f"| Overwritten | {self.overwritten} |")
         lines.append(f"| Failed | {self.failed} |")
         lines.append(f"| **Total** | **{len(self.results)}** |")
+
+        if self.preflight:
+            lines += self.preflight.to_markdown(self.dry_run)
 
         if self.psk_warnings:
             lines.append("\n## ⚠️ PSK Placeholders — Set Before Committing\n")
@@ -593,6 +615,84 @@ def _push_one(
         return PushResult(resource_type, name, "failed", err[:120])
 
 
+def _planned_batches(
+    resources: dict[str, Any],
+    *,
+    include_deployment: bool,
+    skip_rules: bool,
+    resource_filter: set[str] | None,
+) -> list[tuple[str, str, str, dict[str, Any]]]:
+    """(backup key, sdk attr, folder, _process_batch options) in push order."""
+    batches: list[tuple[str, str, str, dict[str, Any]]] = []
+    for snap_key, sdk_attr, folder in _PUSH_ORDER:
+        batches.append((snap_key, sdk_attr, folder, {}))
+    for snap_key, sdk_attr, folder in _FOLDER_KWARG_ORDER:
+        batches.append((snap_key, sdk_attr, folder, {"folder_kwarg": True}))
+    if not skip_rules:
+        rule_order = list(_RULE_ORDER)
+        if not resources.get("nat_rules_pre") and not resources.get("nat_rules_post"):
+            rule_order.append(_LEGACY_NAT_ORDER)
+        for snap_key, sdk_attr, rule_kwargs in rule_order:
+            batches.append((snap_key, sdk_attr, "customer", {"create_kwargs": rule_kwargs}))
+    if include_deployment:
+        for snap_key, sdk_attr, folder in _DEPLOY_ORDER:
+            batches.append(
+                (snap_key, sdk_attr, folder, {"is_ike_gateway": sdk_attr == "ike_gateway"})
+            )
+    return [
+        b
+        for b in batches
+        if resources.get(b[0]) and not (resource_filter and b[0] not in resource_filter)
+    ]
+
+
+def _run_preflight(
+    client: Any,
+    resources: dict[str, Any],
+    planned_keys: list[str],
+    target_folder: str,
+    *,
+    name_prefix: str,
+    on_missing_reference: str,
+    on_missing_trust_cert: str,
+    inventory: TargetInventory | None,
+) -> PreflightResult:
+    if on_missing_reference not in MISSING_REFERENCE_MODES:
+        raise ValueError(
+            f"on_missing_reference must be one of {', '.join(MISSING_REFERENCE_MODES)}"
+        )
+    if on_missing_trust_cert not in MISSING_TRUST_CERT_MODES:
+        raise ValueError(
+            f"on_missing_trust_cert must be one of {', '.join(MISSING_TRUST_CERT_MODES)}"
+        )
+    session = None
+    if inventory is None or "decryption_rules" in planned_keys:
+        from .extractor import _bearer_session_for
+
+        session = _bearer_session_for(client)
+    if inventory is None:
+        inventory = fetch_target_inventory(session, target_folder)
+
+    def trust_state() -> str:
+        from ..tools.tenant_copy import _forward_trust_state
+
+        try:
+            return _forward_trust_state(session)
+        except Exception as exc:
+            logger.warning("clone_preflight_trust_state_failed", error=str(exc)[:200])
+            return "unknown"
+
+    return check_references(
+        resources,
+        planned_keys,
+        inventory,
+        name_prefix=name_prefix,
+        on_missing_reference=on_missing_reference,
+        trust_state=trust_state if session is not None else None,
+        on_missing_trust_cert=on_missing_trust_cert,
+    )
+
+
 def clone_config(
     client: Any,
     source_backup_file: str,
@@ -605,6 +705,9 @@ def clone_config(
     on_conflict: str = "skip",
     dry_run: bool = True,
     resource_filter: set[str] | None = None,
+    on_missing_reference: str | None = None,
+    on_missing_trust_cert: str = "fail",
+    inventory: TargetInventory | None = None,
 ) -> CloneReport:
     """
     Load *source_backup_file*, sanitise every object, and push to
@@ -623,6 +726,13 @@ def clone_config(
     on_conflict     : 'skip' (default) or 'overwrite'.
     dry_run         : If True, no API writes are made (default: True).
     resource_filter : If set, only process resource types in this set.
+    on_missing_reference : Run the reference preflight (clone_preflight.py)
+                         against the target before any write: 'fail',
+                         'skip_object' or 'strip_member'.  None skips it.
+    on_missing_trust_cert : Enabled decrypt rules when the target has no
+                         forward-trust certificate: 'fail', 'disable_rule'
+                         or 'skip_object'.  Only used with the preflight.
+    inventory       : Pre-fetched target inventory (tests); read live if None.
 
     GlobalProtect and identity coverage: auth settings, tunnel profiles,
     agent profiles, forwarding profiles, portal/gateway infrastructure
@@ -639,6 +749,28 @@ def clone_config(
         dry_run=dry_run,
     )
     ip_map: dict[str, str] = {}
+    batches = _planned_batches(
+        resources,
+        include_deployment=include_deployment,
+        skip_rules=skip_rules,
+        resource_filter=resource_filter,
+    )
+
+    preflight: PreflightResult | None = None
+    if on_missing_reference is not None:
+        preflight = _run_preflight(
+            client,
+            resources,
+            [b[0] for b in batches],
+            target_folder,
+            name_prefix=name_prefix,
+            on_missing_reference=on_missing_reference,
+            on_missing_trust_cert=on_missing_trust_cert,
+            inventory=inventory,
+        )
+        report.preflight = preflight
+        if preflight.blocked and not dry_run:
+            return report
 
     def _process_batch(
         snap_key: str,
@@ -649,12 +781,7 @@ def clone_config(
         create_kwargs: dict[str, str] | None = None,
         folder_kwarg: bool = False,
     ) -> None:
-        if resource_filter and snap_key not in resource_filter:
-            return
-        objects = resources.get(snap_key, [])
-        if not objects:
-            return
-        for obj in objects:
+        for obj in resources.get(snap_key, []):
             # Checked before sanitising, which drops the source container the
             # predefined marker lives in.
             if _is_predefined(obj):
@@ -667,6 +794,27 @@ def clone_config(
                     )
                 )
                 continue
+            oid = (snap_key, str(obj.get("name", "")))
+            note = ""
+            if preflight is not None:
+                if oid in preflight.skip:
+                    report.results.append(
+                        PushResult(
+                            snap_key,
+                            obj.get("name", "<unknown>"),
+                            "ref_skipped",
+                            preflight.skip[oid],
+                        )
+                    )
+                    continue
+                stripped = preflight.strip.get(oid)
+                if stripped:
+                    obj = dict(obj)
+                    for fld, bad in stripped.items():
+                        obj[fld] = [v for v in obj.get(fld) or [] if v not in bad]
+                    note = "stripped " + "; ".join(
+                        f"{fld}: {', '.join(sorted(bad))}" for fld, bad in stripped.items()
+                    )
             obj_folder = folder if folder != "customer" else target_folder
             o, psk_w = _sanitise(
                 obj,
@@ -681,38 +829,20 @@ def clone_config(
                 report.psk_warnings.append(psk_w)
             if snap_key in _THREAT_RULE_PROFILES:
                 _drop_empty_actions(o)
+            if preflight is not None and oid in preflight.disable:
+                o["disabled"] = True
+                note = "created disabled — no forward-trust certificate"
             kwargs = dict(create_kwargs or {})
             if folder_kwarg:
                 kwargs["folder"] = folder
             result = _push_one(
                 client, sdk_attr, o, on_conflict, dry_run, snap_key, create_kwargs=kwargs
             )
+            if note:
+                result.detail = f"{result.detail}; {note}" if result.detail else note
             report.results.append(result)
 
-    # ── Standard objects in dependency order ─────────────────────────────
-    for snap_key, sdk_attr, folder in _PUSH_ORDER:
-        _process_batch(snap_key, sdk_attr, folder)
-
-    # ── GP resources whose folder is a create() kwarg ────────────────────
-    for snap_key, sdk_attr, folder in _FOLDER_KWARG_ORDER:
-        _process_batch(snap_key, sdk_attr, folder, folder_kwarg=True)
-
-    # ── Policy rules ─────────────────────────────────────────────────────
-    if not skip_rules:
-        rule_order = list(_RULE_ORDER)
-        if not resources.get("nat_rules_pre") and not resources.get("nat_rules_post"):
-            rule_order.append(_LEGACY_NAT_ORDER)
-        for snap_key, sdk_attr, rule_kwargs in rule_order:
-            _process_batch(snap_key, sdk_attr, "customer", create_kwargs=rule_kwargs)
-
-    # ── Deployment objects (opt-in) ───────────────────────────────────────
-    if include_deployment:
-        for snap_key, sdk_attr, folder in _DEPLOY_ORDER:
-            _process_batch(
-                snap_key,
-                sdk_attr,
-                folder,
-                is_ike_gateway=(sdk_attr == "ike_gateway"),
-            )
+    for snap_key, sdk_attr, folder, opts in batches:
+        _process_batch(snap_key, sdk_attr, folder, **opts)
 
     return report

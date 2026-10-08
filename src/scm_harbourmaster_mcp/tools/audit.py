@@ -29,6 +29,7 @@ from mcp.server.fastmcp import FastMCP
 from ..audit.asbuilt_report import AsBuiltReportBuilder
 from ..audit.asbuilt_verify import VERIFIED_SECTIONS
 from ..audit.bpa_checks import run_all_checks
+from ..audit.clone_preflight import MISSING_REFERENCE_MODES, MISSING_TRUST_CERT_MODES
 from ..audit.cloner import clone_config
 from ..audit.commit_preview import (
     bpa_delta,
@@ -2515,6 +2516,8 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
         dry_run: bool = True,
         save_to: str = "",
         ticket_ref: str = "",
+        on_missing_reference: str = "fail",
+        on_missing_trust_cert: str = "fail",
     ) -> str:
         """Clone a SCM config backup into a new folder or tenant.
 
@@ -2546,6 +2549,20 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
         listed in the report and never pushed: it already exists in every
         tenant and cannot be created inside a folder.
 
+        Reference preflight
+        -------------------
+        Before any write (dry run included) the target folder is read and
+        every name reference in the objects to be pushed is resolved:
+        application-group and service-group members, rule application /
+        service / URL category / HIP / profile-group / log-forwarding
+        references, decryption profiles and profile-group members.  SCM
+        accepts dangling references at create time and only rejects them at
+        push validation, one per push — the preflight lists them all up
+        front.  References to catalogues the service account cannot read
+        (e.g. DLP, AI Security) are reported as "unverifiable" and do not
+        block.  Enabled decrypt rules are also checked against the target's
+        forward-trust certificate, which is tenant-bound and never cloned.
+
         PSK safety
         ----------
         Pre-shared keys in IKE gateways are ALWAYS replaced with
@@ -2569,9 +2586,19 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
             on_conflict: What to do if an object with the same name already
                          exists in the target — 'skip' (default) or 'overwrite'.
             dry_run: If True (default), preview what would be created without
-                     making any API calls. Set to False to execute the push.
+                     writing anything (the preflight still reads the target).
+                     Set to False to execute the push.
             save_to: Optional file path to write the clone report.
             ticket_ref: Mandatory change-ticket reference (never sent to SCM).
+            on_missing_reference: What to do with objects that reference a
+                         name the target lacks — 'fail' (default: push
+                         nothing), 'skip_object' (skip them and anything that
+                         depends on them), or 'strip_member' (drop the bad
+                         member from groups and allow rules; objects where
+                         dropping it would loosen policy are skipped).
+            on_missing_trust_cert: Enabled decrypt rules when the target has
+                         no forward-trust certificate — 'fail' (default),
+                         'disable_rule' or 'skip_object'.
 
         **Write safety (SSR pattern):** ``dry_run=True`` by default;
         ``ticket_ref`` is mandatory.
@@ -2583,6 +2610,14 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
         if err:
             return f"Error: {err}"
         ticket_ref = normalize_ticket_ref(ticket_ref)
+        if on_missing_reference not in MISSING_REFERENCE_MODES:
+            return (
+                f"Error: on_missing_reference must be one of {', '.join(MISSING_REFERENCE_MODES)}"
+            )
+        if on_missing_trust_cert not in MISSING_TRUST_CERT_MODES:
+            return (
+                f"Error: on_missing_trust_cert must be one of {', '.join(MISSING_TRUST_CERT_MODES)}"
+            )
 
         try:
             client = get_client(target_tenant_id)
@@ -2604,6 +2639,8 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
                 skip_rules=skip_rules,
                 on_conflict=on_conflict,
                 dry_run=dry_run,
+                on_missing_reference=on_missing_reference,
+                on_missing_trust_cert=on_missing_trust_cert,
             )
             report.target_tenant_id = target_tenant_id
 
