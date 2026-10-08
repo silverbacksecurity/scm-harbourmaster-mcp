@@ -565,6 +565,44 @@ def test_sdk_validation_error_retries_create_over_rest(tmp_path):
     assert body["name"] == "Profile With Spaces"
 
 
+def test_url_profile_continue_action_is_sent_under_its_api_name(tmp_path):
+    session = _Session()
+
+    class UrlProfiles:
+        ENDPOINT = "/config/security/v1/url-access-profiles"
+
+        def create(self, data: dict[str, Any], **kwargs: Any) -> Any:
+            raise AssertionError("SDK create drops continue_; must not be used")
+
+    class Client:
+        api_base_url = "https://api.example"
+
+        def __init__(self) -> None:
+            self.session = session
+            self.url_access_profile = UrlProfiles()
+
+    src = _backup(
+        tmp_path,
+        {
+            "url_access_profiles": [
+                {
+                    "name": "url",
+                    "folder": "Shared",
+                    "continue_": ["cat-a"],
+                    "credential_enforcement": {"continue_": ["cat-b"]},
+                }
+            ]
+        },
+    )
+    report = cloner.clone_config(Client(), src, "Prisma Access", dry_run=False)
+
+    assert [r.status for r in report.results] == ["created"]
+    method, url, body = session.calls[0]
+    assert (method, url) == ("POST", "https://api.example/config/security/v1/url-access-profiles")
+    assert body["continue"] == ["cat-a"] and "continue_" not in body
+    assert body["credential_enforcement"] == {"continue": ["cat-b"]}
+
+
 def test_auth_settings_existing_name_is_skipped_not_duplicated(tmp_path):
     client = FakeClient()  # FakeResource.fetch always finds an object
     src = _backup(

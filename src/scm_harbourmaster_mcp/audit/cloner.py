@@ -474,13 +474,52 @@ def _rest_create_fallback(
     return _RestResource(session, f"{base}{endpoint}")
 
 
+# pan-scm-sdk (0.15.1) create()/update() serialise these without by_alias, so
+# aliased fields never reach SCM and are dropped without an error: a URL
+# profile's "continue" action, a HIP object's "is" criteria, vulnerability
+# rules' "vendor-id".  They are pushed over REST with the keys renamed instead.
+_ALIASED_KEYS: dict[str, dict[str, str]] = {
+    "url_access_profile": {"continue_": "continue"},
+    "hip_object": {"is_": "is"},
+    "vulnerability_protection_profile": {"vendor_id": "vendor-id"},
+}
+
+
+def _rename_keys(value: Any, renames: dict[str, str]) -> Any:
+    if isinstance(value, dict):
+        return {renames.get(k, k): _rename_keys(v, renames) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_rename_keys(v, renames) for v in value]
+    return value
+
+
+class _AliasedRestResource(_RestResource):
+    """REST adapter that sends the API's field names for SDK-aliased keys."""
+
+    def __init__(self, session: Any, url: str, renames: dict[str, str]) -> None:
+        super().__init__(session, url)
+        self._renames = renames
+
+    def create(self, data: dict[str, Any]) -> Any:
+        return super().create(_rename_keys(data, self._renames))
+
+    def update(self, data: dict[str, Any]) -> Any:
+        return super().update(_rename_keys(data, self._renames))
+
+
 def _resource(client: Any, sdk_attr: str) -> Any:
     if sdk_attr in _REST_ONLY_RESOURCES:
         try:
             return getattr(client, sdk_attr)
         except AttributeError:
             return _RestResource(client.session, _REST_ONLY_RESOURCES[sdk_attr])
-    return getattr(client, sdk_attr)
+    resource = getattr(client, sdk_attr)
+    renames = _ALIASED_KEYS.get(sdk_attr)
+    endpoint = getattr(resource, "ENDPOINT", None)
+    base = getattr(client, "api_base_url", None)
+    if renames and endpoint and base:
+        return _AliasedRestResource(client.session, f"{base}{endpoint}", renames)
+    return resource
 
 
 def _push_one(

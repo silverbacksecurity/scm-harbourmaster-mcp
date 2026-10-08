@@ -325,6 +325,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dict diffs per field (so a changed `agent_version` is reported), and a list
   of strings diffs by membership. Objects carrying an explicit null name now
   fall through to their id instead of being indexed under `None`
+- **`scm_config_clone` silently dropped aliased fields** — pan-scm-sdk
+  0.15.1 serialises URL access profile, HIP object and vulnerability profile
+  writes without `by_alias`, so SCM received `continue_`, `is_` and
+  `vendor_id` and discarded them with no error. Cloned URL profiles lost
+  their whole `continue` list (and `credential_enforcement.continue`), so
+  those categories fell through to allow. The cloner now pushes these three
+  types over REST with the keys renamed to the API's spelling, for creates
+  and overwrites.
 - **`scm_commit` ignored `admin`, so UI changes were never pushed** — the
   argument was accepted but not passed on, and pan-scm-sdk always scopes a
   commit to the calling service account. SCM then makes a partial commit that
