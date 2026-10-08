@@ -122,6 +122,33 @@ def _prune_asbuilt_jobs() -> None:
             del _ASBUILT_JOBS[k]
 
 
+def _index_backup_resources(items: Any) -> dict[str, Any]:
+    """Index one resource type from a backup into a {name: value} mapping.
+
+    scm_config_backup does not store every resource type as a list of named
+    objects.  Singleton config blobs (bgp_routing_config,
+    mobile_agent_global_settings) are stored as a bare dict, and a few types
+    are plain lists of strings.  Diffing them as if they were lists of dicts
+    raises AttributeError, so normalise each shape here:
+
+      list[dict]  → {object name: object}      (field-level diff per object)
+      dict        → {field name: field value}  (field-level diff of the blob)
+      list[str]   → {value: value}             (membership diff)
+    """
+    if isinstance(items, dict):
+        return dict(items)
+    if not isinstance(items, list):
+        return {}
+    indexed: dict[str, Any] = {}
+    for idx, item in enumerate(items):
+        if isinstance(item, dict):
+            key = item.get("name") or item.get("id") or str(idx)
+        else:
+            key = str(item)
+        indexed[key] = item
+    return indexed
+
+
 _MERMAID_FENCE = re.compile(r"```mermaid\n(.*?)\n```", re.DOTALL)
 
 
@@ -2416,17 +2443,14 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
             data_a = json.loads(Path(backup_file_a).read_text())
             data_b = json.loads(Path(backup_file_b).read_text())
 
-            res_a: dict[str, dict[str, Any]] = {}
-            res_b: dict[str, dict[str, Any]] = {}
-
-            for rtype, items in data_a.get("resources", {}).items():
-                res_a[rtype] = {
-                    i.get("name", i.get("id", str(idx))): i for idx, i in enumerate(items)
-                }
-            for rtype, items in data_b.get("resources", {}).items():
-                res_b[rtype] = {
-                    i.get("name", i.get("id", str(idx))): i for idx, i in enumerate(items)
-                }
+            res_a: dict[str, dict[str, Any]] = {
+                rtype: _index_backup_resources(items)
+                for rtype, items in data_a.get("resources", {}).items()
+            }
+            res_b: dict[str, dict[str, Any]] = {
+                rtype: _index_backup_resources(items)
+                for rtype, items in data_b.get("resources", {}).items()
+            }
 
             diff: dict[str, Any] = {
                 "baseline": {

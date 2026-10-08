@@ -314,6 +314,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `/etc` are unchanged.
 
 ### Fixed
+- **`scm_config_diff` crashed on dict-valued resource types** — it indexed
+  every entry under a backup's `resources` as a list of dicts, so the
+  singleton config blobs (`bgp_routing_config`,
+  `mobile_agent_global_settings`) had their string keys iterated and the tool
+  died with `[AttributeError] 'str' object has no attribute 'get'` before
+  producing any output; one unhandled shape took out the whole diff, which
+  made cross-tenant comparison impossible. All three shapes a backup can hold
+  are now normalised: a list of named objects diffs per object, a singleton
+  dict diffs per field (so a changed `agent_version` is reported), and a list
+  of strings diffs by membership. Objects carrying an explicit null name now
+  fall through to their id instead of being indexed under `None`
 - **`scm_commit` ignored `admin`, so UI changes were never pushed** — the
   argument was accepted but not passed on, and pan-scm-sdk always scopes a
   commit to the calling service account. SCM then makes a partial commit that
