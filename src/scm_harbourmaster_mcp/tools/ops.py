@@ -1526,7 +1526,10 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
                 purchased = row["purchased"]
                 remaining = row["remaining"]
                 consumed = purchased - remaining
-                if purchased > 0:
+                # Negative consumption = pooled parent SKU artefact (remaining
+                # exceeds purchased) — render n/a rather than a negative count.
+                consumed_s = f"{consumed:,}" if consumed >= 0 else "n/a"
+                if purchased > 0 and consumed >= 0:
                     pct_val = consumed / purchased * 100
                     pct = f"{pct_val:.0f}%"
                     if consumed > purchased:
@@ -1535,7 +1538,7 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
                     pct = "—"
                 out.append(
                     f"| `{row['app']}` | {row['exp'][:19]} | {days_s} "
-                    f"| {purchased:,} | {consumed:,} | {pct} | {emoji} {st} |"
+                    f"| {purchased:,} | {consumed_s} | {pct} | {emoji} {st} |"
                 )
             out.append("")
             return out, section_ok
@@ -1710,8 +1713,9 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
                         if r["consumed"] >= 0
                         else "—"
                     )
+                    consumed_s = f"{r['consumed']:,}" if r["consumed"] >= 0 else "n/a"
                     out.append(
-                        f"| `{r['app']}` | {r['purchased']:,} | {r['consumed']:,} "
+                        f"| `{r['app']}` | {r['purchased']:,} | {consumed_s} "
                         f"| {pct_s} | {_signal_emoji.get(signal, '')} {signal} |"
                     )
                 out.append("")

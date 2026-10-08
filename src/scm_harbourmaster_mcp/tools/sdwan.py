@@ -1215,6 +1215,136 @@ def register_sdwan_tools(mcp: FastMCP, get_scm_client_credentials: Any) -> None:
         except Exception as exc:
             return f"Error: {exc}"
 
+    # ── Licensing ─────────────────────────────────────────────────────────────
+
+    @mcp.tool()
+    def sdwan_licence_summary(tenant_id: str = "") -> str:
+        """Report Prisma SD-WAN licensing: virtual ION allowances and hardware ION inventory.
+
+        SD-WAN entitlements are not in the Subscription API that
+        scm_license_info reads, so this tool asks the SD-WAN controller:
+
+        - `licenses` (GET /sdwan/v2.0/api/licenses) — purchased vs used counts
+          per product (sdwan, security_services, iot_security, ...) and size
+          tier. Only non-zero tiers are shown; all-zero is common on tenants
+          that are not on tiered licensing.
+        - `vfflicenses` (v2.1) — virtual ION (VFF) allowance per model:
+          allowed vs allocated, plus `deployed` (matching machines in the
+          inventory — allocated_ions reads 0 on live tenants even with
+          virtual IONs running) and available headroom.
+        - `machines` (v2.5) — hardware IONs allocated to the tenant, with claim
+          state, connectivity, eval flag, and renew/suspend state; machines not
+          bound to an element are listed separately.
+
+        Each section degrades on its own (e.g. a 403) and is reported under
+        `warnings`, so one failing endpoint never hides the others.
+
+        Args:
+            tenant_id: SCM tenant ID (MSSP mode).
+
+        Returns:
+            JSON with `tiered_licences`, `virtual_ions`, `hardware_ions`,
+            `elements_total` and optional `warnings`.
+        """
+        try:
+            sdk = _sdwan(tenant_id)
+            warnings: list[str] = []
+            result: dict[str, Any] = {}
+
+            resp = sdk.get.licenses()
+            if getattr(resp, "sdk_status", False):
+                products = (getattr(resp, "sdk_content", {}) or {}).get("licenses") or {}
+                result["tiered_licences"] = {
+                    product: {
+                        tier: counts
+                        for tier, counts in (tiers or {}).items()
+                        if any((counts or {}).values())
+                    }
+                    for product, tiers in products.items()
+                    if any(any((c or {}).values()) for c in (tiers or {}).values())
+                }
+            else:
+                warnings.append(_api_error("licenses", resp))
+
+            machines_resp = sdk.get.machines()
+            machines_ok = bool(getattr(machines_resp, "sdk_status", False))
+            machines = safe_items(machines_resp) if machines_ok else []
+            # allocated_ions stays 0 on live tenants even with virtual IONs
+            # running, so count deployed machines per model as a cross-check.
+            deployed: dict[str, int] = {}
+            for m in machines:
+                model = (m.get("model_name") or "").lower()
+                deployed[model] = deployed.get(model, 0) + 1
+
+            resp = sdk.get.vfflicenses()
+            if getattr(resp, "sdk_status", False):
+                vff_rows = []
+                for v in safe_items(resp):
+                    allowed = v.get("allowed_ions") or 0
+                    allocated = v.get("allocated_ions") or 0
+                    in_use = deployed.get((v.get("model") or "").lower(), 0)
+                    if allowed or allocated or in_use:
+                        vff_rows.append(
+                            {
+                                "model": v.get("model"),
+                                "allowed": allowed,
+                                "allocated": allocated,
+                                "deployed": in_use,
+                                "available": max(allowed - max(allocated, in_use), 0),
+                            }
+                        )
+                result["virtual_ions"] = {
+                    "total_allowed": sum(r["allowed"] for r in vff_rows),
+                    "total_allocated": sum(r["allocated"] for r in vff_rows),
+                    "total_deployed": sum(r["deployed"] for r in vff_rows),
+                    "by_model": sorted(vff_rows, key=lambda r: r["model"] or ""),
+                }
+            else:
+                warnings.append(_api_error("vfflicenses", resp))
+
+            if machines_ok:
+
+                def _hist(key: str) -> dict[str, int]:
+                    h: dict[str, int] = {}
+                    for m in machines:
+                        val = str(m.get(key) if m.get(key) is not None else "unknown")
+                        h[val] = h.get(val, 0) + 1
+                    return dict(sorted(h.items()))
+
+                result["hardware_ions"] = {
+                    "total": len(machines),
+                    "connected": sum(1 for m in machines if m.get("connected")),
+                    "eval": sum(1 for m in machines if m.get("is_eval")),
+                    "by_model": _hist("model_name"),
+                    "by_machine_state": _hist("machine_state"),
+                    "by_renew_state": _hist("renew_state"),
+                    "by_suspend_state": _hist("suspend_state"),
+                    "not_bound_to_element": [
+                        {
+                            "machine_id": m.get("id"),
+                            "serial": m.get("sl_no"),
+                            "model": m.get("model_name"),
+                            "machine_state": m.get("machine_state"),
+                            "connected": m.get("connected"),
+                        }
+                        for m in machines
+                        if not m.get("em_element_id")
+                    ],
+                }
+            else:
+                warnings.append(_api_error("machines", machines_resp))
+
+            try:
+                result["elements_total"] = len(safe_items(sdk.get.elements()))
+            except Exception as exc:
+                warnings.append(f"elements: {exc}")
+
+            if warnings:
+                result["warnings"] = warnings
+            return _fmt(result)
+        except Exception as exc:
+            return f"Error: {exc}"
+
     # ── Policy Rules (path / QoS / NAT / security) ────────────────────────────
 
     @mcp.tool()
@@ -1932,7 +2062,7 @@ def register_sdwan_tools(mcp: FastMCP, get_scm_client_credentials: Any) -> None:
             except (AttributeError, TypeError):
                 try:
                     resp = sdk._session.post(
-                        f"{sdk.base_url}/sdwan/monitor/v2.0/api/monitor/aggregates/application/qos",
+                        f"{sdk.controller}/sdwan/monitor/v2.0/api/monitor/aggregates/application/qos",
                         json=payload,
                         timeout=(10, 30),
                     )
@@ -2021,7 +2151,7 @@ def register_sdwan_tools(mcp: FastMCP, get_scm_client_credentials: Any) -> None:
             ]:
                 try:
                     resp = sdk._session.post(
-                        f"{sdk.base_url}{path}",
+                        f"{sdk.controller}{path}",
                         json=payload,
                         timeout=(10, 30),
                     )
@@ -2053,7 +2183,7 @@ def register_sdwan_tools(mcp: FastMCP, get_scm_client_credentials: Any) -> None:
                     for elem in target:
                         try:
                             if_resp = sdk._session.get(
-                                f"{sdk.base_url}/sdwan/v4.20/api/sites/{elem.get('site_id')}/"
+                                f"{sdk.controller}/sdwan/v4.20/api/sites/{elem.get('site_id')}/"
                                 f"elements/{elem['id']}/interfaces",
                                 timeout=(10, 20),
                             )
@@ -2146,7 +2276,7 @@ def register_sdwan_tools(mcp: FastMCP, get_scm_client_credentials: Any) -> None:
                     )
                 try:
                     resp = sdk._session.get(
-                        f"{sdk.base_url}/sdwan/v2.0/api/sites/{site_id}/elements/{element_id}/ipfix",
+                        f"{sdk.controller}/sdwan/v2.0/api/sites/{site_id}/elements/{element_id}/ipfix",
                         timeout=(10, 20),
                     )
                     if resp.status_code == 403:
@@ -2182,7 +2312,7 @@ def register_sdwan_tools(mcp: FastMCP, get_scm_client_credentials: Any) -> None:
                 items = safe_items(resp)
             else:
                 resp = sdk._session.get(
-                    f"{sdk.base_url}/sdwan/v2.0/api/{endpoint}",
+                    f"{sdk.controller}/sdwan/v2.0/api/{endpoint}",
                     timeout=(10, 20),
                 )
                 resp.raise_for_status()
@@ -2251,7 +2381,7 @@ def register_sdwan_tools(mcp: FastMCP, get_scm_client_credentials: Any) -> None:
                 sid = elem.get("site_id", "")
                 try:
                     resp = sdk._session.get(
-                        f"{sdk.base_url}/sdwan/v2.1/api/sites/{sid}/elements/{eid}/{endpoint}",
+                        f"{sdk.controller}/sdwan/v2.1/api/sites/{sid}/elements/{eid}/{endpoint}",
                         timeout=(10, 20),
                     )
                     if resp.status_code == 403:
@@ -2326,7 +2456,7 @@ def register_sdwan_tools(mcp: FastMCP, get_scm_client_credentials: Any) -> None:
                     return _fmt({"error": "site_id or element_id required for action='events'"})
 
                 try:
-                    url = f"{sdk.base_url}/sdwan/v2.0/api/{scope}/correlationevents/query"
+                    url = f"{sdk.controller}/sdwan/v2.0/api/{scope}/correlationevents/query"
                     resp = sdk._session.post(
                         url,
                         json={"scope_id": scope_id},
@@ -2366,7 +2496,7 @@ def register_sdwan_tools(mcp: FastMCP, get_scm_client_credentials: Any) -> None:
                 rules: list[dict] = []
                 try:
                     rules_resp = sdk._session.get(
-                        f"{sdk.base_url}/sdwan/v2.0/api/eventcorrelationpolicysets/"
+                        f"{sdk.controller}/sdwan/v2.0/api/eventcorrelationpolicysets/"
                         f"{policy_set_id}/eventcorrelationpolicyrules",
                         timeout=(10, 20),
                     )
@@ -2431,7 +2561,7 @@ def register_sdwan_tools(mcp: FastMCP, get_scm_client_credentials: Any) -> None:
                 items = safe_items(resp)
             else:
                 resp = sdk._session.get(
-                    f"{sdk.base_url}/sdwan/v2.0/api/{endpoint}",
+                    f"{sdk.controller}/sdwan/v2.0/api/{endpoint}",
                     timeout=(10, 20),
                 )
                 if resp.status_code == 403:
@@ -2490,7 +2620,7 @@ def register_sdwan_tools(mcp: FastMCP, get_scm_client_credentials: Any) -> None:
             for version in ("v2.1", "v2.0"):
                 try:
                     resp = sdk._session.post(
-                        f"{sdk.base_url}/sdwan/{version}/api/events/summary",
+                        f"{sdk.controller}/sdwan/{version}/api/events/summary",
                         json=payload,
                         timeout=(10, 30),
                     )

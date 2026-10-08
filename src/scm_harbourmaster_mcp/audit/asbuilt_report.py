@@ -5165,6 +5165,8 @@ class AsBuiltReportBuilder:
                         exp_str = exp_raw or "—"
                         status = "—"
                     consumed = lic.get("purchased_size", 0) - (lic.get("remaining_size") or 0)
+                    if isinstance(consumed, int) and consumed < 0:
+                        consumed = "n/a"  # remaining > purchased: pooled-SKU artefact
                     lic_rows.append(
                         [
                             status,

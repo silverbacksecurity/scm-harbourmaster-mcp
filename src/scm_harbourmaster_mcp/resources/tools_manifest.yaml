@@ -1138,6 +1138,14 @@ sdwan_snmp_config:
     current service accounts (RBAC).
   retry_policy: retry
   scope: tenant
+sdwan_licence_summary:
+  access: read
+  domain: sdwan
+  idempotent: true
+  known_failure_modes: Tiered /licenses counts are all-zero on tenants not on tiered
+    SD-WAN licensing; machines only lists hardware allocated to this tenant.
+  retry_policy: retry
+  scope: tenant
 sdwan_software_status:
   access: read
   domain: sdwan

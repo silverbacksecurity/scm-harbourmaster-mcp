@@ -119,6 +119,26 @@ class TestLicenseInfo:
         assert "⚠️ Expiring" in out and "| 10 | 10 |" in out
         assert "❓ Unknown" in out and "| soon |" in out
 
+    def test_remaining_above_purchased_is_na(self) -> None:
+        bundles = [
+            {
+                "claim_by": "ops@example.com",
+                "licenses": [
+                    {
+                        "app_id": "aperture",
+                        "license_type": "EVAL-POOLED",
+                        "license_expiration": _iso(100),
+                        "purchased_size": 100,
+                        "remaining_size": 2800,
+                    }
+                ],
+            }
+        ]
+        with patch.object(oauth_mod, "fetch_licenses", return_value=bundles):
+            out = _all_tools(MagicMock())["scm_license_info"](tenant_id=TENANT)
+        assert "| 100 | n/a |" in out
+        assert "-2700" not in out
+
     def test_empty_and_error(self) -> None:
         with patch.object(oauth_mod, "fetch_licenses", return_value=[]):
             assert "No licences found" in _all_tools(MagicMock())["scm_license_info"]()

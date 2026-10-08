@@ -129,6 +129,21 @@ MACHINES = [
         "connected": False,
     },
 ]
+# Shapes captured from GET /sdwan/v2.0/api/licenses and /sdwan/v2.1/api/vfflicenses.
+LICENSES = {
+    "licenses": {
+        "sdwan": {
+            "small": {"usage_count": 3, "purchased_count": 5},
+            "large": {"usage_count": 0, "purchased_count": 0},
+        },
+        "iot_security": {"small": {"usage_count": 0, "purchased_count": 0}},
+    }
+}
+VFF_LICENSES = [
+    {"id": "v1", "model": "ion 7108v", "allowed_ions": 2, "allocated_ions": 1},
+    {"id": "v2", "model": "ion 3102v", "allowed_ions": 2, "allocated_ions": 0},
+    {"id": "v3", "model": "ion 7132v", "allowed_ions": 0, "allocated_ions": 0},
+]
 SOFTWARE_STATUS = [
     {
         "active_image_id": "img-old",
@@ -279,6 +294,8 @@ def make_fake_sdk(*, auditlog_status: int = 200) -> Any:
         ),
         eventcodes=lambda: FakeResp(EVENTCODES),
         machines=lambda: FakeResp(MACHINES),
+        licenses=lambda: FakeResp(content=LICENSES),
+        vfflicenses=lambda: FakeResp(VFF_LICENSES),
         software_status=lambda eid: FakeResp(SOFTWARE_STATUS),
         natpolicysets=lambda: FakeResp(NAT_SETS),
         natpolicyrules=lambda sid: FakeResp(NAT_RULES),
@@ -384,6 +401,7 @@ def test_new_tools_register(tools: dict[str, Any]) -> None:
         "sdwan_events",
         "sdwan_audit_logs",
         "sdwan_software_status",
+        "sdwan_licence_summary",
         "sdwan_policy_rules",
         "sdwan_link_health",
     } <= set(tools)
@@ -606,7 +624,9 @@ class _FakeHttpSession:
 @pytest.fixture
 def r3_tools(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     fake_sdk = make_fake_sdk()
-    fake_sdk.base_url = "https://api.sase.paloaltonetworks.com"
+    # The prisma-sase API object exposes `controller`, not `base_url`; the
+    # fake must match so a stray base_url fails here instead of live.
+    fake_sdk.controller = "https://api.sase.paloaltonetworks.com"
     fake_sdk._session = _FakeHttpSession()
     monkeypatch.setattr(
         sdwan_tools, "find_tenant_config", lambda tid: SimpleNamespace(tenant_id=tid)
@@ -695,3 +715,75 @@ def test_ipfix_unknown_resource(r3_tools: dict[str, Any]) -> None:
 def test_ipfix_element_requires_ids(r3_tools: dict[str, Any]) -> None:
     data = json.loads(r3_tools["sdwan_ipfix_config"](resource="element_ipfix"))
     assert "site_id and element_id" in data["error"]
+
+
+# ── Licensing ────────────────────────────────────────────────────────────────
+
+
+def test_licence_summary(tools: dict[str, Any]) -> None:
+    data = json.loads(tools["sdwan_licence_summary"]())
+    # All-zero tiers and products are dropped.
+    assert data["tiered_licences"] == {"sdwan": {"small": {"usage_count": 3, "purchased_count": 5}}}
+    vff = data["virtual_ions"]
+    assert vff["total_allowed"] == 4 and vff["total_allocated"] == 1
+    assert [r["model"] for r in vff["by_model"]] == ["ion 3102v", "ion 7108v"]
+    assert vff["by_model"][1]["available"] == 1
+    assert vff["total_deployed"] == 0  # MACHINES holds hardware models only
+    hw = data["hardware_ions"]
+    assert hw["total"] == 2 and hw["connected"] == 1 and hw["eval"] == 0
+    assert hw["by_machine_state"] == {"allocated": 1, "claimed": 1}
+    assert [m["machine_id"] for m in hw["not_bound_to_element"]] == ["m2"]
+    assert data["elements_total"] == 2
+    assert "warnings" not in data
+
+
+def test_licence_summary_degrades_per_section(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_sdk = make_fake_sdk()
+    fake_sdk.get.vfflicenses = lambda: FakeResp(status_code=403)
+    monkeypatch.setattr(
+        sdwan_tools, "find_tenant_config", lambda tid: SimpleNamespace(tenant_id=tid)
+    )
+    monkeypatch.setattr(sdwan_tools, "list_loaded_tenants", lambda: ["t1"])
+    monkeypatch.setattr(sdwan_tools, "get_sdwan_client", lambda tc: fake_sdk)
+    mcp = FastMCP("test")
+    sdwan_tools.register_sdwan_tools(mcp, None)
+    data = json.loads(mcp._tool_manager.get_tool("sdwan_licence_summary").fn())
+    assert "virtual_ions" not in data
+    assert data["hardware_ions"]["total"] == 2  # other sections still reported
+    assert any("vfflicenses" in w and "403" in w for w in data["warnings"])
+
+
+def test_licence_summary_counts_deployed_virtual_ions(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_sdk = make_fake_sdk()
+    vm = {"id": "m3", "em_element_id": "e9", "model_name": "ion 3102v", "connected": True}
+    fake_sdk.get.machines = lambda: FakeResp([*MACHINES, vm])
+    monkeypatch.setattr(
+        sdwan_tools, "find_tenant_config", lambda tid: SimpleNamespace(tenant_id=tid)
+    )
+    monkeypatch.setattr(sdwan_tools, "list_loaded_tenants", lambda: ["t1"])
+    monkeypatch.setattr(sdwan_tools, "get_sdwan_client", lambda tc: fake_sdk)
+    mcp = FastMCP("test")
+    sdwan_tools.register_sdwan_tools(mcp, None)
+    data = json.loads(mcp._tool_manager.get_tool("sdwan_licence_summary").fn())
+    row = next(r for r in data["virtual_ions"]["by_model"] if r["model"] == "ion 3102v")
+    # allocated_ions says 0 but one is deployed — headroom uses the higher figure.
+    assert row == {
+        "model": "ion 3102v",
+        "allowed": 2,
+        "allocated": 0,
+        "deployed": 1,
+        "available": 1,
+    }
+
+
+def test_raw_calls_use_controller_url(r3_tools: dict[str, Any]) -> None:
+    """Raw sdk._session calls must build URLs from sdk.controller.
+
+    The real client has no base_url attribute; using it raised AttributeError,
+    which the tools swallowed into empty results (e.g. 0 interfaces).
+    """
+    fake = sdwan_tools.get_sdwan_client(None)
+    assert not hasattr(fake, "base_url")
+    r3_tools["sdwan_events_summary"]()
+    assert fake._session.calls, "events_summary made no raw call"
+    assert all(c["url"].startswith(fake.controller) for c in fake._session.calls)

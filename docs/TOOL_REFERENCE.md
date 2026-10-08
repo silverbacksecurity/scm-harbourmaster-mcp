@@ -4,7 +4,7 @@
 
 All tools authenticate via Bearer-token OAuth (SASE client credentials) configured in `settings.toml` / `.secrets.toml`.
 
-**<!-- tool-count -->172<!-- /tool-count --> tools** across <!-- module-count -->41<!-- /module-count --> modules.
+**<!-- tool-count -->173<!-- /tool-count --> tools** across <!-- module-count -->41<!-- /module-count --> modules.
 
 ## Table of Contents
 
@@ -2545,6 +2545,41 @@ Returns:
 |-----------|------|---------|
 | `tenant_id` | `str` | `''` |
 | `element_id` | `str` | `''` |
+
+### `sdwan_licence_summary`
+
+Report Prisma SD-WAN licensing: virtual ION allowances and hardware ION inventory.
+
+```
+SD-WAN entitlements are not in the Subscription API that
+scm_license_info reads, so this tool asks the SD-WAN controller:
+
+- `licenses` (GET /sdwan/v2.0/api/licenses) — purchased vs used counts
+  per product (sdwan, security_services, iot_security, ...) and size
+  tier. Only non-zero tiers are shown; all-zero is common on tenants
+  that are not on tiered licensing.
+- `vfflicenses` (v2.1) — virtual ION (VFF) allowance per model:
+  allowed vs allocated, plus `deployed` (matching machines in the
+  inventory — allocated_ions reads 0 on live tenants even with
+  virtual IONs running) and available headroom.
+- `machines` (v2.5) — hardware IONs allocated to the tenant, with claim
+  state, connectivity, eval flag, and renew/suspend state; machines not
+  bound to an element are listed separately.
+
+Each section degrades on its own (e.g. a 403) and is reported under
+`warnings`, so one failing endpoint never hides the others.
+
+Args:
+    tenant_id: SCM tenant ID (MSSP mode).
+
+Returns:
+    JSON with `tiered_licences`, `virtual_ions`, `hardware_ions`,
+    `elements_total` and optional `warnings`.
+```
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `tenant_id` | `str` | `''` |
 
 ### `sdwan_policy_rules`
 

@@ -28,6 +28,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rows, which is what looked like a truncated backup list. Pages are fetched
   in parallel (~60s on a lab tenant, down from ~240s sequential). The CLI
   clone menu now always authenticates, since the preflight reads the target
+- **`sdwan_licence_summary`** (`tools/sdwan.py`) — shows Prisma SD-WAN
+  licensing, which the Subscription API behind `scm_license_info` does not
+  carry. Reads the SD-WAN controller's `licenses` (purchased vs used per
+  product and size tier, non-zero tiers only), `vfflicenses` (virtual ION
+  allowance per model) and `machines` (hardware IONs by model, claim state,
+  eval flag, renew/suspend state, plus machines not bound to an element).
+  `allocated_ions` reads 0 on live tenants even with virtual IONs running, so
+  each virtual model also gets a `deployed` count from the machine inventory,
+  and headroom uses the higher of the two. Each section degrades on its own
 - **`scm_decryption_rule_copy` and `scm_gp_copy`** (`tools/tenant_copy.py`,
   new file) — copy SSL decryption rules and Mobile Users GlobalProtect
   configuration between tenants. Both are dry runs by default, need a
@@ -364,6 +373,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   log forwarding profiles and reported them as missing; they now go through
   `list_with_rest_fallback()`, and their baseline-object checks accept the
   plain dicts it can return.
+- **SD-WAN raw API calls silently returned nothing** — ten raw
+  `sdk._session` calls in `tools/sdwan.py` built URLs from `sdk.base_url`,
+  which the prisma-sase client does not have (it is `sdk.controller`). The
+  AttributeError was swallowed, so `sdwan_interface_status` reported 0
+  interfaces, `sdwan_snmp_config` found no agents, and `sdwan_events_summary`
+  blamed the service-account role. Affected `sdwan_app_qos`,
+  `sdwan_interface_status`, `sdwan_ipfix_config`, `sdwan_snmp_config`,
+  `sdwan_event_correlation`, `sdwan_perf_mgmt` and `sdwan_events_summary`.
+  Tests missed it because a fixture set `base_url` on the fake client
+- **Negative licence consumption** — the Subscription API can report
+  `remaining_size` above `purchased_size` on pooled eval SKUs, which rendered
+  as a negative "Consumed" count (e.g. -2700). `scm_license_info`, the tenant
+  dashboard's MU pool table, the `scm_licence_forecast` table, the renewal
+  brief seat table and the AS-BUILT licence table now show `n/a` instead
 - **`scm_commit` ignored `admin`, so UI changes were never pushed** — the
   argument was accepted but not passed on, and pan-scm-sdk always scopes a
   commit to the calling service account. SCM then makes a partial commit that

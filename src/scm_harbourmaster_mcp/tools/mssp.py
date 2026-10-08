@@ -154,7 +154,13 @@ def register_mssp_tools(mcp: FastMCP, get_client: Any, get_settings: Any) -> Non
                     exp_str = exp_raw or "—"
                     status = "❓ Unknown"
 
-                consumed = lic.get("purchased_size", 0) - (lic.get("remaining_size") or 0)
+                # remaining_size can exceed purchased_size on some eval SKUs,
+                # which would render a negative consumed count — show n/a.
+                consumed: int | str = lic.get("purchased_size", 0) - (
+                    lic.get("remaining_size") or 0
+                )
+                if isinstance(consumed, int) and consumed < 0:
+                    consumed = "n/a"
                 rows.append(
                     {
                         "app": lic.get("app_id", "—"),
@@ -312,7 +318,9 @@ def register_mssp_tools(mcp: FastMCP, get_client: Any, get_settings: Any) -> Non
                         pass
                     qty = lic.get("purchased_size", 0)
                     remaining = lic.get("remaining_size") or 0
-                    consumed = qty - remaining
+                    consumed: int | str = qty - remaining
+                    if isinstance(consumed, int) and consumed < 0:
+                        consumed = "n/a"  # remaining > purchased: pooled-SKU artefact
                     mu_rows.append((sku, qty, consumed, bundle.get("claim_by", "—")))
             if mu_rows:
                 lines.append("  | SKU | Allocated | Consumed | Claimed By |")
