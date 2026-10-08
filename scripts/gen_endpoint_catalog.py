@@ -31,7 +31,7 @@ REPO_URL = "https://github.com/PaloAltoNetworks/pan.dev"
 # Product trees this server integrates with: SASE/SCM plus the adjacent
 # security products an MSSP managing those tenants also touches (classic
 # Prisma SD-WAN, standalone DLP/DNS-Security, Cloud NGFW-for-AWS, CDL log
-# forwarding, email DLP).
+# forwarding, email DLP, Prisma Browser).
 #
 # Deliberately excluded — real pan.dev product families, but different
 # platforms outside this server's SCM/SASE scope: openapi-specs/mssp (Prisma
@@ -49,6 +49,9 @@ TREES = (
     "openapi-specs/cloudngfw",
     "openapi-specs/cdl",
     "openapi-specs/email-dlp",
+    # Prisma Browser management (/seb-api/v1) — moved out of access/browser-mgmt
+    # into its own pan.dev tree on 2026-09-18.
+    "openapi-specs/prisma-browser",
 )
 OUT_DEFAULT = (
     Path(__file__).parent.parent

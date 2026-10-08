@@ -244,18 +244,38 @@ do about it.
 
 ## Next
 
-_Last pan.dev check: 2026-08-15 — endpoint catalog regenerated (pan.dev
-commit `0a0fc283` → `8c059a77`, 3,830 endpoint paths). Surfaced one new API
-family: Config Cleanup (`config-cleanup/v1/zerohit-rules`, `posture` host) —
-shipped same day as `scm_zerohit_rules`, alongside a standalone
-`scm_rule_shadow_audit` tool and a CIDR-aware upgrade to the shared
-shadow-detection engine (see Recently shipped, above). Site Management
-(found 2026-07-31) shipped the same day it was found. `pan-scm-sdk` (0.15.1)
-and `prisma-sase` (6.8.1b1) both current with PyPI/GitHub latest — no SDK
-updates pending.
-All other API-coverage Next items shipped 2026-07-17/2026-07-31; remaining
-coverage items are blocked on RBAC, licensed tenants, PAN spec fixes, or
-Planner API-key smoke testing._
+_Last pan.dev check: 2026-10-08. The endpoint catalog was regenerated
+(pan.dev `b9122449` → `45052ce5`, 4,193 paths, 31 families). `prisma-sase`
+6.8.1b1 (July 2026 Controller Release) and `pan-scm-sdk` 0.15.1 are both the
+latest. The SD-WAN unified and legacy specs changed schemas only, with no
+endpoint changes. Compliance Center dropped the `product` filter from the
+`benchmark-monitoring` request body; we don't send it by default. The Prisma
+Browser spec moved to its own `openapi-specs/prisma-browser` tree, and the
+generator now follows it. The NGTS (TLS Protect Cloud) spec moved its paths
+from `/ngts/outagedetection/v1/*` to `/ngts/v1/*`, which affects no current
+code. New candidates are listed below._
+
+- **Prisma Browser policy & integrations** — the moved spec doubled to 66
+  paths. New: browser policy rulebases (`policy/access-and-data`,
+  `security`, `sign-in`, `customization`, each with rules, sections and
+  positions), IdP app-sync and cloud-storage integrations, branding assets
+  and `configuration-management/draft/pending-changes`. The main value is
+  in backup and restore: `scm_pab_backup`/`scm_pab_restore` don't cover
+  policy rules yet. Read-only listing would come first.
+- **MSP PAYG API** (`sase/msp-paygo`, `api.apps.paloaltonetworks.com/mt/paygo/v1`,
+  17 paths) — pay-as-you-go child-tenant lifecycle (activate, update or
+  delete a child tenant), packages and their regions, locations, and usage
+  (totals, per-child summary, activity log, and mobile-user and site
+  trends). The usage endpoints fit the MSR pack and the licence forecast.
+  Needs a PAYG-enrolled MSP service account to live-test.
+- **NGFW/SCM R3 config specs** — new `_R3` spec files add virtual routers
+  and their BGP, OSPF, BFD and redistribution profiles, GRE tunnels,
+  GP tunnel settings, software-upgrade rules, schedules, status and versions,
+  device models, named snapshots (`:load`), application tags (with
+  `bulk`), `config-versions:push`, and `sites:query` /
+  `remote-networks:query` on the deployment API. Software-upgrade
+  status and schedules are the most useful for MSSP ops; the rest feed
+  config backup coverage.
 
 - ✅ **Site Management (NGFW device onboarding)** — shipped 2026-07-31 as
   `scm_site_management` (`tools/site_management.py`), covering the new
@@ -590,6 +610,116 @@ cross-tenant anomaly rules from the spec. Read-only by construction.
 
 - Credible scheduled-ops MVP (Phases 1, 2, 3a): ~4–6 weeks part-time given
   the Expert/tool layer already exists.
+
+## Epic: Docker parity & multi-LLM integration
+
+**Goal** — make the Docker image do everything a local install does, then
+open the tool set to any LLM platform rather than only Claude: ChatGPT,
+Microsoft Copilot, Gemini/Antigravity, DeepSeek, Qwen and Moonshot Kimi.
+Two server surfaces cover them all: a Streamable HTTP MCP endpoint and an
+OpenAI-compatible REST tool gateway, behind one auth and scope layer. No
+platform-specific server code.
+
+**Order** — Docker Phase 1 → A → B+C → Docker Phases 2–4 → D → E.
+
+### Docker Phase 1 — Parity with a local install
+
+The image builds, but the runtime user (`scm-mcp`, no home directory) can't
+write to the root-owned `/app`. Every relative or home-based path therefore
+fails. That covers `backups/`, `baselines/`, `reports/`, `logs/`, the plan
+and index dirs, and `~/.cache`. Backup, drift, MSR, AS-BUILT, config-index
+and planner tools all fail on write, without a clear error.
+
+- One `data_dir()` helper behind every hardcoded `Path("backups")` /
+  `Path("reports")` / `logs/`; the existing `SCM_MCP_*_DIR` variables stay as
+  overrides.
+- `WORKDIR /data` (fixed UID), `HOME` and `XDG_CACHE_HOME` under it;
+  `settings.toml` + `.secrets.toml` mounted read-only into `/data`.
+- `tini` entrypoint, so `scm_restart`'s SIGTERM isn't ignored by PID 1.
+- Allowlist `.dockerignore` (today the build context includes `.env`,
+  `.secrets.toml` and `backups/`), pin the `uv` image by version and digest,
+  drop the stale `EXPOSE 8000`, and stop shipping `settings.example.toml` as
+  the in-image default.
+- The systemd unit (`security/hardening/scm-mcp.service`) has the same bug:
+  it allows writes only to `logs/` and `/run/scm-mcp`. Fix both here.
+
+### Docker Phases 2–4 — Full image, compose, CI smoke test
+
+- **`full` build target** (`:X.Y.Z-full`): Node, `@mermaid-js/mermaid-cli`,
+  system Chromium and a `--no-sandbox` puppeteer config. Without it,
+  AS-BUILT/HLD diagrams are silently dropped. Needs a Trivy policy decision
+  first, because the current gate fails the build on any HIGH or CRITICAL
+  finding.
+- **`deploy/docker-compose.yml`**: an `http` service with a `/health`
+  healthcheck; a `planner` profile service run from host cron; a named `data`
+  volume; hardening matching the systemd unit (`read_only`, `cap_drop: [ALL]`,
+  `no-new-privileges`). Add a `docker run -i` stdio snippet for desktop
+  clients.
+- **Container awareness**: `scm_reload` and the CLI server menu (which calls
+  `pgrep` and `uv run`) say "pull a new image" instead of failing. An optional
+  `compose.dev.yml` bind-mounts `src/` for live reload.
+- **CI smoke test** in `docker-build.yml`: `/health`, an MCP `initialize`
+  over stdio, and one tool that writes a file.
+
+### Phase A — Streamable HTTP at `/mcp`
+
+Mount `streamable_http_app()` beside `/sse`, with the same auth middleware.
+Reaches ChatGPT connectors/developer mode, Gemini CLI/ADK, Antigravity, Qwen
+Code and Kimi CLI. Copilot Studio may now require it in place of SSE (to
+verify), which would make this a fix to an existing integration. It also
+prepares for the mcp SDK 2.x migration (`sse_app` breakers).
+
+### Phase B — REST tool gateway under `/v1`
+
+- `GET /v1/tools?format=openai|gemini&toolset=…`: schemas generated from the
+  live tool registry. `openai` covers DeepSeek, Qwen, Kimi, the OpenAI API,
+  Ollama, vLLM and Groq.
+- `POST /v1/tools/{name}/call`: runs in-process (the same path as
+  `InProcessBackend`, made async-safe).
+- `GET /v1/openapi.json`: OpenAPI 3 for ChatGPT custom GPT Actions;
+  `?version=2` gives Swagger 2.0 for Power Platform connectors and
+  Microsoft 365 Copilot.
+- A toolset is required, with a small default profile; 177 tools is too
+  many for most function-calling models. Large outputs are capped and
+  return a continuation token.
+
+### Phase C — Auth & safety (ships with B, never after it)
+
+- REST is read-only by default; writes need `SCM_MCP_HTTP_REST_WRITE=1`
+  (the SSR webhook precedent), and `scm_commit` is never exposed over REST.
+- Per-key scopes: read/write, allowed tenant IDs and allowed toolsets. A key
+  issued for one customer can't reach another tenant.
+- OAuth 2.1 per the MCP authorization spec, alongside API keys and Entra ID.
+  ChatGPT connectors are believed to need it (to verify).
+- JSONL audit log (key, tool, tenant, argument hash, outcome) in the data
+  dir; per-key rate limits.
+- Data residency: tool output leaves our control once a third-party LLM has
+  it. DeepSeek and Moonshot are China-hosted; Qwen depends on the Alibaba
+  region. Customer-facing docs name the providers. An advisory per-tenant
+  `allowed_llm_providers` setting is recorded in the audit log.
+
+### Phase D — Examples & client config
+
+`examples/openai_compatible_agent.py` (DeepSeek/Qwen/Kimi/OpenAI via
+`base_url`), `examples/gemini_agent.py`, `deploy/copilot-studio/` (Power
+Platform connector), plus MCP config snippets for ChatGPT, Gemini CLI,
+Antigravity, Qwen Code, Kimi CLI and Claude. Placeholder tenants only, and
+every snippet uses a toolset profile.
+
+### Phase E — Advisor & planner on other models (optional)
+
+`ai_advisor.py` and `planner/engine.py` are hardwired to the Anthropic SDK.
+Add an `llm_provider` setting with an OpenAI-compatible backend and
+`base_url`.
+
+### To verify before building
+
+- Copilot Studio: SSE status, and the `x-ms-agentic-protocol` connector field.
+- Power Platform: is Swagger 2.0 still required?
+- ChatGPT connectors: auth options (OAuth only?) and transport.
+- Antigravity MCP config path and remote-server key.
+- Which JSON Schema keywords Gemini function declarations reject.
+- Tool count limits per platform, which set the default toolset size.
 
 ## Snippet template backlog
 

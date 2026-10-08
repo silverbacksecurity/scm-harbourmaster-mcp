@@ -312,6 +312,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `list-tenants` show the default folder where they showed the tier.
 
 ### Changed
+- **Dependency refresh (October 2026)** — `mcp` 1.28.1 → 1.30.0, now capped
+  `<2` in `pyproject.toml` (2.x has known breaking changes; a plain
+  `uv lock --upgrade` would otherwise pull it in). Also `uvicorn` 0.54.0,
+  `dynaconf` 3.3.5, `pydantic` 2.13.5, `pydantic-settings` 2.15.0,
+  `markdown` 3.11, plus dev tools (`ruff` 0.16.10, `mypy` 2.4.0,
+  `pytest` 9.1.1, `pre-commit` 4.6.2, type stubs). `anthropic` 1.x is
+  left for a separate change. `prisma-sase` 6.8.1b1 and `pan-scm-sdk`
+  0.15.1 were already the latest.
+- **Endpoint catalog regenerated** (pan.dev `45052ce5`, 4,193 paths, 31
+  families). The Prisma Browser spec moved from `access/browser-mgmt` to its
+  own `openapi-specs/prisma-browser` tree on 2026-09-18. Without a new tree
+  the catalog would have dropped it, so `gen_endpoint_catalog.py` now
+  indexes that tree and the family is named `prisma-browser`. No endpoint
+  the PAB tools call was removed; the spec grew from 33 to 66 paths.
 - **Documented tool counts now derive from the live registry**
   (`scripts/check_tool_counts.py`, new file) — the "164 tools" figures in
   README.md and docs/ had drifted and are now placeholders regenerated from

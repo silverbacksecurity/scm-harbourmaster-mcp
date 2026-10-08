@@ -1,7 +1,7 @@
 """
 Prisma Access Browser — tenant-level management/inventory tools.
 
-Covers the pan.dev `access/browser-mgmt` family (/seb-api/v1/*, "Prisma
+Covers the pan.dev `prisma-browser` family (/seb-api/v1/*, "Prisma
 Browser Management Console Public API"): enrolled users, device inventory
 with endpoint posture (screen lock / disk encryption / firewall), user and
 device groups, the application catalog, and pending user access requests.
