@@ -38,6 +38,7 @@ from ..config.region import resolve_region
 from ..config.settings import load_all_tenant_configs
 from ..utils.capabilities import capability_skip_reason
 from ..utils.logging import get_logger
+from ..utils.paths import reports_dir
 from ..utils.tool_decorator import scm_tool
 from .compliance import _compliance_get
 from .insights import _INSIGHTS_BASE_V3, _insights_call, _refresh_token, region_header
@@ -500,7 +501,7 @@ def register_msr_tools(mcp: FastMCP, get_client: Any) -> None:
 
             slug = re.sub(r"[^a-zA-Z0-9-]+", "-", data.tenant_label or "tenant").strip("-").lower()
             out_path = (
-                Path(save_to) if save_to else Path("reports") / f"{slug}-msr-{period_label}.docx"
+                Path(save_to) if save_to else reports_dir() / f"{slug}-msr-{period_label}.docx"
             )
             try:
                 result = _md_to_docx(report_md, out_path)

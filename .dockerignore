@@ -1,0 +1,10 @@
+# Allowlist: the build context is only what the Dockerfile COPYs.
+# Everything else — .env, .secrets.toml, settings.toml, backups/, reports/,
+# tenant documents — never leaves this machine for the builder.
+*
+!pyproject.toml
+!uv.lock
+!README.md
+!src/
+**/__pycache__
+**/*.py[cod]

@@ -14,10 +14,11 @@ import functools
 import json
 from collections.abc import Callable
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any, TypeVar
 
-HISTORY_PATH = Path("logs/cli_history.jsonl")
+from .utils.paths import logs_dir
+
+HISTORY_PATH = logs_dir() / "cli_history.jsonl"
 
 F = TypeVar("F", bound=Callable[..., Any])
 

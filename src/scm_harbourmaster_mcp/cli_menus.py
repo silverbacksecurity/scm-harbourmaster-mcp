@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import contextlib
 import json
-import os
 import re
 from datetime import UTC, datetime
 from pathlib import Path
@@ -20,6 +19,7 @@ from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
 from .config.settings import TenantConfig
+from .utils import paths
 
 # These are imported from cli.py's namespace at runtime
 # console, _print_banner, _menu_table, _section, _get_cli_client,
@@ -1507,8 +1507,8 @@ def _op_sdwan_topology_diagram(tenant, console, _pause) -> None:
         console.print("\n[bold green]SD-WAN Topology Diagram[/bold green]\n")
         console.print(mermaid)
         ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-        out = Path(f"reports/sdwan_topology_{tenant.tenant_id}_{ts}.md")
-        out.parent.mkdir(exist_ok=True)
+        out = paths.reports_dir() / f"sdwan_topology_{tenant.tenant_id}_{ts}.md"
+        out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(mermaid)
         console.print(f"\n[dim]Saved: {out}[/dim]")
     except Exception as exc:
@@ -1624,7 +1624,7 @@ def _op_sdwan_wan_ip_summary(tenant, console, _pause) -> None:
 def _op_sdwan_site_map(tenant, console, _pause) -> None:
     from .tools.sdwan import register_sdwan_tools
 
-    default = f"reports/sdwan-site-map-{tenant.tenant_id}.html"
+    default = str(paths.reports_dir() / f"sdwan-site-map-{tenant.tenant_id}.html")
     save_to = Prompt.ask("Save map to", default=default).strip()
     with console.status("[cyan]Building site map...[/cyan]"):
         try:
@@ -1719,8 +1719,8 @@ def _op_dlp_backup(tenant, console, _pause) -> None:
             "data_objects": _rest_get(session, f"{_SCM_CONFIG_BASE}/data-objects", params),
         }
         ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-        out = Path("backups") / f"dlp_backup_{tenant.tenant_id}_{ts}.json"
-        out.parent.mkdir(exist_ok=True)
+        out = paths.backup_dir() / f"dlp_backup_{tenant.tenant_id}_{ts}.json"
+        out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(payload, indent=2, default=str))
         console.print(f"[green]✓[/green] DLP backup saved: {out}")
     except Exception as exc:
@@ -2672,7 +2672,7 @@ def _pick_backup_file(
     limit: int = 20,
 ) -> Path | None:
     """Numbered picker over the backup directory, with a typed-path fallback."""
-    backup_dir = Path(os.getenv("SCM_MCP_BACKUP_DIR", "backups"))
+    backup_dir = paths.backup_dir()
     found = sorted(backup_dir.glob(pattern), key=lambda f: f.stat().st_mtime, reverse=True)
     backups = found[:limit]
 
@@ -3122,8 +3122,8 @@ def _op_decrypt_audit(tenant, console, _pause) -> None:
 
 def _save_json_static(data: Any, prefix: str, tenant_id: str, console) -> Path | None:
     try:
-        backup_dir = Path("backups")
-        backup_dir.mkdir(exist_ok=True)
+        backup_dir = paths.backup_dir()
+        backup_dir.mkdir(parents=True, exist_ok=True)
         ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         out = backup_dir / f"{prefix}_{tenant_id}_{ts}.json"
         if data and hasattr(data[0], "model_dump"):

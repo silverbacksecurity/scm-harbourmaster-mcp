@@ -33,7 +33,6 @@ from __future__ import annotations
 
 import contextlib
 import ipaddress
-import os
 import re
 import sqlite3
 import time
@@ -41,9 +40,10 @@ from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any
 
+from ..utils.paths import index_dir
 from .models import AuditSnapshot
 
-_DEFAULT_INDEX_DIR = Path(os.getenv("SCM_MCP_INDEX_DIR", "index"))
+_DEFAULT_INDEX_DIR = index_dir()
 _INDEX_FILENAME = "config_index.db"
 
 # AuditSnapshot fields that are NOT searchable config objects. Everything else

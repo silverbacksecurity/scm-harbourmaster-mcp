@@ -18,6 +18,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from .utils import paths
+
 if TYPE_CHECKING:
     from .audit.models import Finding
     from .config.settings import TenantConfig
@@ -100,8 +102,8 @@ def run_backup(tenant: TenantConfig, on_progress: OnProgress = None) -> BackupRe
         sdwan_error = str(exc)
         _progress(on_progress, f"⚠ SD-WAN unavailable: {sdwan_error}")
 
-    backup_dir = Path("backups")
-    backup_dir.mkdir(exist_ok=True)
+    backup_dir = paths.backup_dir()
+    backup_dir.mkdir(parents=True, exist_ok=True)
     out = backup_dir / f"scm_backup_{tenant.tenant_id}_{_timestamp()}.json"
     # The Prisma-side resources come from the same helper the MCP backup tool
     # uses; the CLI adds the SD-WAN inventory on top.
@@ -163,8 +165,8 @@ def run_bpa(tenant: TenantConfig, on_progress: OnProgress = None) -> BpaResult:
     findings = run_all_checks(snap)
     counts = dict(Counter(f.status.value for f in findings))
 
-    backup_dir = Path("backups")
-    backup_dir.mkdir(exist_ok=True)
+    backup_dir = paths.backup_dir()
+    backup_dir.mkdir(parents=True, exist_ok=True)
     ts = _timestamp()
     out = backup_dir / f"bpa_{tenant.tenant_id}_{ts}.json"
     out.write_text(
@@ -254,8 +256,8 @@ def run_ncsc(tenant: TenantConfig, framework: str, on_progress: OnProgress = Non
     not_assessed = sum(1 for c in controls_output if c["compliance_status"] == "not-assessed")
     total = len(controls_output)
 
-    backup_dir = Path("backups")
-    backup_dir.mkdir(exist_ok=True)
+    backup_dir = paths.backup_dir()
+    backup_dir.mkdir(parents=True, exist_ok=True)
     ts = _timestamp()
     out = backup_dir / f"ncsc_{tenant.tenant_id}_{framework}_{ts}.json"
     out.write_text(
@@ -409,8 +411,8 @@ def run_asbuilt(
     )
     report_md = builder.to_markdown()
 
-    reports_dir = Path("reports")
-    reports_dir.mkdir(exist_ok=True)
+    reports_dir = paths.reports_dir()
+    reports_dir.mkdir(parents=True, exist_ok=True)
     ts = _timestamp()
     safe_customer = customer_name.replace(" ", "-").replace("/", "-")
 
@@ -483,8 +485,8 @@ def run_audit_report(
     report = builder.to_json() if output_format == "json" else builder.to_markdown()
     counts = dict(Counter(f.status.value for f in findings))
 
-    reports_dir = Path("reports")
-    reports_dir.mkdir(exist_ok=True)
+    reports_dir = paths.reports_dir()
+    reports_dir.mkdir(parents=True, exist_ok=True)
     out = reports_dir / f"audit_{tenant.tenant_id}_{_timestamp()}.{ext}"
     out.write_text(report)
 

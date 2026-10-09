@@ -11,14 +11,14 @@ revision) — the full audit trail required by the epic.
 from __future__ import annotations
 
 import json
-import os
 import time
 from pathlib import Path
 from typing import Any
 
+from ..utils.paths import plan_dir
 from .schema import Plan
 
-_DEFAULT_PLAN_DIR = Path(os.getenv("SCM_MCP_PLAN_DIR", "plans"))
+_DEFAULT_PLAN_DIR = plan_dir()
 
 
 class PlanStore:

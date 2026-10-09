@@ -12,7 +12,6 @@ Tools:
 from __future__ import annotations
 
 import json
-import os
 import re
 import shutil
 import subprocess
@@ -88,14 +87,15 @@ from ..config.settings import load_all_tenant_configs
 from ..utils.capabilities import capability_skip_reason
 from ..utils.errors import handle_scm_exception
 from ..utils.logging import get_logger
+from ..utils.paths import backup_dir, baseline_dir
 from ..utils.tool_decorator import scm_tool
 from ..utils.write_safety import audit_write, normalize_ticket_ref, ticket_ref_error
 from .ops import _CERT_FOLDERS, _fetch_certs, _licence_rows
 
 logger = get_logger(__name__)
 
-_DEFAULT_BACKUP_DIR = Path(os.getenv("SCM_MCP_BACKUP_DIR", "backups"))
-_DEFAULT_BASELINE_DIR = Path(os.getenv("SCM_MCP_BASELINE_DIR", "baselines"))
+_DEFAULT_BACKUP_DIR = backup_dir()
+_DEFAULT_BASELINE_DIR = baseline_dir()
 
 # Background job store for scm_asbuilt_report / scm_asbuilt_result.
 # Jobs expire after 1 hour. Thread-safe via _JOBS_LOCK.

@@ -225,15 +225,33 @@ uv run scm-mcp-http
 docker build -t scm-mcp-mssp .
 
 # stdio transport
-docker run -i --env-file .env scm-mcp-mssp
+docker run -i --rm \
+  -v scm-mcp-data:/data \
+  -v "$PWD/settings.toml:/data/settings.toml:ro" \
+  -v "$PWD/.secrets.toml:/data/.secrets.toml:ro" \
+  scm-mcp-mssp
 
 # HTTP/SSE transport
 docker run -p 8080:8080 \
   -e SCM_MCP_HTTP_API_KEY=your-key \
   -e SCM_MCP_HTTP_AUTH_MODE=apikey \
-  --env-file .env \
+  -v scm-mcp-data:/data \
+  -v "$PWD/settings.toml:/data/settings.toml:ro" \
+  -v "$PWD/.secrets.toml:/data/.secrets.toml:ro" \
   scm-mcp-mssp scm-mcp-http
 ```
+
+The container runs as UID 10001 with its working directory at `/data`. Backups,
+drift baselines, reports, planner plans, the config index and logs are all
+written there, so keep `/data` on a volume. If you bind-mount a host directory
+instead, it must be writable by UID 10001. The image ships no `settings.toml`:
+mount your own, or the server starts with no tenants. It also runs with
+`--read-only --cap-drop ALL --security-opt no-new-privileges`.
+
+Outside Docker the same layout applies relative to `SCM_MCP_DATA_DIR`, which
+defaults to the current directory. `SCM_MCP_BACKUP_DIR`, `SCM_MCP_BASELINE_DIR`,
+`SCM_MCP_INDEX_DIR` and `SCM_MCP_PLAN_DIR` still override individual
+directories.
 
 ---
 

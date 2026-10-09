@@ -25,6 +25,7 @@ from rich.text import Text
 
 from .config.settings import TenantConfig, load_all_tenant_configs
 from .history import audited, log_action, read_history
+from .utils import paths
 
 console = Console()
 
@@ -210,8 +211,8 @@ def _list_and_display(
 def _save_json(data: Any, prefix: str, tenant_id: str) -> Path | None:
     """Save data as timestamped JSON in backups/. Returns path or None."""
     try:
-        backup_dir = Path("backups")
-        backup_dir.mkdir(exist_ok=True)
+        backup_dir = paths.backup_dir()
+        backup_dir.mkdir(parents=True, exist_ok=True)
         ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         out = backup_dir / f"{prefix}_{tenant_id}_{ts}.json"
         if data and hasattr(data[0], "model_dump"):
@@ -917,8 +918,8 @@ def _op_sdwan_topology(tenant: TenantConfig) -> None:
         Prompt.ask("\nPress Enter to continue")
         return
 
-    reports_dir = Path("reports")
-    reports_dir.mkdir(exist_ok=True)
+    reports_dir = paths.reports_dir()
+    reports_dir.mkdir(parents=True, exist_ok=True)
     ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
 
     # ── Topology diagram ──────────────────────────────────────────────────────
@@ -1090,7 +1091,7 @@ def _op_audit_report(tenant: TenantConfig) -> None:
 
 @audited("config_diff")
 def _op_config_diff(tenant: TenantConfig) -> None:
-    backup_dir = Path("backups")
+    backup_dir = paths.backup_dir()
     backups = sorted(backup_dir.glob(f"scm_backup_{tenant.tenant_id}_*.json"), reverse=True)
 
     if len(backups) < 2:
@@ -1183,8 +1184,8 @@ def _op_config_diff(tenant: TenantConfig) -> None:
                         console.print(f"    [{colour}]{prefix}[/{colour}] {name}")
 
     # Save diff report
-    reports_dir = Path("reports")
-    reports_dir.mkdir(exist_ok=True)
+    reports_dir = paths.reports_dir()
+    reports_dir.mkdir(parents=True, exist_ok=True)
     ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     out = reports_dir / f"diff_{tenant.tenant_id}_{ts}.json"
     out.write_text(
@@ -1617,8 +1618,8 @@ def _op_dspt(tenant: TenantConfig) -> None:
         )
     console.print(t)
 
-    backup_dir = Path("backups")
-    backup_dir.mkdir(exist_ok=True)
+    backup_dir = paths.backup_dir()
+    backup_dir.mkdir(parents=True, exist_ok=True)
     ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     out = backup_dir / f"dspt_{tenant.tenant_id}_{ts}.json"
     out.write_text(
@@ -1806,8 +1807,8 @@ def _op_aiops_bpa(tenant: TenantConfig) -> None:
         )
 
         # Save report
-        backup_dir = Path("backups")
-        backup_dir.mkdir(exist_ok=True)
+        backup_dir = paths.backup_dir()
+        backup_dir.mkdir(parents=True, exist_ok=True)
         ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         out = backup_dir / f"aiops_bpa_{device_serial}_{ts}.json"
         out.write_text(json.dumps(report, indent=2, default=str))

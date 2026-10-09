@@ -55,6 +55,7 @@ _RELOAD_ORDER = [
     "scm_harbourmaster_mcp.utils.family_probe",
     "scm_harbourmaster_mcp.utils.formatting",
     "scm_harbourmaster_mcp.utils.validation",
+    "scm_harbourmaster_mcp.utils.paths",
     "scm_harbourmaster_mcp.audit.models",
     "scm_harbourmaster_mcp.audit.pan_references",
     "scm_harbourmaster_mcp.audit.ncsc_controls",

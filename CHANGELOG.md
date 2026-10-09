@@ -312,6 +312,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `list-tenants` show the default folder where they showed the tier.
 
 ### Changed
+- **One data directory for everything the server writes**
+  (`utils/paths.py`, new file). Backups, baselines, reports, plans, the
+  config index and CLI history now resolve under `SCM_MCP_DATA_DIR`, which
+  defaults to the current directory, so a checkout behaves as before. The
+  CLI's hardcoded `backups/` and `reports/` paths now honour it, along with
+  `SCM_MCP_BACKUP_DIR`. The systemd unit uses `StateDirectory=scm-mcp`. Before
+  this, `ProtectSystem=strict` left only `logs/` writable, so backup and
+  report tools failed under systemd.
+- **Docker image fixed and hardened.**
+  - The runtime image previously shipped an empty venv: `uv sync --python`
+    installed into `/build/.venv`, so the image could not start. It now sets
+    `UV_PROJECT_ENVIRONMENT`.
+  - Runs as a fixed UID (10001) with `WORKDIR /data` as the volume.
+  - `tini` runs as PID 1, so `docker stop` and `scm_restart` work.
+  - The venv is root-owned and base images are pinned by digest, with a new
+    Dependabot `docker` ecosystem to keep them current.
+  - Added an allowlist `.dockerignore`, so `.env`, secrets and backups no
+    longer go to the builder.
+  - The example `settings.toml` is no longer baked into the image.
+  - `EXPOSE 8000` was stale and is removed.
+  - The documented `docker run … scm-mcp-http` now works: the old
+    ENTRYPOINT passed it to `scm-mcp` as an argument.
 - **Dependency refresh (October 2026)** — `mcp` 1.28.1 → 1.30.0, now capped
   `<2` in `pyproject.toml` (2.x has known breaking changes; a plain
   `uv lock --upgrade` would otherwise pull it in). Also `uvicorn` 0.54.0,

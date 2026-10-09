@@ -25,6 +25,15 @@ TimeoutStopSec=30
 # Secrets are read from here at startup (700, owned by scm-mcp)
 EnvironmentFile=-/etc/scm-mcp-mssp/env
 
+# Everything the server writes (backups, baselines, reports, plans, index,
+# logs) goes to the state dir, which systemd creates and owns for scm-mcp;
+# caches go to the cache dir. The code tree under /opt stays read-only.
+StateDirectory=scm-mcp
+CacheDirectory=scm-mcp
+Environment=SCM_MCP_DATA_DIR=/var/lib/scm-mcp
+Environment=XDG_CACHE_HOME=/var/cache/scm-mcp
+Environment=HOME=/var/lib/scm-mcp
+
 # Structured JSON logs go to journal (collected by rsyslog for SIEM)
 StandardOutput=journal
 StandardError=journal
@@ -45,7 +54,7 @@ ProtectHome=true
 
 # Mount / and /usr read-only; allow writes only to specified paths
 ProtectSystem=strict
-ReadWritePaths=/opt/scm-mcp-mssp/logs /run/scm-mcp
+ReadWritePaths=/run/scm-mcp
 
 # Restrict kernel tunable writes
 ProtectKernelTunables=true

@@ -49,6 +49,52 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=sha,prefix=sha-,format=short
 
+      # Build once into the local daemon and run it before anything is pushed.
+      # The image used to ship an empty venv, and CI never noticed because it
+      # only built it.
+      - name: Build for smoke test
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          load: true
+          tags: scm-mcp-smoke:ci
+          cache-from: type=gha
+          platforms: linux/amd64
+
+      - name: Smoke test image
+        run: |
+          set -euo pipefail
+          img=scm-mcp-smoke:ci
+          # Every data directory is writable as the runtime user
+          docker run --rm "$img" python -c "from scm_harbourmaster_mcp.utils import paths; [(f().mkdir(parents=True, exist_ok=True), (f() / 'probe').write_text('ok')) for f in (paths.backup_dir, paths.baseline_dir, paths.reports_dir, paths.logs_dir, paths.plan_dir, paths.index_dir)]"
+          # stdio: initialize + tools/list on a hardened, read-only container.
+          # stdin stays open (sleep) until the reply is read: on EOF the server
+          # exits and can drop a request it hasn't answered yet.
+          { printf '%s\n' \
+              '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"0"}}}' \
+              '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+              '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
+            sleep 20; } \
+            | timeout 60 docker run --rm -i --read-only --tmpfs /tmp --cap-drop ALL \
+                --security-opt no-new-privileges \
+                -v "$PWD/settings.example.toml:/data/settings.toml:ro" "$img" 2>stdio.err \
+            | python3 -c "$(printf '%s\n' \
+                'import json, sys' \
+                'for line in sys.stdin:' \
+                '    msg = json.loads(line)' \
+                '    if msg.get("id") == 2:' \
+                '        n = len(msg["result"]["tools"])' \
+                '        print(f"tools/list: {n} tools")' \
+                '        sys.exit(n == 0)' \
+                'sys.exit("no tools/list reply")')" \
+            || { echo "--- server stderr ---"; cat stdio.err; exit 1; }
+          # HTTP: /health answers, unauthenticated MCP is refused, SIGTERM is honoured
+          docker run -d --name smoke-http -p 18080:8080 -e SCM_MCP_HTTP_API_KEY=ci-smoke "$img" scm-mcp-http
+          for i in $(seq 1 30); do curl -sf localhost:18080/health && break; sleep 1; done
+          test "$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 localhost:18080/sse)" = 401
+          timeout 10 docker stop -t 8 smoke-http
+          docker rm smoke-http
+
       - name: Build and push
         id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0

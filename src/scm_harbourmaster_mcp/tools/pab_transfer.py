@@ -24,7 +24,6 @@ Changes made through the API land in a draft; ``publish=True`` publishes it.
 from __future__ import annotations
 
 import json
-import os
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -33,6 +32,7 @@ from mcp.server.fastmcp import FastMCP
 
 from ..audit.extractor import _bearer_session_for
 from ..utils.logging import get_logger
+from ..utils.paths import backup_dir
 from ..utils.tool_decorator import scm_tool
 from ..utils.write_safety import (
     DRY_RUN_HINT,
@@ -55,7 +55,7 @@ _DEVICE_GROUP_FIELDS = ("name", "platform", "attributes")
 
 
 def _default_backup_dir() -> Path:
-    return Path(os.getenv("SCM_MCP_BACKUP_DIR", "backups"))
+    return backup_dir()
 
 
 def _list(session: Any, path: str, paginate: bool = True) -> tuple[list[dict[str, Any]], str]:
