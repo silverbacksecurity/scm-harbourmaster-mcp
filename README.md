@@ -734,8 +734,78 @@ src/scm_harbourmaster_mcp/
 | `SCM_MCP_HTTP_STATELESS` | off | `1` serves `/mcp` without sessions, for several replicas behind a load balancer |
 | `SCM_MCP_HTTP_ENTRA_TENANT` | — | Entra tenant ID (entra mode) |
 | `SCM_MCP_HTTP_ENTRA_AUDIENCE` | — | App registration client ID (entra mode) |
+| `SCM_MCP_HTTP_REST_WRITE` | off | `1` lets `/v1` keys with `access = "write"` call write tools |
+| `SCM_MCP_GATEWAY_MAX_CHARS` | `60000` | Cap on one `/v1` tool result; longer output comes back with `truncated: true` |
 
 Health check endpoint (no auth): `GET /health` → `{"status": "ok"}`
+
+---
+
+## REST tool gateway (`/v1`): DeepSeek, Qwen, Kimi, Gemini, Microsoft 365 Copilot, custom GPTs
+
+Platforms that call tools by function calling rather than MCP use `/v1` on
+`scm-mcp-http`. It serves the tool schemas in their format and runs each call:
+
+| Endpoint | Returns | For |
+|---|---|---|
+| `GET /v1/tools?format=openai` | OpenAI function schemas | DeepSeek, Qwen, Kimi, OpenAI, Ollama, vLLM, Groq |
+| `GET /v1/tools?format=gemini` | Gemini `function_declarations` | Gemini API |
+| `GET /v1/tools?format=mcp` | MCP tool list | debugging |
+| `POST /v1/tools/{name}/call` | `{"tool", "content", "truncated", "total_chars"}` | all of the above |
+| `GET /v1/openapi.json` | OpenAPI 3.0 | ChatGPT custom GPT Actions |
+| `GET /v1/openapi.json?version=2` | Swagger 2.0 | Power Platform connectors, Microsoft 365 Copilot |
+
+Every endpoint takes `toolset=a,b` to narrow the list to fewer tools, which
+most function-calling models need. A call's body is
+`{"arguments": {...}, "max_chars": 20000}`.
+
+**Keys.** `/v1` accepts only gateway keys. These are scoped keys stored as
+SHA-256 hashes in `.secrets.toml`. `SCM_MCP_HTTP_API_KEY` and Entra tokens
+don't work on `/v1`, and gateway keys don't work anywhere else. Send a key as
+`X-API-Key` or `Authorization: Bearer`; query parameters are not accepted.
+
+```bash
+uv run python -m scm_harbourmaster_mcp.gateway.keys new \
+  --id noc-deepseek --tenants customer-a --toolsets noc --llm-provider deepseek
+# prints the key once, plus the [gateway_keys.noc-deepseek] block for .secrets.toml
+```
+
+**What a key can do.** Everything fails closed:
+
+- **Read-only by default.** Write tools appear only for a key with
+  `access = "write"` *and* when `SCM_MCP_HTTP_REST_WRITE=1` is set.
+- **Never over REST:** anything that pushes, commits or rolls back config,
+  runs other tools with approvals, or controls the server (`scm_commit`,
+  `scm_config_push_track`, `scm_config_rollback`, `scm_planner_run`,
+  `scm_restart`, `scm_reload`, `mssp_evict_tenant`).
+- **Tenant limits.** A key limited to some tenants:
+  - only sees tenant-scoped tools that take a `tenant_id`. Tools without one
+    run on the default tenant or read shared job results by ID, so they
+    are hidden;
+  - can only name its own tenants, by TSG ID, settings key or label;
+  - can't set `all_tenants` or similar widening flags;
+  - gets `tenant_id` filled in automatically when it has exactly one tenant.
+- **No file paths.** Parameters such as `save_to`, `output_dir` and
+  `backup_file` are refused, so a remote caller can't choose server paths.
+- **No enumeration.** A tool the key may not use returns the same 404 as a
+  tool that doesn't exist.
+- **Audit and rate limits.** Every call is recorded in
+  `logs/gateway_audit.jsonl` with the key, tool, tenants, an argument hash
+  (never the arguments themselves) and the outcome. A write is refused if it
+  can't be audited. Each key is rate-limited (`rate_per_minute`, per replica).
+
+**Data residency.** Tool output contains customer configuration. Once it
+reaches a third-party LLM, it has left this server's control. Some
+providers, such as DeepSeek and Moonshot (Kimi), are hosted in China, and
+for Qwen it depends on the Alibaba Cloud region. Set
+`allowed_llm_providers` on a tenant to refuse keys that declare a different
+`llm_provider`. The check also covers calls that land on the tenant without
+naming it: an empty `tenant_id` (the default tenant), cross-tenant tools and
+`all_tenants`-style flags. A key declares its provider; the server can't see
+which model actually reads the output.
+
+Keys are read at startup, so restart `scm-mcp-http` after adding, changing
+or revoking one.
 
 ---
 

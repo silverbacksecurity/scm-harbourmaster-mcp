@@ -670,34 +670,61 @@ Host check 421'd every remote client. `SCM_MCP_HTTP_ALLOWED_HOSTS` fixes it.
 Still to verify against the real clients: Copilot Studio, ChatGPT connectors
 (which need OAuth, Phase C), Gemini CLI and Antigravity.
 
-### Phase B — REST tool gateway under `/v1`
+### Phase B — REST tool gateway under `/v1` ✅ shipped 2026-10-09
 
-- `GET /v1/tools?format=openai|gemini&toolset=…`: schemas generated from the
-  live tool registry. `openai` covers DeepSeek, Qwen, Kimi, the OpenAI API,
-  Ollama, vLLM and Groq.
-- `POST /v1/tools/{name}/call`: runs in-process (the same path as
-  `InProcessBackend`, made async-safe).
-- `GET /v1/openapi.json`: OpenAPI 3 for ChatGPT custom GPT Actions;
-  `?version=2` gives Swagger 2.0 for Power Platform connectors and
-  Microsoft 365 Copilot.
-- A toolset is required, with a small default profile; 177 tools is too
-  many for most function-calling models. Large outputs are capped and
-  return a continuation token.
+`scm_harbourmaster_mcp.gateway` adds the following, with schemas generated
+from the live tool registry:
+- `GET /v1/tools` in `openai`, `gemini` and `mcp` formats;
+- `POST /v1/tools/{name}/call`;
+- `GET /v1/openapi.json` as OpenAPI 3.0, or Swagger 2.0 with `?version=2`.
 
-### Phase C — Auth & safety (ships with B, never after it)
+All four formats validate for all 171 schemas, against `google-genai`'s
+`types.Tool`, `openapi-spec-validator` and JSON Schema. Each key has its
+toolsets, and `?toolset=` narrows the list further.
 
-- REST is read-only by default; writes need `SCM_MCP_HTTP_REST_WRITE=1`
-  (the SSR webhook precedent), and `scm_commit` is never exposed over REST.
-- Per-key scopes: read/write, allowed tenant IDs and allowed toolsets. A key
-  issued for one customer can't reach another tenant.
-- OAuth 2.1 per the MCP authorization spec, alongside API keys and Entra ID.
-  ChatGPT connectors are believed to need it (to verify).
-- JSONL audit log (key, tool, tenant, argument hash, outcome) in the data
-  dir; per-key rate limits.
-- Data residency: tool output leaves our control once a third-party LLM has
-  it. DeepSeek and Moonshot are China-hosted; Qwen depends on the Alibaba
-  region. Customer-facing docs name the providers. An advisory per-tenant
-  `allowed_llm_providers` setting is recorded in the audit log.
+One change from the original plan: output over the cap comes back with
+`truncated` and `total_chars`, not a continuation token. In-memory tokens
+would break under `SCM_MCP_HTTP_STATELESS` with several replicas.
+
+### Phase C — Auth & safety ✅ shipped with B, 2026-10-09 (OAuth split out as C2)
+
+- **Keys.** Gateway keys are stored as SHA-256 hashes in `.secrets.toml`
+  (`[gateway_keys.*]`) and minted with
+  `python -m scm_harbourmaster_mcp.gateway.keys new`. Each has an access
+  level, tenants, toolsets, a rate limit and an `llm_provider`. They are
+  valid on `/v1` only, and the legacy key and Entra tokens are not accepted
+  there.
+- **Read-only by default.** Writes need `SCM_MCP_HTTP_REST_WRITE=1` *and*
+  `access = "write"`.
+- **`NEVER_REST`.** These tools are never exposed, whatever the key: the
+  ones that push, commit or roll back config (`scm_commit`,
+  `scm_config_push_track`, `scm_config_rollback`), `scm_planner_run`, and
+  process control.
+- **Tenant-limited keys.** Such a key:
+  - sees only `scope: tenant` tools that take a `tenant_id`;
+  - has every tenant parameter checked after canonical resolution;
+  - can't set widening flags.
+- **File paths.** File-path parameters are refused. A registry scan test
+  fails on any unclassified path-like or tenant-like parameter.
+- **Errors.** Not-permitted and not-found return the same 404.
+- **Audit and rate limits.** A JSONL audit log records argument hashes only,
+  and a write is refused when it can't be audited. Each key has its own rate
+  limit.
+- **LLM providers.** A tenant's `allowed_llm_providers` is enforced against
+  the provider a key declares. This includes default-tenant and cross-tenant
+  calls.
+
+### Phase C2 — OAuth 2.1 for `/mcp` (next)
+
+ChatGPT connectors are believed to accept only OAuth or no auth (to verify).
+Add a resource-server mode for `/mcp`:
+- serve `/.well-known/oauth-protected-resource` pointing at an external
+  authorization server (Entra, Auth0, Keycloak);
+- validate its JWTs via JWKS, with the audience set to the server URL;
+- return `WWW-Authenticate` on 401.
+
+This needs a choice of authorization server and a test against a real
+ChatGPT connector.
 
 ### Phase D — Examples & client config
 
@@ -719,7 +746,7 @@ Add an `llm_provider` setting with an OpenAI-compatible backend and
 - Power Platform: is Swagger 2.0 still required?
 - ChatGPT connectors: auth options (OAuth only?) and transport.
 - Antigravity MCP config path and remote-server key.
-- Which JSON Schema keywords Gemini function declarations reject.
+- ~~Which JSON Schema keywords Gemini function declarations reject~~ — output now validates against `google-genai` types; still to try a live Gemini call.
 - Tool count limits per platform, which set the default toolset size.
 
 ## Snippet template backlog

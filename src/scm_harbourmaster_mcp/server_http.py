@@ -12,6 +12,12 @@ MCP HTTP transports, behind the same auth:
 
 Runs locally or in Azure Container Apps / App Service style deployments.
 
+/v1 is the REST tool gateway (scm_harbourmaster_mcp.gateway) for platforms
+that call tools by function calling rather than MCP: DeepSeek, Qwen, Kimi,
+the OpenAI and Gemini APIs, Microsoft 365 Copilot and custom GPTs. It
+authenticates with its own scoped keys (``[gateway_keys.*]``), not with the
+settings below.
+
 Auth modes (SCM_MCP_HTTP_AUTH_MODE):
   apikey  — X-API-Key header or ?api_key= query param (default)
   entra   — Azure AD / Entra ID Bearer JWT (validates aud + iss)
@@ -34,12 +40,17 @@ Env vars:
   SCM_MCP_HTTP_STATELESS      "1"/"true" serves /mcp without sessions, for
                               several replicas behind a load balancer
                               (default: off)
+  SCM_MCP_HTTP_REST_WRITE     "1"/"true" lets /v1 keys with access="write"
+                              call write tools (default: off — /v1 is
+                              read-only)
+  SCM_MCP_GATEWAY_MAX_CHARS   Cap on a /v1 tool result (default 60000)
   SCM_MCP_HTTP_SSR_WEBHOOK    "1"/"true" enables POST /webhook/ssr (default: off)
 """
 
 from __future__ import annotations
 
 import contextlib
+import hmac
 import json
 import os
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -54,6 +65,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Mount, Route
 
+from .gateway.app import gateway_routes
 from .server import create_server
 from .utils.logging import get_logger
 
@@ -140,6 +152,12 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if request.url.path in ("/health", "/healthz"):
             return await call_next(request)
 
+        # /v1 authenticates with its own scoped gateway keys (gateway.app),
+        # and only there: neither credential below is accepted on /v1, and a
+        # gateway key matches neither of them on any other route.
+        if request.url.path == "/v1" or request.url.path.startswith("/v1/"):
+            return await call_next(request)
+
         if _AUTH_MODE == "none":
             return await call_next(request)
 
@@ -151,7 +169,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
                     {"error": "Server misconfigured — SCM_MCP_HTTP_API_KEY not set"},
                     status_code=500,
                 )
-            if provided != _API_KEY:
+            if not hmac.compare_digest((provided or "").encode(), _API_KEY.encode()):
                 logger.warning("apikey_auth_failed", path=request.url.path)
                 return JSONResponse(
                     {"error": "Unauthorized — invalid or missing X-API-Key"},
@@ -384,6 +402,7 @@ def create_http_app() -> Starlette:
             Route("/healthz", health),
             Route("/webhook/ir", ir_webhook, methods=["POST"]),
             Route("/webhook/ssr", ssr_webhook, methods=["POST"]),
+            *gateway_routes(mcp),
             *streamable.routes,
             Mount("/", app=sse),
         ],
@@ -412,6 +431,12 @@ def create_http_app() -> Starlette:
     return app
 
 
+def _rest_write_enabled() -> bool:
+    from .gateway.policy import rest_writes_enabled
+
+    return rest_writes_enabled()
+
+
 def main() -> None:
     if _AUTH_MODE == "apikey" and not _API_KEY:
         raise SystemExit(
@@ -433,7 +458,8 @@ def main() -> None:
         origins=_ALLOWED_ORIGINS,
         allowed_hosts=_ALLOWED_HOSTS,
         stateless=_STATELESS,
-        endpoints=["/mcp", "/sse"],
+        endpoints=["/mcp", "/sse", "/v1"],
+        rest_write=_rest_write_enabled(),
     )
 
     app = create_http_app()

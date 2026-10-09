@@ -8,6 +8,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **REST tool gateway at `/v1`** (`gateway/`, new package) on
+  `scm-mcp-http`, for platforms that call tools by function calling rather
+  than MCP: DeepSeek, Qwen, Kimi, the OpenAI and Gemini APIs, ChatGPT custom
+  GPTs and Microsoft 365 Copilot.
+  - **Endpoints.** `GET /v1/tools` (OpenAI, Gemini or MCP format),
+    `POST /v1/tools/{name}/call`, and `GET /v1/openapi.json` (OpenAPI 3.0,
+    or Swagger 2.0 with `?version=2`). All are generated from the live tool
+    registry and validated against `google-genai` types and
+    `openapi-spec-validator`.
+  - **Keys.** Scoped keys stored as SHA-256 hashes in `.secrets.toml`
+    (`[gateway_keys.*]`) and minted with
+    `python -m scm_harbourmaster_mcp.gateway.keys new`. They are valid on
+    `/v1` only.
+  - **Safety.** Every rule fails closed:
+    - read-only unless the key has `access = "write"` *and*
+      `SCM_MCP_HTTP_REST_WRITE=1` is set;
+    - commit, push, rollback, planner and process-control tools are never
+      exposed;
+    - tenant-limited keys are confined to their tenants, after canonical
+      tenant resolution. They only see tools that take a `tenant_id`, which
+      hides default-tenant and shared job-store tools;
+    - file-path parameters are refused;
+    - not-permitted tools return the same 404 as missing ones;
+    - per-key rate limits apply;
+    - a JSONL audit log (`logs/gateway_audit.jsonl`) records argument
+      hashes, never the arguments, and a write that can't be audited is
+      refused.
+  - **LLM providers.** A new per-tenant `allowed_llm_providers` setting is
+    enforced against the `llm_provider` a key declares. It also applies to
+    calls that reach a tenant without naming it: the default tenant,
+    cross-tenant tools and `all_tenants`.
 - **Streamable HTTP transport at `/mcp`** on `scm-mcp-http`. It sits beside
   the legacy `/sse` endpoint, behind the same API-key or Entra auth and
   CORS. This is the current MCP HTTP transport used by Copilot Studio,
@@ -386,6 +417,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `/etc` are unchanged.
 
 ### Fixed
+- **`scm-mcp-http`'s API-key check used `!=`.** It now uses
+  `hmac.compare_digest`, so the comparison takes constant time.
 - **Docker image failed its Trivy scan on push** (2 HIGH). These were
   CVE-2026-23949 in `jaraco.context` 5.3.0 and CVE-2026-24049 in `wheel`
   0.45.1, both vendored inside `setuptools` 78.x. `pan-scm-sdk` pins

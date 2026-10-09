@@ -52,6 +52,9 @@ scm_default_folder = "Shared"
 #                                          # Settings → Service Setup → Prisma Access API Key
 #                                          # Enables live egress IP retrieval in AS-BUILT §8.1
 #                                          # (store in .secrets.toml, not here)
+# allowed_llm_providers  = ["claude", "gemini"]  # Optional — which REST gateway keys
+#                                          # (by their llm_provider) may act on this tenant.
+#                                          # Unset = no restriction. See README "REST tool gateway"
 #
 # [tenants.customer-b]
 # tenant_id          = "tsg-id-for-customer-b"

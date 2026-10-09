@@ -50,6 +50,15 @@ class TenantConfig(BaseSettings):
             "Common values: eu, us, uk, sg, au. NL/DE/FR tenants → eu."
         ),
     )
+    allowed_llm_providers: list[str] | None = Field(
+        None,
+        description=(
+            "LLM providers whose REST gateway keys may act on this tenant "
+            "(matched against a key's llm_provider, e.g. ['claude', 'gemini']). "
+            "Unset = no restriction. Keys declare their provider, so this "
+            "records customer policy; it cannot see which model a caller uses."
+        ),
+    )
     sdwan_only: bool = Field(
         False,
         description=(
