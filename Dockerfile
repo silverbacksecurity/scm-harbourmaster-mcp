@@ -5,7 +5,7 @@
 # Base images are pinned by digest; Dependabot (docker ecosystem) bumps them.
 
 # ── Build stage ───────────────────────────────────────────────────────────────
-FROM python:3.12-slim@sha256:05cda9777409a9c3ffddd94a4c476b79f0769a0b4857f0c7ed9226b6800b0d6f AS builder
+FROM python:3.14-slim@sha256:f85c5697265c178cc6887276c55fe16cf3d14ca35c3df6a5eab3b360534a55d2 AS builder
 
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:0.11.21@sha256:ff07b86af50d4d9391d9daf4ff89ce427bc544f9aae87057e69a1cc0aa369946 /uv /usr/local/bin/uv
@@ -30,7 +30,7 @@ ENV UV_PROJECT_ENVIRONMENT=/app/venv \
 RUN uv sync --frozen --no-dev --no-editable
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
-FROM python:3.12-slim@sha256:05cda9777409a9c3ffddd94a4c476b79f0769a0b4857f0c7ed9226b6800b0d6f AS runtime
+FROM python:3.14-slim@sha256:f85c5697265c178cc6887276c55fe16cf3d14ca35c3df6a5eab3b360534a55d2 AS runtime
 
 # tini runs as PID 1 so SIGTERM (docker stop, scm_restart) reaches the server:
 # Python as PID 1 with no handler would ignore it.
