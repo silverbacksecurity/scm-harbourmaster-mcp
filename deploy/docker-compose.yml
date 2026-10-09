@@ -1,0 +1,84 @@
+# scm-harbourmaster-mcp on Docker Compose.
+#
+#   cd deploy
+#   cp ../settings.example.toml settings.toml      # your tenants
+#   $EDITOR .secrets.toml .env                     # credentials, API key
+#   docker compose up -d                           # HTTP server on 127.0.0.1:8080
+#   docker compose run --rm planner                # nightly digest (from host cron)
+#
+# settings.toml and .secrets.toml are mounted read-only and must be readable by
+# the container user, UID 10001 (e.g. `sudo chown 10001 .secrets.toml`, mode 600).
+# Everything the server writes lives on the `data` volume.
+#
+# Diagrams in AS-BUILT/HLD documents need the full image:
+#   SCM_MCP_IMAGE=ghcr.io/silverbacksecurity/scm-harbourmaster-mcp:latest-full
+# To build locally instead of pulling: docker compose build
+# (SCM_MCP_BUILD_TARGET=full for the full image).
+
+x-common: &common
+  image: ${SCM_MCP_IMAGE:-ghcr.io/silverbacksecurity/scm-harbourmaster-mcp:latest}
+  build:
+    context: ..
+    target: ${SCM_MCP_BUILD_TARGET:-runtime}
+  env_file:
+    - path: .env
+      required: false
+  volumes:
+    - data:/data
+    # Long syntax so a missing file fails loudly instead of Docker creating a
+    # root-owned directory in its place.
+    - type: bind
+      source: ${SCM_MCP_CONFIG_DIR:-.}/settings.toml
+      target: /data/settings.toml
+      read_only: true
+      bind:
+        create_host_path: false
+    - type: bind
+      source: ${SCM_MCP_CONFIG_DIR:-.}/.secrets.toml
+      target: /data/.secrets.toml
+      read_only: true
+      bind:
+        create_host_path: false
+  # Same hardening as the systemd unit: read-only root, no capabilities, no
+  # privilege escalation. /data is the only writable path, plus a tmpfs /tmp.
+  read_only: true
+  tmpfs:
+    - /tmp
+  cap_drop: [ALL]
+  security_opt:
+    - no-new-privileges:true
+
+services:
+  http:
+    <<: *common
+    command: ["scm-mcp-http"]
+    restart: unless-stopped
+    environment:
+      SCM_MCP_HTTP_PORT: "8080"
+    # Loopback only by default; put a TLS reverse proxy in front for remote
+    # clients and set SCM_MCP_HTTP_ALLOWED_HOSTS to its public name in .env.
+    ports:
+      - "${SCM_MCP_PUBLISH:-127.0.0.1:8080}:8080"
+    healthcheck:
+      # /health needs no auth. No curl in the image, so use Python.
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3)"
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+  # One-shot: run from host cron, e.g.
+  #   30 6 * * *  cd /opt/scm-mcp/deploy && docker compose run --rm planner
+  #   0 7 * * 1   cd /opt/scm-mcp/deploy && docker compose run --rm planner scm-planner-estate
+  planner:
+    <<: *common
+    profiles: [planner]
+    command: ["scm-planner-nightly"]
+    restart: "no"
+
+volumes:
+  data:

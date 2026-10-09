@@ -1,0 +1,20 @@
+# Live code edits in a container: bind-mounts ../src over the installed
+# package so scm_reload picks up changes, as it does in a source checkout.
+#
+#   docker compose -f docker-compose.yml -f compose.dev.yml up --build
+#
+# Dependency or entrypoint changes still need a rebuild (--build).
+
+services:
+  http:
+    build:
+      context: ..
+      target: ${SCM_MCP_BUILD_TARGET:-runtime}
+    image: scm-harbourmaster-mcp:dev
+    environment:
+      # Python searches PYTHONPATH before site-packages, so /app/src wins.
+      PYTHONPATH: /app/src
+      PYTHONDONTWRITEBYTECODE: "1"
+      SCM_MCP_CONTAINER: dev
+    volumes:
+      - ../src:/app/src:ro

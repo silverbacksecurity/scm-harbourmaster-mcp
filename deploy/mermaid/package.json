@@ -1,0 +1,13 @@
+{
+  "name": "scm-harbourmaster-mermaid",
+  "private": true,
+  "description": "mermaid-cli for the full image's AS-BUILT/HLD diagrams. Chromium comes from Debian, so puppeteer never downloads a browser.",
+  "dependencies": {
+    "@mermaid-js/mermaid-cli": "11.17.0",
+    "puppeteer": "24.43.1"
+  },
+  "overrides": {
+    "basic-ftp": "6.2.1"
+  },
+  "//overrides": "basic-ftp: CVE-2026-102990 (HIGH) is fixed in 6.2.1; get-uri still asks for ^5. It's only reached through puppeteer's ftp:// proxy/download path, which mmdc never takes."
+}

@@ -80,6 +80,20 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Build and push release image (full)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: full
+          push: true
+          # Fresh Chromium from Debian on every release (see docker-build.yml).
+          no-cache-filters: full
+          tags: |
+            ghcr.io/${{ github.repository }}:${{ github.ref_name }}-full
+            ghcr.io/${{ github.repository }}:latest-full
+          cache-from: type=gha,scope=full
+          cache-to: type=gha,mode=max,scope=full
+
       # ── Create GitHub Release with artifacts ─────────────────────────────
       - name: Create GitHub Release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3

@@ -25,7 +25,7 @@ from rich.text import Text
 
 from .config.settings import TenantConfig, load_all_tenant_configs
 from .history import audited, log_action, read_history
-from .utils import paths
+from .utils import paths, runtime
 
 console = Console()
 
@@ -1291,10 +1291,13 @@ def _op_check_updates() -> None:
     console.print(t)
 
     if any_update:
-        console.print(
-            "\n[yellow]Updates available — run [bold]uv sync[/bold] then "
-            "[bold]uv run scm-mcp[/bold] to apply.[/yellow]"
-        )
+        if runtime.in_image():
+            console.print(f"\n[yellow]Updates available. {runtime.IMAGE_UPDATE_HINT}[/yellow]")
+        else:
+            console.print(
+                "\n[yellow]Updates available — run [bold]uv sync[/bold] then "
+                "[bold]uv run scm-mcp[/bold] to apply.[/yellow]"
+            )
 
     # pan-scm-sdk GitHub release notes
     console.print()
@@ -1353,6 +1356,17 @@ def _op_restart_server() -> None:
     from rich.prompt import Confirm
 
     console.print()
+
+    if runtime.container_mode():
+        # No pgrep or uv in the image, and the server is the container's main
+        # process: restarting it is the container runtime's job.
+        console.print(
+            "[yellow]The server runs as this container's main process. Restart it "
+            "from the host: [bold]docker compose restart[/bold] (or "
+            "[bold]docker restart <container>[/bold]).[/yellow]"
+        )
+        Prompt.ask("\nPress Enter to continue")
+        return
 
     def _find_pids(name: str) -> list[int]:
         try:

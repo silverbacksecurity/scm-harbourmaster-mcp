@@ -26,6 +26,7 @@ from collections.abc import Callable
 
 from mcp.server.fastmcp import FastMCP
 
+from ..utils import runtime
 from ..utils.logging import get_logger
 from ..utils.tool_annotations import annotations_for
 
@@ -56,6 +57,7 @@ _RELOAD_ORDER = [
     "scm_harbourmaster_mcp.utils.formatting",
     "scm_harbourmaster_mcp.utils.validation",
     "scm_harbourmaster_mcp.utils.paths",
+    "scm_harbourmaster_mcp.utils.runtime",
     "scm_harbourmaster_mcp.audit.models",
     "scm_harbourmaster_mcp.audit.pan_references",
     "scm_harbourmaster_mcp.audit.ncsc_controls",
@@ -199,6 +201,9 @@ def register_reload_tool(mcp: FastMCP, reregister: Callable[[], None] | None = N
         Returns:
             Summary of reloaded modules, patched references, and any errors.
         """
+        if runtime.in_image():
+            return f"⏭️  Nothing to reload. {runtime.IMAGE_UPDATE_HINT}"
+
         errors: list[str] = []
         target_names: list[str]
         if modules:
@@ -303,8 +308,14 @@ def register_reload_tool(mcp: FastMCP, reregister: Callable[[], None] | None = N
         t = threading.Thread(target=_delayed_exit, daemon=True, name="scm-restart")
         t.start()
         logger.info("scm_restart_scheduled", delay_seconds=delay, pid=os.getpid())
-        return (
-            f"🔄 MCP server restart scheduled in {delay}s (PID {os.getpid()}).\n"
+        msg = f"🔄 MCP server restart scheduled in {delay}s (PID {os.getpid()}).\n"
+        if runtime.container_mode():
+            return msg + (
+                "The container exits with the server; its restart policy (compose: "
+                "`restart: unless-stopped`) starts it again, and a stdio client "
+                "re-runs `docker run -i`. Otherwise: `docker compose up -d`."
+            )
+        return msg + (
             "Claude Desktop will reconnect automatically.\n\n"
             "If the server does not restart, run:\n"
             "```\nuv run scm-mcp\n```"

@@ -12,6 +12,7 @@ Tools:
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -204,6 +205,11 @@ def _mermaid_to_png_local(diagram: str, dest: Path) -> bool:
             "--width",
             "1200",
         ]
+        # The full container image ships Debian's Chromium and a config that
+        # points puppeteer at it with the sandbox off; use it from the start.
+        pptr_cfg = os.getenv("SCM_MCP_MMDC_PUPPETEER_CONFIG")
+        if pptr_cfg:
+            base_cmd += ["-p", pptr_cfg]
 
         def _ok(result: subprocess.CompletedProcess[str]) -> bool:
             return result.returncode == 0 and dest.exists() and dest.stat().st_size > 200
@@ -214,7 +220,7 @@ def _mermaid_to_png_local(diagram: str, dest: Path) -> bool:
             # (build missing from the cache, or the Chrome sandbox blocked by
             # kernel userns restrictions).  Retry once pointing puppeteer at a
             # locatable Chrome with the sandbox disabled.
-            chrome = _find_chrome_for_mmdc()
+            chrome = None if pptr_cfg else _find_chrome_for_mmdc()
             if chrome:
                 cfg = dest.with_suffix(".pptr.json")
                 cfg.write_text(json.dumps({"executablePath": chrome, "args": ["--no-sandbox"]}))

@@ -622,7 +622,7 @@ platform-specific server code.
 
 **Order** — Docker Phase 1 → A → B+C → Docker Phases 2–4 → D → E.
 
-### Docker Phase 1 — Parity with a local install
+### Docker Phase 1 — Parity with a local install ✅ shipped 2026-10-09 (PR #53)
 
 The image builds, but the runtime user (`scm-mcp`, no home directory) can't
 write to the root-owned `/app`. Every relative or home-based path therefore
@@ -643,23 +643,27 @@ and planner tools all fail on write, without a clear error.
 - The systemd unit (`security/hardening/scm-mcp.service`) has the same bug:
   it allows writes only to `logs/` and `/run/scm-mcp`. Fix both here.
 
-### Docker Phases 2–4 — Full image, compose, CI smoke test
+### Docker Phases 2–4 — Full image, compose, CI smoke test ✅ shipped 2026-10-09
 
-- **`full` build target** (`:X.Y.Z-full`): Node, `@mermaid-js/mermaid-cli`,
-  system Chromium and a `--no-sandbox` puppeteer config. Without it,
-  AS-BUILT/HLD diagrams are silently dropped. Needs a Trivy policy decision
-  first, because the current gate fails the build on any HIGH or CRITICAL
-  finding.
-- **`deploy/docker-compose.yml`**: an `http` service with a `/health`
-  healthcheck; a `planner` profile service run from host cron; a named `data`
-  volume; hardening matching the systemd unit (`read_only`, `cap_drop: [ALL]`,
-  `no-new-privileges`). Add a `docker run -i` stdio snippet for desktop
-  clients.
-- **Container awareness**: `scm_reload` and the CLI server menu (which calls
-  `pgrep` and `uv run`) say "pull a new image" instead of failing. An optional
-  `compose.dev.yml` bind-mounts `src/` for live reload.
-- **CI smoke test** in `docker-build.yml`: `/health`, an MCP `initialize`
-  over stdio, and one tool that writes a file.
+- **`full` target** (`:X.Y.Z-full`, `:latest-full`): Debian Node 20 and
+  Chromium, mermaid-cli 11.17 locked in `deploy/mermaid/`, `--no-sandbox`
+  puppeteer config. The Trivy decision: keep the same HIGH/CRITICAL gate.
+  It passes once `basic-ftp` (pulled in through puppeteer's unused download
+  path) is overridden to 6.2.1. The image is about 2.3 GB uncompressed;
+  mermaid's node_modules are 530 MB of that.
+- **`deploy/docker-compose.yml`** with an `http` service (healthcheck,
+  loopback port), a `planner` profile service, a `data` volume, and the
+  systemd unit's hardening. `deploy/compose.dev.yml` bind-mounts `src/`.
+- **Container awareness** via `SCM_MCP_CONTAINER` (`image`/`dev`):
+  `scm_reload`, `scm_restart` and the CLI give container instructions.
+- **CI**: the default image's smoke test already covered `/health`, stdio
+  `initialize`/`tools/list` and data-dir writes (Phase 1). The full image adds
+  a hardened diagram-render test and its own Trivy gate.
+- Still open: a smoke test that writes a file through an MCP *tool* call.
+  Every tool that writes needs a live tenant (`scm-planner-nightly` with no
+  tenants exits 0 and writes nothing), so CI checks the data dirs
+  directly instead. Possible follow-up: trim the full image by dropping
+  mermaid's unused optional layouts and zenuml.
 
 ### Phase A — Streamable HTTP at `/mcp` ✅ shipped 2026-10-09
 

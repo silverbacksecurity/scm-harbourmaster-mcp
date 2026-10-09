@@ -8,6 +8,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Full container image and Compose deployment** (Docker Phases 2–4).
+  - **`full` build target**, published as `:X.Y.Z-full` and `:latest-full`.
+    It adds Debian's Node and Chromium and a locked mermaid-cli
+    (`deploy/mermaid/`), so AS-BUILT/HLD diagrams render in a container.
+    Before this they were silently replaced with text. puppeteer never
+    downloads a browser, Chromium runs with `--no-sandbox` (a hardened
+    container grants no user namespaces), and `mmdc` reads that config from
+    `SCM_MCP_MMDC_PUPPETEER_CONFIG`. The default image is unchanged.
+  - **`deploy/docker-compose.yml`**: an `http` service with a `/health`
+    healthcheck, bound to loopback; a `planner` profile service for host cron
+    (`docker compose run --rm planner`); a named `data` volume. It has the
+    same hardening as the systemd unit: `read_only`, `cap_drop: [ALL]` and
+    `no-new-privileges`. `deploy/compose.dev.yml` bind-mounts `src/` so
+    `scm_reload` works in a container.
+  - **Container awareness.** The image sets `SCM_MCP_CONTAINER=image`. In it,
+    `scm_reload` says to pull a new image rather than reloading code that
+    can't change, `scm_restart` points at the restart policy, and the CLI's
+    restart and update screens give `docker compose` commands, not
+    `pgrep`/`uv run`.
+  - **CI.** A `build-full` job renders a diagram on a hardened, read-only
+    container and gates on Trivy; releases push the `-full` tags. Dependabot
+    now tracks `deploy/mermaid` (mermaid-cli 12 and puppeteer 25 are held
+    back: they need Node 22, and Debian ships 20). `basic-ftp` is overridden
+    to 6.2.1 to clear CVE-2026-102990, without a Trivy suppression.
 - **REST tool gateway at `/v1`** (`gateway/`, new package) on
   `scm-mcp-http`, for platforms that call tools by function calling rather
   than MCP: DeepSeek, Qwen, Kimi, the OpenAI and Gemini APIs, ChatGPT custom

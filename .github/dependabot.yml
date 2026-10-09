@@ -77,3 +77,29 @@ updates:
       - dependencies
       - docker
       - supply-chain
+
+  # mermaid-cli + puppeteer for the full image, locked in deploy/mermaid. The
+  # basic-ftp override in package.json can go once get-uri accepts >=6.2.1.
+  - package-ecosystem: npm
+    directory: /deploy/mermaid
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: UTC
+    open-pull-requests-limit: 3
+    groups:
+      mermaid-minor-patch:
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # mermaid-cli 12 and puppeteer 25 need Node 22; the image uses Debian's Node 20.
+      - dependency-name: "@mermaid-js/mermaid-cli"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: puppeteer
+        update-types: ["version-update:semver-major"]
+    labels:
+      - dependencies
+      - docker
+      - supply-chain

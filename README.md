@@ -256,6 +256,40 @@ instead, it must be writable by UID 10001. The image ships no `settings.toml`:
 mount your own, or the server starts with no tenants. It also runs with
 `--read-only --cap-drop ALL --security-opt no-new-privileges`.
 
+**Diagrams.** AS-BUILT and HLD documents render Mermaid diagrams with
+mermaid-cli and Chromium, which only the `full` image has
+(`ghcr.io/silverbacksecurity/scm-harbourmaster-mcp:latest-full`, or
+`docker build --target full`). The default image swaps each diagram for a
+text placeholder.
+
+**Compose.** `deploy/docker-compose.yml` runs the HTTP server on
+`127.0.0.1:8080` with a healthcheck and the hardening above, and has a
+`planner` service for cron (`docker compose run --rm planner`). Put
+`settings.toml`, `.secrets.toml` and an optional `.env` (for
+`SCM_MCP_HTTP_API_KEY` and friends) next to it, readable by UID 10001. The
+file header has the rest. `deploy/compose.dev.yml` bind-mounts `src/` for
+live edits with `scm_reload`. In the plain image, `scm_reload` tells you to
+pull a new image instead.
+
+**Desktop clients (stdio).** Point the client at `docker run -i`, e.g. in
+`claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "scm-harbourmaster": {
+      "command": "docker",
+      "args": ["run", "-i", "--rm", "--read-only", "--tmpfs", "/tmp",
+               "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+               "-v", "scm-mcp-data:/data",
+               "-v", "/path/to/settings.toml:/data/settings.toml:ro",
+               "-v", "/path/to/.secrets.toml:/data/.secrets.toml:ro",
+               "ghcr.io/silverbacksecurity/scm-harbourmaster-mcp:latest"]
+    }
+  }
+}
+```
+
 Outside Docker the same layout applies relative to `SCM_MCP_DATA_DIR`, which
 defaults to the current directory. `SCM_MCP_BACKUP_DIR`, `SCM_MCP_BASELINE_DIR`,
 `SCM_MCP_INDEX_DIR` and `SCM_MCP_PLAN_DIR` still override individual

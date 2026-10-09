@@ -6,5 +6,7 @@
 !uv.lock
 !README.md
 !src/
+!deploy/mermaid/package.json
+!deploy/mermaid/package-lock.json
 **/__pycache__
 **/*.py[cod]
