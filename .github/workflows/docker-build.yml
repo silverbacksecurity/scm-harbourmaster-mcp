@@ -96,6 +96,19 @@ jobs:
           timeout 10 docker stop -t 8 smoke-http
           docker rm smoke-http
 
+      # PRs scan the locally built image, so a vulnerable dependency fails the
+      # PR instead of the post-merge push (pushes scan the pushed digest below).
+      - name: Scan smoke image for vulnerabilities (Trivy)
+        if: github.event_name == 'pull_request'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: scm-mcp-smoke:ci
+          scan-type: image
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: 1
+          format: table
+
       - name: Build and push
         id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0

@@ -51,6 +51,13 @@ dev = [
 requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
+[tool.uv]
+# pan-scm-sdk 0.15.1 declares setuptools<79 but never imports it. setuptools
+# 78.x vendors jaraco.context 5.3.0 (CVE-2026-23949) and wheel 0.45.1
+# (CVE-2026-24049), which fail the Docker image's Trivy scan; 82+ vendors
+# fixed copies. Drop this once the SDK relaxes or removes the pin.
+override-dependencies = ["setuptools>=82"]
+
 [tool.hatch.version]
 source = "vcs"
 

@@ -21,13 +21,6 @@ updates:
       # cap whenever pan-scm-sdk is upgraded; tracked in soc2-controls.yaml
       - dependency-name: cryptography
         versions: [">=50.0.0"]
-      # setuptools capped by pan-scm-sdk==0.15.1 at <79.0.0 — verified forcing
-      # a newer setuptools breaks resolution against pan-scm-sdk's wheel
-      # metadata. GHSA-h35f-9h28-mq5c / CVE-2026-59890 (PYSEC-2026-3447) fixed
-      # in 83.0.0 is suppressed in CI (security-scan.yml) pending an upstream
-      # SDK release; re-check this cap whenever pan-scm-sdk is upgraded.
-      - dependency-name: setuptools
-        versions: [">=79.0.0"]
       # oauthlib capped by pan-scm-sdk==0.15.1 at <4.0.0. CVE-2026-49265
       # (PYSEC-2026-4114), fixed in 4.0.0, is a server-side PKCE timing leak
       # unreachable from our client-credentials flow; suppressed in CI

@@ -386,6 +386,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `/etc` are unchanged.
 
 ### Fixed
+- **Docker image failed its Trivy scan on push** (2 HIGH). These were
+  CVE-2026-23949 in `jaraco.context` 5.3.0 and CVE-2026-24049 in `wheel`
+  0.45.1, both vendored inside `setuptools` 78.x. `pan-scm-sdk` pins
+  `setuptools<79` but never imports it. A `[tool.uv]` override now resolves
+  `setuptools>=82` (84.0.0), which vendors fixed copies. The CVEs only
+  surfaced once the image stopped shipping an empty venv. Pull requests now
+  run the Trivy image scan too, against the locally built smoke image, so
+  this kind of failure shows up before merge.
+  pip-audit now runs with `--disable-pip`, because the exported requirements
+  are fully pinned and hashed and pip would reject the override. The
+  setuptools advisory PYSEC-2026-3447 (GHSA-h35f-9h28-mq5c, fixed in 83.0.0)
+  no longer needs suppressing, so its pip-audit ignore and Dependabot cap
+  are removed.
 - **Remote MCP clients got 421 Invalid Host header on `scm-mcp-http`.**
   FastMCP enables DNS-rebinding checks for localhost only whenever it's
   built with its default loopback host, and that applied to `/sse` (and

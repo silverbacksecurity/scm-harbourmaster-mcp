@@ -35,13 +35,13 @@ jobs:
         run: |
           # Filter out the editable project install (-e .) which pip-audit can't hash
           uv export --no-dev --format requirements-txt | grep -v "^-e " > /tmp/requirements.txt
-          # PYSEC-2026-3447 (setuptools 78.1.1) suppressed: pan-scm-sdk==0.15.1 pins
-          # setuptools>=78.1.1,<79.0.0; forcing a newer setuptools breaks pip's real
-          # dependency resolution against pan-scm-sdk's own wheel metadata (verified —
-          # not just a version-string mismatch). Same finding surfaces as GitHub
-          # Dependabot alert GHSA-h35f-9h28-mq5c / CVE-2026-59890 (same advisory,
-          # different DB ID) — also ignored in dependabot.yml so it isn't retried
-          # weekly. Upgrade tracked pending upstream SDK update.
+          # --disable-pip: the export is fully pinned and hashed, so pip-audit
+          # audits it as-is instead of re-resolving it with pip. pip would
+          # reject the [tool.uv] setuptools>=82 override, which deliberately
+          # breaks pan-scm-sdk 0.15.1's unused setuptools<79 pin (see
+          # pyproject.toml). That override also clears PYSEC-2026-3447 /
+          # GHSA-h35f-9h28-mq5c (fixed in setuptools 83.0.0), so it is no
+          # longer suppressed.
           # PYSEC-2026-3552 (cryptography 49.0.0, CVE-2026-69247) suppressed:
           # pan-scm-sdk==0.15.1 pins cryptography<50.0.0. The flaw is a
           # Bleichenbacher oracle in pkcs7_decrypt_der/pem/smime, which nothing
@@ -50,9 +50,8 @@ jobs:
           # pan-scm-sdk==0.15.1 pins oauthlib<4.0.0. The flaw is a timing leak
           # in server-side PKCE code_verifier checks; we are only an OAuth2
           # client (client-credentials grant) and never verify PKCE.
-          # Re-check all three whenever pan-scm-sdk is upgraded.
-          uvx pip-audit --require-hashes --strict \
-            --ignore-vuln PYSEC-2026-3447 \
+          # Re-check both whenever pan-scm-sdk is upgraded.
+          uvx pip-audit --require-hashes --strict --disable-pip \
             --ignore-vuln PYSEC-2026-3552 \
             --ignore-vuln PYSEC-2026-4114 \
             --requirement /tmp/requirements.txt
