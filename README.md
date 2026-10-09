@@ -59,7 +59,7 @@ Then ask Claude:
 | **Operational visibility** | Certificate expiry scanner, licence forecast, SPN bandwidth allocation vs branch count, live GP/PA-Agent session count by country and compute node |
 | **MSSP NOC dashboard** | Single-call traffic-light health view across all tenants: rules, RNs, tunnels, nearest licence expiry |
 | **Multi-tenant** | Thread-safe per-tenant client cache; credentials from `settings.toml` |
-| **HTTP/SSE transport** | Copilot Studio and browser-based MCP clients via `scm-mcp-http` |
+| **HTTP transport** | Remote MCP clients (Copilot Studio, ChatGPT, Gemini CLI, Antigravity and others) via `scm-mcp-http`: Streamable HTTP at `/mcp`, plus legacy SSE at `/sse` |
 
 ---
 
@@ -74,7 +74,7 @@ graph LR
 
     subgraph server["scm-harbourmaster-mcp"]
         stdio["FastMCP\nstdio transport"]
-        http["HTTP/SSE transport\nscm-mcp-http"]
+        http["HTTP transport (/mcp, /sse)\nscm-mcp-http"]
         tools["MCP Tools\nobjects · policy · network\naudit · NCSC · NIST · DLP\nSD-WAN · MSSP · ops · AI advisor"]
         cache["OAuth2 Client Cache\nper-tenant Scm client\n(thread-safe)"]
         cfg["settings.toml\n+ .secrets.toml"]
@@ -196,7 +196,7 @@ Add to `.cursor/mcp.json` or `.vscode/mcp.json`:
 }
 ```
 
-### Microsoft Copilot Studio (HTTP/SSE)
+### Remote MCP clients over HTTP (Copilot Studio, ChatGPT, Gemini CLI, …)
 
 ```bash
 # Generate a secure API key
@@ -207,9 +207,17 @@ uv run scm-mcp-http
 # Listening on 0.0.0.0:8080
 ```
 
+Point clients at **`https://your-host/mcp`**, which is the Streamable HTTP
+transport, and send `X-API-Key: <your-key>`. Clients that only speak the older
+HTTP+SSE transport can use `https://your-host/sse` with the same key.
+
 In Copilot Studio: **Settings → AI → MCP Servers → Add server**
-- **Server URL:** `https://your-host/sse`
+- **Server URL:** `https://your-host/mcp`
 - **Authentication:** Custom header → `X-API-Key: <your-key>`
+
+Set `SCM_MCP_HTTP_ALLOWED_HOSTS=your-host` so that the Host and Origin headers
+are checked against the name clients actually use. If it's unset on a public
+bind, those checks are off (the API key or Entra token is still required).
 
 For Entra ID auth (production):
 ```bash
@@ -231,7 +239,7 @@ docker run -i --rm \
   -v "$PWD/.secrets.toml:/data/.secrets.toml:ro" \
   scm-mcp-mssp
 
-# HTTP/SSE transport
+# HTTP transport (/mcp and /sse)
 docker run -p 8080:8080 \
   -e SCM_MCP_HTTP_API_KEY=your-key \
   -e SCM_MCP_HTTP_AUTH_MODE=apikey \
@@ -677,7 +685,7 @@ sequenceDiagram
 ```
 src/scm_harbourmaster_mcp/
 ├── server.py              # FastMCP entry point; tool/resource registration
-├── server_http.py         # HTTP/SSE transport (Copilot Studio)
+├── server_http.py         # HTTP transport: /mcp (Streamable HTTP) + /sse
 ├── config/
 │   └── settings.py        # Pydantic-settings; per-tenant credentials and metadata
 ├── auth/
@@ -714,7 +722,7 @@ src/scm_harbourmaster_mcp/
 
 ---
 
-## HTTP/SSE transport environment variables
+## HTTP transport environment variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -722,6 +730,8 @@ src/scm_harbourmaster_mcp/
 | `SCM_MCP_HTTP_AUTH_MODE` | `apikey` | `apikey` \| `entra` \| `none` |
 | `SCM_MCP_HTTP_API_KEY` | — | Required for `apikey` mode |
 | `SCM_MCP_HTTP_ALLOWED_ORIGINS` | `*` | CORS origins, comma-separated |
+| `SCM_MCP_HTTP_ALLOWED_HOSTS` | — | Hostnames clients connect to (e.g. `mcp.example.com`), comma-separated. When set, Host/Origin checks allow only these names plus localhost. When unset, a loopback bind accepts localhost only and any other bind does no Host check |
+| `SCM_MCP_HTTP_STATELESS` | off | `1` serves `/mcp` without sessions, for several replicas behind a load balancer |
 | `SCM_MCP_HTTP_ENTRA_TENANT` | — | Entra tenant ID (entra mode) |
 | `SCM_MCP_HTTP_ENTRA_AUDIENCE` | — | App registration client ID (entra mode) |
 

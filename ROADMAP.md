@@ -661,13 +661,14 @@ and planner tools all fail on write, without a clear error.
 - **CI smoke test** in `docker-build.yml`: `/health`, an MCP `initialize`
   over stdio, and one tool that writes a file.
 
-### Phase A — Streamable HTTP at `/mcp`
+### Phase A — Streamable HTTP at `/mcp` ✅ shipped 2026-10-09
 
-Mount `streamable_http_app()` beside `/sse`, with the same auth middleware.
-Reaches ChatGPT connectors/developer mode, Gemini CLI/ADK, Antigravity, Qwen
-Code and Kimi CLI. Copilot Studio may now require it in place of SSE (to
-verify), which would make this a fix to an existing integration. It also
-prepares for the mcp SDK 2.x migration (`sse_app` breakers).
+`/mcp` (Streamable HTTP) now sits beside `/sse` on `scm-mcp-http`, behind
+the same auth, with an optional stateless mode (`SCM_MCP_HTTP_STATELESS`).
+Building it uncovered a bug in the existing server: FastMCP's localhost-only
+Host check 421'd every remote client. `SCM_MCP_HTTP_ALLOWED_HOSTS` fixes it.
+Still to verify against the real clients: Copilot Studio, ChatGPT connectors
+(which need OAuth, Phase C), Gemini CLI and Antigravity.
 
 ### Phase B — REST tool gateway under `/v1`
 

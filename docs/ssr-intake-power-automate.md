@@ -176,7 +176,7 @@ Preference order:
 
 ## 6. Copilot Studio variant (optional)
 
-The same server already speaks MCP over SSE for Copilot Studio. A
+The same server already speaks MCP over HTTP (`/mcp`) for Copilot Studio. A
 conversational intake ("please allow github.com") can be a Copilot Studio
 agent topic that collects the same four slots and calls this flow (Power
 Automate flows are directly invocable from topics). Keep the webhook + approval

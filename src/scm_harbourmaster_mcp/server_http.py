@@ -1,12 +1,16 @@
 """
-HTTP/SSE transport server for Copilot Studio and remote MCP clients.
+HTTP transport server for Copilot Studio and other remote MCP clients.
 
-Wraps the same FastMCP instance as the stdio server but exposes it over
-HTTP with Server-Sent Events (SSE) transport, making it compatible with:
+Wraps the same FastMCP instance as the stdio server and serves it over both
+MCP HTTP transports, behind the same auth:
 
-  - Microsoft Copilot Studio (Settings → AI → MCP Servers)
-  - Any MCP client that supports SSE transport
-  - Azure Container Apps / App Service deployments
+  /mcp  Streamable HTTP, the current MCP transport. Use this for Copilot
+        Studio, ChatGPT connectors, Gemini CLI/ADK, Antigravity, Qwen Code,
+        Kimi CLI and Claude.
+  /sse  The older HTTP+SSE transport (with /messages/). Kept for clients
+        that haven't moved yet.
+
+Runs locally or in Azure Container Apps / App Service style deployments.
 
 Auth modes (SCM_MCP_HTTP_AUTH_MODE):
   apikey  — X-API-Key header or ?api_key= query param (default)
@@ -21,17 +25,28 @@ Env vars:
   SCM_MCP_HTTP_ENTRA_TENANT   Entra tenant ID (entra mode)
   SCM_MCP_HTTP_ENTRA_AUDIENCE App ID / client ID expected in 'aud' claim
   SCM_MCP_HTTP_ALLOWED_ORIGINS CORS origins, comma-separated (default: *)
+  SCM_MCP_HTTP_ALLOWED_HOSTS  Public hostnames clients use, comma-separated
+                              (e.g. mcp.example.com). Enables Host/Origin
+                              checks for them. Unset on a non-loopback bind,
+                              those checks are off (auth still applies);
+                              unset on a loopback bind, only localhost is
+                              accepted.
+  SCM_MCP_HTTP_STATELESS      "1"/"true" serves /mcp without sessions, for
+                              several replicas behind a load balancer
+                              (default: off)
   SCM_MCP_HTTP_SSR_WEBHOOK    "1"/"true" enables POST /webhook/ssr (default: off)
 """
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 
 import jwt
 import uvicorn
+from mcp.server.transport_security import TransportSecuritySettings
 from starlette.applications import Starlette
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.cors import CORSMiddleware
@@ -60,6 +75,15 @@ _ALLOWED_ORIGINS = [
 # /webhook/ssr is a WRITE endpoint (unlike /webhook/ir, which is read-only by
 # construction) — operators must opt in explicitly.
 _SSR_WEBHOOK_ENABLED = os.getenv("SCM_MCP_HTTP_SSR_WEBHOOK", "").lower() in ("1", "true", "yes")
+
+_ALLOWED_HOSTS = [
+    h.strip() for h in os.getenv("SCM_MCP_HTTP_ALLOWED_HOSTS", "").split(",") if h.strip()
+]
+_STATELESS = os.getenv("SCM_MCP_HTTP_STATELESS", "").lower() in ("1", "true", "yes")
+
+_LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
+_LOCAL_HOST_PATTERNS = ["127.0.0.1:*", "localhost:*", "[::1]:*"]
+_LOCAL_ORIGIN_PATTERNS = ["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"]
 
 # Entra JWKS URI — fetched once at startup
 _JWKS_CLIENT: jwt.PyJWKClient | None = None
@@ -101,7 +125,7 @@ def _validate_entra_token(token: str) -> bool:
 
 class AuthMiddleware(BaseHTTPMiddleware):
     """
-    Validate inbound requests before passing to the MCP SSE handler.
+    Validate inbound requests before passing them to the MCP handlers.
 
     Supports:
       - apikey: X-API-Key header or ?api_key= query param
@@ -236,13 +260,63 @@ async def process_ssr_webhook(mcp: object, payload: object) -> tuple[dict[str, o
     return body, status_code
 
 
+# ─── Transport security ──────────────────────────────────────────────────────
+
+
+def _transport_security() -> TransportSecuritySettings | None:
+    """Host/Origin (DNS-rebinding) checks for the MCP endpoints.
+
+    FastMCP turns these on for localhost only, because it assumes a loopback
+    bind. Behind a real hostname every request then fails with 421 Invalid
+    Host header, so a remote client could never connect.
+
+    - Hostnames listed in SCM_MCP_HTTP_ALLOWED_HOSTS (plus localhost, for
+      health checks and port-forwards) → checks on for those names.
+    - No list, loopback bind → keep FastMCP's localhost-only default.
+    - No list, any other bind → checks off. DNS rebinding targets
+      unauthenticated local servers; here AuthMiddleware still guards every
+      route.
+    """
+    if _ALLOWED_HOSTS:
+        hosts = [*_ALLOWED_HOSTS, *_LOCAL_HOST_PATTERNS]
+        origins = [
+            *(f"https://{h}" for h in _ALLOWED_HOSTS),
+            *(o for o in _ALLOWED_ORIGINS if o != "*"),
+            *_LOCAL_ORIGIN_PATTERNS,
+        ]
+        return TransportSecuritySettings(
+            enable_dns_rebinding_protection=True, allowed_hosts=hosts, allowed_origins=origins
+        )
+    if _HOST in _LOOPBACK_HOSTS:
+        return None
+    logger.warning(
+        "dns_rebinding_protection_off",
+        reason="SCM_MCP_HTTP_ALLOWED_HOSTS unset on a non-loopback bind",
+        hint="set it to the hostname(s) clients use to turn Host/Origin checks on",
+    )
+    return TransportSecuritySettings(enable_dns_rebinding_protection=False)
+
+
 # ─── App factory ─────────────────────────────────────────────────────────────
 
 
 def create_http_app() -> Starlette:
-    """Build the Starlette ASGI app: auth + CORS + MCP SSE handler + /health."""
+    """Build the Starlette ASGI app: auth + CORS + MCP (/mcp and /sse) + /health."""
     mcp = create_server()
+    security = _transport_security()
+    if security is not None:
+        mcp.settings.transport_security = security
+    mcp.settings.stateless_http = _STATELESS
+    # streamable_http_app() creates the session manager, so it comes first;
+    # only its /mcp route is mounted here, and the session manager runs in
+    # this app's lifespan.
+    streamable = mcp.streamable_http_app()
     sse = mcp.sse_app()
+
+    @contextlib.asynccontextmanager
+    async def lifespan(_: Starlette) -> AsyncIterator[None]:
+        async with mcp.session_manager.run():
+            yield
 
     async def health(_: Request) -> JSONResponse:
         return JSONResponse({"status": "ok", "server": "scm-harbourmaster-mcp"})
@@ -310,16 +384,26 @@ def create_http_app() -> Starlette:
             Route("/healthz", health),
             Route("/webhook/ir", ir_webhook, methods=["POST"]),
             Route("/webhook/ssr", ssr_webhook, methods=["POST"]),
+            *streamable.routes,
             Mount("/", app=sse),
-        ]
+        ],
+        lifespan=lifespan,
     )
 
     # CORS — required for browser-based Copilot Studio flows
     app.add_middleware(
         CORSMiddleware,
         allow_origins=_ALLOWED_ORIGINS,
-        allow_methods=["GET", "POST", "OPTIONS"],
-        allow_headers=["Authorization", "X-API-Key", "Content-Type"],
+        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+        allow_headers=[
+            "Authorization",
+            "X-API-Key",
+            "Content-Type",
+            "Mcp-Session-Id",
+            "Mcp-Protocol-Version",
+            "Last-Event-ID",
+        ],
+        expose_headers=["Mcp-Session-Id"],
     )
 
     # Auth — outermost middleware so it runs first
@@ -347,6 +431,9 @@ def main() -> None:
         port=_PORT,
         auth_mode=_AUTH_MODE,
         origins=_ALLOWED_ORIGINS,
+        allowed_hosts=_ALLOWED_HOSTS,
+        stateless=_STATELESS,
+        endpoints=["/mcp", "/sse"],
     )
 
     app = create_http_app()

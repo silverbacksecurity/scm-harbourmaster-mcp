@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Streamable HTTP transport at `/mcp`** on `scm-mcp-http`. It sits beside
+  the legacy `/sse` endpoint, behind the same API-key or Entra auth and
+  CORS. This is the current MCP HTTP transport used by Copilot Studio,
+  ChatGPT connectors, Gemini CLI/ADK, Antigravity, Qwen Code and Kimi CLI.
+  The session manager runs in the app's lifespan. `SCM_MCP_HTTP_STATELESS=1`
+  serves it without sessions, for multi-replica deployments. CORS now
+  allows and exposes the `Mcp-Session-Id` headers.
 - **Reference preflight for `scm_config_clone`** (`audit/clone_preflight.py`,
   new file) — before any write, dry run included, the clone reads the target
   folder and resolves every name reference in the objects it will push:
@@ -379,6 +386,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `/etc` are unchanged.
 
 ### Fixed
+- **Remote MCP clients got 421 Invalid Host header on `scm-mcp-http`.**
+  FastMCP enables DNS-rebinding checks for localhost only whenever it's
+  built with its default loopback host, and that applied to `/sse` (and
+  would have applied to `/mcp`). So any client reaching the server through
+  a real hostname was refused, even with the server bound to `0.0.0.0` in a
+  container. The new `SCM_MCP_HTTP_ALLOWED_HOSTS` setting turns the checks
+  on for named hosts plus localhost. Without it, a loopback bind keeps the
+  localhost-only default, and a public bind turns the checks off and logs
+  `dns_rebinding_protection_off`; auth still applies either way.
 - **`scm_config_diff` crashed on dict-valued resource types** — it indexed
   every entry under a backup's `resources` as a list of dicts, so the
   singleton config blobs (`bgp_routing_config`,

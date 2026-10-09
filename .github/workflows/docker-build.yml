@@ -88,10 +88,11 @@ jobs:
                 '        sys.exit(n == 0)' \
                 'sys.exit("no tools/list reply")')" \
             || { echo "--- server stderr ---"; cat stdio.err; exit 1; }
-          # HTTP: /health answers, unauthenticated MCP is refused, SIGTERM is honoured
+          # HTTP: /health answers, unauthenticated /sse and /mcp are refused, SIGTERM is honoured
           docker run -d --name smoke-http -p 18080:8080 -e SCM_MCP_HTTP_API_KEY=ci-smoke "$img" scm-mcp-http
           for i in $(seq 1 30); do curl -sf localhost:18080/health && break; sleep 1; done
           test "$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 localhost:18080/sse)" = 401
+          test "$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 -X POST localhost:18080/mcp)" = 401
           timeout 10 docker stop -t 8 smoke-http
           docker rm smoke-http
 

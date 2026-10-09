@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from types import SimpleNamespace
 
 from starlette.applications import Starlette
 from starlette.testclient import TestClient
@@ -35,12 +36,16 @@ class StubMCP:
     def __init__(self, response: str) -> None:
         self.response = response
         self.calls: list[tuple[str, dict]] = []
+        self.settings = SimpleNamespace(transport_security=None, stateless_http=False)
 
     async def call_tool(self, name: str, params: dict) -> list[_Block]:
         self.calls.append((name, params))
         return [_Block(self.response)]
 
     def sse_app(self) -> Starlette:
+        return Starlette()
+
+    def streamable_http_app(self) -> Starlette:
         return Starlette()
 
 
