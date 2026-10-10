@@ -718,17 +718,42 @@ would break under `SCM_MCP_HTTP_STATELESS` with several replicas.
   the provider a key declares. This includes default-tenant and cross-tenant
   calls.
 
-### Phase C2 — OAuth 2.1 for `/mcp` (next)
+### Phase C2 — OAuth 2.1 for `/mcp` with Entra ID ✅ built 2026-10-10 (live test pending)
 
-ChatGPT connectors are believed to accept only OAuth or no auth (to verify).
-Add a resource-server mode for `/mcp`:
-- serve `/.well-known/oauth-protected-resource` pointing at an external
-  authorization server (Entra, Auth0, Keycloak);
-- validate its JWTs via JWKS, with the audience set to the server URL;
-- return `WWW-Authenticate` on 401.
+`auth/entra_resource.py`; setup in `docs/entra-oauth.md`.
+- **Resource server only.** Clients sign in with Entra directly; the server
+  never handles codes or refresh tokens, and nothing is proxied.
+- **Discovery.** RFC 9728 metadata at
+  `/.well-known/oauth-protected-resource/mcp` (and the root form), from
+  `SCM_MCP_HTTP_RESOURCE_URL`. A 401 carries
+  `WWW-Authenticate: Bearer resource_metadata=…, scope=…`, and a token
+  without the scope gets 403 `insufficient_scope`.
+- **Tokens.** Signature via JWKS (fetched off the event loop), v1 or v2
+  issuer, `tid`, audience as client ID or App ID URI, and the `access` scope,
+  or an app role if `SCM_MCP_HTTP_ENTRA_APP_ROLE` is set.
+- **Entra gaps worked around.**
+  - No dynamic client registration: each client gets its own app
+    registration (documented).
+  - The `resource` parameter must equal the App ID URI: the App ID URI is
+    set to the `/mcp` URL, which needs a verified custom domain. Startup
+    refuses a trailing slash.
+  - No `code_challenge_methods_supported` in Entra's discovery document:
+    opt-in `SCM_MCP_HTTP_OAUTH_AS_METADATA=1` publishes RFC 8414 metadata on
+    this host that points at Entra and adds S256.
+- **`apikey,entra`** accepts either credential, for moving clients over.
+  `/v1` still takes gateway keys only.
+- CORS preflights no longer need credentials, and `WWW-Authenticate` is an
+  exposed header.
 
-This needs a choice of authorization server and a test against a real
-ChatGPT connector.
+Still to do:
+- A live test with a real Entra tenant and a ChatGPT connector, including
+  which redirect platform ChatGPT needs and whether Entra takes a path in an
+  `https://` App ID URI.
+- Whether clients get a refresh token. Entra issues one only when
+  `offline_access` is requested, and neither the metadata nor the challenge
+  lists it, so users may have to sign in again every hour.
+- Mapping Entra users or groups to customer tenants. Today every user with
+  the scope reaches every loaded tenant, as with the API key.
 
 ### Phase D — Examples & client config ✅ shipped 2026-10-09
 

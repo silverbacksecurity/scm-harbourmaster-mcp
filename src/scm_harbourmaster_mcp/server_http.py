@@ -19,9 +19,11 @@ authenticates with its own scoped keys (``[gateway_keys.*]``), not with the
 settings below.
 
 Auth modes (SCM_MCP_HTTP_AUTH_MODE):
-  apikey  — X-API-Key header or ?api_key= query param (default)
-  entra   — Azure AD / Entra ID Bearer JWT (validates aud + iss)
-  none    — No auth (dev/localhost only — never expose publicly)
+  apikey        — X-API-Key header or ?api_key= query param (default)
+  entra         — Entra ID Bearer access token (OAuth 2.1 resource server;
+                  see auth/entra_resource.py for its env vars)
+  apikey,entra  — either credential, for moving clients over one at a time
+  none          — No auth (dev/localhost only — never expose publicly)
 
 Env vars:
   SCM_MCP_HTTP_HOST           Bind address (default 0.0.0.0 for containers)
@@ -29,7 +31,8 @@ Env vars:
   SCM_MCP_HTTP_API_KEY        Required for apikey mode
   SCM_MCP_HTTP_AUTH_MODE      apikey | entra | none  (default: apikey)
   SCM_MCP_HTTP_ENTRA_TENANT   Entra tenant ID (entra mode)
-  SCM_MCP_HTTP_ENTRA_AUDIENCE App ID / client ID expected in 'aud' claim
+  SCM_MCP_HTTP_ENTRA_AUDIENCE Client ID of the API app registration
+  SCM_MCP_HTTP_RESOURCE_URL   Public URL of /mcp; publishes OAuth metadata
   SCM_MCP_HTTP_ALLOWED_ORIGINS CORS origins, comma-separated (default: *)
   SCM_MCP_HTTP_ALLOWED_HOSTS  Public hostnames clients use, comma-separated
                               (e.g. mcp.example.com). Enables Host/Origin
@@ -55,16 +58,23 @@ import json
 import os
 from collections.abc import AsyncIterator, Awaitable, Callable
 
-import jwt
 import uvicorn
 from mcp.server.transport_security import TransportSecuritySettings
 from starlette.applications import Starlette
+from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Mount, Route
 
+from .auth.entra_resource import (
+    ASM_PATH,
+    PRM_PATH,
+    EntraResourceConfig,
+    EntraTokenValidator,
+    principal,
+)
 from .gateway.app import gateway_routes
 from .server import create_server
 from .utils.logging import get_logger
@@ -79,8 +89,6 @@ _HOST = os.getenv("SCM_MCP_HTTP_HOST", "0.0.0.0")  # nosec B104
 _PORT = int(os.getenv("SCM_MCP_HTTP_PORT", "8080"))
 _AUTH_MODE = os.getenv("SCM_MCP_HTTP_AUTH_MODE", "apikey").lower()
 _API_KEY = os.getenv("SCM_MCP_HTTP_API_KEY", "")
-_ENTRA_TENANT = os.getenv("SCM_MCP_HTTP_ENTRA_TENANT", "")
-_ENTRA_AUDIENCE = os.getenv("SCM_MCP_HTTP_ENTRA_AUDIENCE", "")
 _ALLOWED_ORIGINS = [
     o.strip() for o in os.getenv("SCM_MCP_HTTP_ALLOWED_ORIGINS", "*").split(",") if o.strip()
 ]
@@ -97,39 +105,31 @@ _LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
 _LOCAL_HOST_PATTERNS = ["127.0.0.1:*", "localhost:*", "[::1]:*"]
 _LOCAL_ORIGIN_PATTERNS = ["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"]
 
-# Entra JWKS URI — fetched once at startup
-_JWKS_CLIENT: jwt.PyJWKClient | None = None
+# Entra ID resource-server mode (Phase C2), see auth/entra_resource.py
+_ENTRA = EntraResourceConfig.from_env()
+_VALIDATOR: EntraTokenValidator | None = None
+
+# Always public: health checks and the OAuth discovery documents.
+_PUBLIC_PREFIXES = (PRM_PATH, ASM_PATH)
 
 
-def _get_jwks_client() -> jwt.PyJWKClient:
-    global _JWKS_CLIENT
-    if _JWKS_CLIENT is None:
-        jwks_uri = f"https://login.microsoftonline.com/{_ENTRA_TENANT}/discovery/v2.0/keys"
-        _JWKS_CLIENT = jwt.PyJWKClient(jwks_uri)
-    return _JWKS_CLIENT
+def _auth_modes() -> set[str]:
+    """SCM_MCP_HTTP_AUTH_MODE as a set: "apikey", "entra", "apikey,entra" or "none"."""
+    return {m.strip() for m in _AUTH_MODE.split(",") if m.strip()}
 
 
-def _validate_entra_token(token: str) -> bool:
-    """Validate an Entra ID Bearer JWT. Returns True if valid."""
-    if not _ENTRA_TENANT or not _ENTRA_AUDIENCE:
-        logger.warning("entra_auth_misconfigured")
-        return False
-    try:
-        client = _get_jwks_client()
-        signing_key = client.get_signing_key_from_jwt(token)
-        jwt.decode(
-            token,
-            signing_key.key,
-            algorithms=["RS256"],
-            audience=_ENTRA_AUDIENCE,
-            issuer=f"https://login.microsoftonline.com/{_ENTRA_TENANT}/v2.0",
-        )
-        return True
-    except jwt.ExpiredSignatureError:
-        logger.warning("entra_token_expired")
-    except jwt.InvalidTokenError as exc:
-        logger.warning("entra_token_invalid", error=str(exc))
-    return False
+def _validator() -> EntraTokenValidator:
+    global _VALIDATOR
+    if _VALIDATOR is None or _VALIDATOR.config is not _ENTRA:
+        _VALIDATOR = EntraTokenValidator(_ENTRA)
+    return _VALIDATOR
+
+
+def _unauthorized(
+    error: str, *, challenge: bool, oauth_error: str = "", detail: str = ""
+) -> Response:
+    headers = {"WWW-Authenticate": _ENTRA.challenge(oauth_error, detail)} if challenge else None
+    return JSONResponse({"error": error}, status_code=401, headers=headers)
 
 
 # ─── Auth middleware ──────────────────────────────────────────────────────────
@@ -139,30 +139,45 @@ class AuthMiddleware(BaseHTTPMiddleware):
     """
     Validate inbound requests before passing them to the MCP handlers.
 
-    Supports:
+    SCM_MCP_HTTP_AUTH_MODE is one mode or a comma-separated pair:
       - apikey: X-API-Key header or ?api_key= query param
-      - entra:  Authorization: Bearer <Entra ID JWT>
+      - entra:  Authorization: Bearer <Entra ID access token>
+      - apikey,entra: either; a request carrying an API key is judged on it
       - none:   Always allow (dev only)
     """
 
     async def dispatch(
         self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
-        # Health-check endpoint is always public
-        if request.url.path in ("/health", "/healthz"):
+        path = request.url.path
+        # Health checks and OAuth discovery are public. CORS preflights carry
+        # no credentials by design; CORSMiddleware answers them itself, but
+        # only when Origin is present (without it the request would reach
+        # the route), so a preflight must have both headers.
+        preflight = (
+            request.method == "OPTIONS"
+            and "origin" in request.headers
+            and "access-control-request-method" in request.headers
+        )
+        if path in ("/health", "/healthz") or path.startswith(_PUBLIC_PREFIXES) or preflight:
             return await call_next(request)
 
         # /v1 authenticates with its own scoped gateway keys (gateway.app),
         # and only there: neither credential below is accepted on /v1, and a
         # gateway key matches neither of them on any other route.
-        if request.url.path == "/v1" or request.url.path.startswith("/v1/"):
+        if path == "/v1" or path.startswith("/v1/"):
             return await call_next(request)
 
-        if _AUTH_MODE == "none":
+        modes = _auth_modes()
+        if "none" in modes:
             return await call_next(request)
+        unknown = modes - {"apikey", "entra"}
+        if unknown or not modes:
+            return JSONResponse({"error": f"Unknown auth mode: {_AUTH_MODE}"}, status_code=500)
+        entra = "entra" in modes
 
-        if _AUTH_MODE == "apikey":
-            provided = request.headers.get("X-API-Key") or request.query_params.get("api_key")
+        provided = request.headers.get("X-API-Key") or request.query_params.get("api_key")
+        if "apikey" in modes and (provided or not entra):
             if not _API_KEY:
                 logger.error("apikey_auth_no_key_configured")
                 return JSONResponse(
@@ -170,32 +185,33 @@ class AuthMiddleware(BaseHTTPMiddleware):
                     status_code=500,
                 )
             if not hmac.compare_digest((provided or "").encode(), _API_KEY.encode()):
-                logger.warning("apikey_auth_failed", path=request.url.path)
-                return JSONResponse(
-                    {"error": "Unauthorized — invalid or missing X-API-Key"},
-                    status_code=401,
-                )
+                logger.warning("apikey_auth_failed", path=path)
+                return _unauthorized("Unauthorized — invalid or missing X-API-Key", challenge=entra)
             return await call_next(request)
 
-        if _AUTH_MODE == "entra":
-            auth_header = request.headers.get("Authorization", "")
-            if not auth_header.startswith("Bearer "):
-                return JSONResponse(
-                    {"error": "Unauthorized — Bearer token required"},
-                    status_code=401,
-                )
-            token = auth_header[len("Bearer ") :]
-            if not _validate_entra_token(token):
-                return JSONResponse(
-                    {"error": "Unauthorized — invalid Entra ID token"},
-                    status_code=401,
-                )
-            return await call_next(request)
-
-        return JSONResponse(
-            {"error": f"Unknown auth mode: {_AUTH_MODE}"},
-            status_code=500,
-        )
+        auth_header = request.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer "):
+            return _unauthorized("Unauthorized — Bearer token required", challenge=True)
+        check = await run_in_threadpool(_validator().validate, auth_header[len("Bearer ") :])
+        if check.error == "insufficient_scope":
+            return JSONResponse(
+                {"error": f"Forbidden — {check.description}"},
+                status_code=403,
+                headers={"WWW-Authenticate": _ENTRA.challenge(check.error, check.description)},
+            )
+        if not check.ok:
+            return _unauthorized(
+                f"Unauthorized — {check.description}",
+                challenge=True,
+                oauth_error=check.error,
+                detail=check.description,
+            )
+        request.state.principal = principal(check.claims)
+        # Info once per MCP session (its first request has no session ID),
+        # debug for every message after that.
+        log = logger.debug if request.headers.get("mcp-session-id") else logger.info
+        log("entra_auth_ok", path=path, **request.state.principal)
+        return await call_next(request)
 
 
 # ─── SSR webhook ─────────────────────────────────────────────────────────────
@@ -396,10 +412,24 @@ def create_http_app() -> Starlette:
         body, status_code = await process_ssr_webhook(mcp, payload)
         return JSONResponse(body, status_code=status_code)
 
+    async def protected_resource(_: Request) -> JSONResponse:
+        return JSONResponse(_ENTRA.protected_resource_metadata())
+
+    async def authorization_server(_: Request) -> JSONResponse:
+        return JSONResponse(_ENTRA.authorization_server_metadata())
+
+    # OAuth discovery, only when Entra is on and the public URL is known.
+    oauth_routes: list[Route] = []
+    if "entra" in _auth_modes() and _ENTRA.resource_url:
+        oauth_routes = [Route(p, protected_resource) for p in _ENTRA.metadata_paths()]
+        if _ENTRA.as_metadata:
+            oauth_routes.append(Route(ASM_PATH, authorization_server))
+
     app = Starlette(
         routes=[
             Route("/health", health),
             Route("/healthz", health),
+            *oauth_routes,
             Route("/webhook/ir", ir_webhook, methods=["POST"]),
             Route("/webhook/ssr", ssr_webhook, methods=["POST"]),
             *gateway_routes(mcp),
@@ -422,7 +452,7 @@ def create_http_app() -> Starlette:
             "Mcp-Protocol-Version",
             "Last-Event-ID",
         ],
-        expose_headers=["Mcp-Session-Id"],
+        expose_headers=["Mcp-Session-Id", "WWW-Authenticate"],
     )
 
     # Auth — outermost middleware so it runs first
@@ -438,23 +468,35 @@ def _rest_write_enabled() -> bool:
 
 
 def main() -> None:
-    if _AUTH_MODE == "apikey" and not _API_KEY:
+    modes = _auth_modes()
+    if not modes or modes - {"apikey", "entra", "none"} or ("none" in modes and len(modes) > 1):
         raise SystemExit(
-            "ERROR: SCM_MCP_HTTP_API_KEY must be set when SCM_MCP_HTTP_AUTH_MODE=apikey.\n"
+            f"ERROR: SCM_MCP_HTTP_AUTH_MODE={_AUTH_MODE!r} — use apikey, entra, "
+            "apikey,entra or none."
+        )
+    if "apikey" in modes and not _API_KEY:
+        raise SystemExit(
+            "ERROR: SCM_MCP_HTTP_API_KEY must be set when SCM_MCP_HTTP_AUTH_MODE includes apikey.\n"
             'Generate one with:  python -c "import secrets; print(secrets.token_urlsafe(32))"\n'
             "Then set:           export SCM_MCP_HTTP_API_KEY=<value>"
         )
-    if _AUTH_MODE == "entra" and (not _ENTRA_TENANT or not _ENTRA_AUDIENCE):
-        raise SystemExit(
-            "ERROR: SCM_MCP_HTTP_ENTRA_TENANT and SCM_MCP_HTTP_ENTRA_AUDIENCE must be set "
-            "when SCM_MCP_HTTP_AUTH_MODE=entra."
-        )
+    if "entra" in modes:
+        problems = _ENTRA.problems()
+        if problems:
+            raise SystemExit("ERROR: " + "\n       ".join(problems))
+        if not _ENTRA.resource_url:
+            logger.warning(
+                "oauth_metadata_off",
+                reason="SCM_MCP_HTTP_RESOURCE_URL unset",
+                hint="MCP clients can't discover Entra without it; set it to the public /mcp URL",
+            )
 
     logger.info(
         "http_server_starting",
         host=_HOST,
         port=_PORT,
         auth_mode=_AUTH_MODE,
+        resource_url=_ENTRA.resource_url if "entra" in modes else "",
         origins=_ALLOWED_ORIGINS,
         allowed_hosts=_ALLOWED_HOSTS,
         stateless=_STATELESS,

@@ -41,6 +41,9 @@ _RELOAD_EXCLUDED = {
     # Holds the authenticated per-tenant Scm client cache; a reload would drop
     # every loaded tenant until the server restarts.
     "scm_harbourmaster_mcp.auth.oauth",
+    # Used only by server_http, which isn't reloaded and keeps its own
+    # references; HTTP auth changes need a restart.
+    "scm_harbourmaster_mcp.auth.entra_resource",
     # This module — it is executing the reload.
     "scm_harbourmaster_mcp.tools.reload",
 }

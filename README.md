@@ -219,13 +219,18 @@ Set `SCM_MCP_HTTP_ALLOWED_HOSTS=your-host` so that the Host and Origin headers
 are checked against the name clients actually use. If it's unset on a public
 bind, those checks are off (the API key or Entra token is still required).
 
-For Entra ID auth (production):
+For OAuth with Entra ID, where each user signs in with their own account
+(needed for ChatGPT connectors):
 ```bash
-export SCM_MCP_HTTP_AUTH_MODE=entra
+export SCM_MCP_HTTP_AUTH_MODE=entra          # or apikey,entra to accept both
 export SCM_MCP_HTTP_ENTRA_TENANT=your-tenant-id
-export SCM_MCP_HTTP_ENTRA_AUDIENCE=your-app-registration-client-id
+export SCM_MCP_HTTP_ENTRA_AUDIENCE=your-api-app-client-id
+export SCM_MCP_HTTP_RESOURCE_URL=https://your-host/mcp
 uv run scm-mcp-http
 ```
+The Entra app registrations need care: the API's Application ID URI must be
+the `/mcp` URL exactly, and each client needs its own registration. See
+[`docs/entra-oauth.md`](docs/entra-oauth.md).
 
 ### Other LLM platforms
 
@@ -769,17 +774,19 @@ src/scm_harbourmaster_mcp/
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `SCM_MCP_HTTP_PORT` | `8080` | TCP port |
-| `SCM_MCP_HTTP_AUTH_MODE` | `apikey` | `apikey` \| `entra` \| `none` |
+| `SCM_MCP_HTTP_AUTH_MODE` | `apikey` | `apikey` \| `entra` \| `apikey,entra` \| `none` |
 | `SCM_MCP_HTTP_API_KEY` | — | Required for `apikey` mode |
 | `SCM_MCP_HTTP_ALLOWED_ORIGINS` | `*` | CORS origins, comma-separated |
 | `SCM_MCP_HTTP_ALLOWED_HOSTS` | — | Hostnames clients connect to (e.g. `mcp.example.com`), comma-separated. When set, Host/Origin checks allow only these names plus localhost. When unset, a loopback bind accepts localhost only and any other bind does no Host check |
 | `SCM_MCP_HTTP_STATELESS` | off | `1` serves `/mcp` without sessions, for several replicas behind a load balancer |
 | `SCM_MCP_HTTP_ENTRA_TENANT` | — | Entra tenant ID (entra mode) |
-| `SCM_MCP_HTTP_ENTRA_AUDIENCE` | — | App registration client ID (entra mode) |
+| `SCM_MCP_HTTP_ENTRA_AUDIENCE` | — | Client ID of the API app registration (entra mode) |
+| `SCM_MCP_HTTP_RESOURCE_URL` | — | Public `/mcp` URL; publishes OAuth discovery metadata (entra mode). Other Entra settings are in [`docs/entra-oauth.md`](docs/entra-oauth.md) |
 | `SCM_MCP_HTTP_REST_WRITE` | off | `1` lets `/v1` keys with `access = "write"` call write tools |
 | `SCM_MCP_GATEWAY_MAX_CHARS` | `60000` | Cap on one `/v1` tool result; longer output comes back with `truncated: true` |
 
-Health check endpoint (no auth): `GET /health` → `{"status": "ok"}`
+Health check endpoint (no auth): `GET /health` → `{"status": "ok"}`. In
+entra mode, `/.well-known/oauth-protected-resource` is public too.
 
 ---
 

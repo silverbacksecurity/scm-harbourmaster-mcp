@@ -35,6 +35,8 @@ Copilot Studio supports only Streamable HTTP for MCP. It dropped SSE in August
      "Strata Cloud Manager NOC tools: tenants, incidents, licences, service
      health."
 3. Set authentication to **API key**, type **Header**, header name `X-API-Key`.
+   If the server runs in Entra mode, choose **OAuth 2.0** instead; see
+   [`../../docs/entra-oauth.md`](../../docs/entra-oauth.md).
 4. Select **Create**, then create a connection and paste the key. Select
    **Add to agent**.
 

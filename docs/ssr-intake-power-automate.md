@@ -156,7 +156,10 @@ so a retried execute returns `already_present` rather than double-applying.
 - **Key handling** — API key scoped to this flow, stored in Key Vault,
   secure-inputs on. Prefer `SCM_MCP_HTTP_AUTH_MODE=entra` once the server has
   an app registration; the HTTP action then uses a managed-identity token
-  instead of a shared key.
+  instead of a shared key. That token is app-only (no `scp`), so give the API
+  app an app role, assign it to the flow's managed identity, and set
+  `SCM_MCP_HTTP_ENTRA_APP_ROLE` to its value; see
+  [`entra-oauth.md`](entra-oauth.md#app-only-callers-optional).
 - **Tenant pinning** — `tenant_id` is hard-coded per flow, never taken from
   form input.
 - **Server side** — set `SCM_MCP_HTTP_SSR_WEBHOOK=1` only on deployments that

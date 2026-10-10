@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **OAuth for `/mcp` with Microsoft Entra ID** (Phase C2). The server acts as
+  an OAuth 2.1 resource server, so clients that only do OAuth, such as
+  ChatGPT connectors, can connect with each user's own Entra sign-in.
+  - Publishes RFC 9728 protected resource metadata
+    (`SCM_MCP_HTTP_RESOURCE_URL`) and sends `WWW-Authenticate` challenges on
+    401 and 403.
+  - Validates the token's signature, v1 or v2 issuer, tenant, audience (client
+    ID or App ID URI) and scope. An app role can be accepted for app-only
+    tokens.
+  - `SCM_MCP_HTTP_OAUTH_AS_METADATA=1` publishes authorization server
+    metadata that advertises PKCE, which Entra's own document omits.
+  - `SCM_MCP_HTTP_AUTH_MODE=apikey,entra` accepts either credential.
+  - Setup guide: `docs/entra-oauth.md`. Not yet tested against a live Entra
+    tenant or ChatGPT.
 - **Examples and client config for other LLM platforms** (Phase D).
   - **Agents over `/v1`:** `examples/openai_compatible_agent.py` (OpenAI,
     DeepSeek, Qwen, Kimi) and `examples/gemini_agent.py`. They use inline
@@ -392,6 +406,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `list-tenants` show the default folder where they showed the tier.
 
 ### Changed
+- **Breaking for existing `SCM_MCP_HTTP_AUTH_MODE=entra` deployments.** A
+  token now needs the API's delegated scope (`access` by default, set with
+  `SCM_MCP_HTTP_ENTRA_SCOPE`) or, for app-only callers such as Power Automate
+  with a managed identity, an app role named in `SCM_MCP_HTTP_ENTRA_APP_ROLE`.
+  Before, any token with the right audience and issuer was accepted. If your
+  API's scope has another name (for example `user_impersonation`), set
+  `SCM_MCP_HTTP_ENTRA_SCOPE` to it.
 - **One data directory for everything the server writes**
   (`utils/paths.py`, new file). Backups, baselines, reports, plans, the
   config index and CLI history now resolve under `SCM_MCP_DATA_DIR`, which
@@ -459,6 +480,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `/etc` are unchanged.
 
 ### Fixed
+- Entra mode fetched signing keys synchronously inside the request handler,
+  stalling the server on a key fetch or rotation. It now runs in a thread.
+- CORS preflight requests to `/mcp` were refused with 401, because auth ran
+  before CORS. They now pass through to the CORS handler.
 - **`scm-mcp-http`'s API-key check used `!=`.** It now uses
   `hmac.compare_digest`, so the comparison takes constant time.
 - **Docker image failed its Trivy scan on push** (2 HIGH). These were

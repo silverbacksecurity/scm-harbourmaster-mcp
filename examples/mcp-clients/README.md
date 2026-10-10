@@ -11,7 +11,8 @@ There are two ways in:
 - **Remote (Streamable HTTP at `/mcp`).** The client connects to a running
   `scm-mcp-http`, as in every other file here. It authenticates with
   `X-API-Key: <SCM_MCP_HTTP_API_KEY>`. This server does not accept the key as
-  a Bearer token on `/mcp`.
+  a Bearer token on `/mcp`. A server in Entra mode takes OAuth sign-in
+  instead (or as well); see [`../../docs/entra-oauth.md`](../../docs/entra-oauth.md).
 
 ## Scope the remote server, not just the client
 
@@ -32,8 +33,8 @@ limit. The full server is about 143 tools, which strains most clients'
 context and Copilot Studio's tool ceiling. Use profiles.
 
 For per-client, per-tenant scoping today, use the REST gateway (`/v1`) with
-a scoped key; see [`../README.md`](../README.md). OAuth for `/mcp`
-(Phase C2) will add per-user identity.
+a scoped key; see [`../README.md`](../README.md). OAuth for `/mcp` with
+Entra ID adds per-user sign-in, but not per-user tenant limits yet.
 
 ## Clients
 
@@ -86,9 +87,13 @@ Per-client notes:
 - **ChatGPT** (developer-mode connectors / apps): ChatGPT supports only
   OAuth, no authentication, or mixed authentication for MCP servers. It can't
   send `X-API-Key`. Never expose `/mcp` with `SCM_MCP_HTTP_AUTH_MODE=none` to
-  make it fit. ChatGPT is blocked on Phase C2 (OAuth resource-server mode).
-  Until then, a **custom GPT Action** can call the REST gateway with API-key
-  auth:
+  make it fit. Run the server in Entra mode and add it as a connector with a
+  user-defined OAuth client; the steps are in
+  [`../../docs/entra-oauth.md`](../../docs/entra-oauth.md). This hasn't been
+  tried against a real ChatGPT connector yet.
+
+  Without Entra, a **custom GPT Action** can call the REST gateway with
+  API-key auth:
   1. Download the schema with your key:
      ```bash
      curl -H "X-API-Key: $KEY" \
