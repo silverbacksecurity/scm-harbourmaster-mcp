@@ -227,6 +227,14 @@ export SCM_MCP_HTTP_ENTRA_AUDIENCE=your-app-registration-client-id
 uv run scm-mcp-http
 ```
 
+### Other LLM platforms
+
+[`examples/`](examples/) has agents for OpenAI-compatible APIs (OpenAI,
+DeepSeek, Qwen, Kimi) and Gemini over the `/v1` REST gateway, MCP config
+for Claude, Gemini CLI, Qwen Code, Antigravity and Kimi, and ChatGPT
+guidance. [`deploy/copilot-studio/`](deploy/copilot-studio/) covers
+Microsoft Copilot Studio.
+
 ### Docker
 
 ```bash

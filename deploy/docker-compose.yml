@@ -57,6 +57,9 @@ services:
       SCM_MCP_HTTP_PORT: "8080"
     # Loopback only by default; put a TLS reverse proxy in front for remote
     # clients and set SCM_MCP_HTTP_ALLOWED_HOSTS to its public name in .env.
+    # A proxy that isn't on loopback (another container, another host) also
+    # needs FORWARDED_ALLOW_IPS=<proxy address> in .env: without it uvicorn
+    # ignores X-Forwarded-Proto, and /v1/openapi.json advertises http://.
     ports:
       - "${SCM_MCP_PUBLISH:-127.0.0.1:8080}:8080"
     healthcheck:

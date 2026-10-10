@@ -311,3 +311,32 @@ def swagger2_document(tools: Iterable[Any], host: str, scheme: str, title: str) 
         "securityDefinitions": {"apiKey": {"type": "apiKey", "in": "header", "name": "X-API-Key"}},
         "security": [{"apiKey": []}],
     }
+
+
+def cap_descriptions(document: Any, limit: int) -> Any:
+    """Shorten every ``description`` in *document* to at most *limit* characters.
+
+    For importers with description limits: GPT Actions allow 300 characters
+    per endpoint description and 700 per parameter, and tool docstrings run
+    to a few thousand. Cuts at a word boundary and marks the cut with "…".
+    """
+
+    def cut(text: str) -> str:
+        if len(text) <= limit:
+            return text
+        head = text[: limit - 1]
+        if " " in head[limit // 2 :]:
+            head = head.rsplit(" ", 1)[0]
+        return head.rstrip() + "…"
+
+    def walk(node: Any) -> Any:
+        if isinstance(node, dict):
+            return {
+                k: cut(v) if k == "description" and isinstance(v, str) else walk(v)
+                for k, v in node.items()
+            }
+        if isinstance(node, list):
+            return [walk(v) for v in node]
+        return node
+
+    return walk(document)

@@ -644,3 +644,31 @@ class TestSchemas:
         assert {op["post"]["operationId"] for op in v3["paths"].values()} == names
         assert {op["post"]["operationId"] for op in v2["paths"].values()} == names
         assert v3["openapi"] == "3.0.3" and v2["swagger"] == "2.0"
+
+    @pytest.mark.parametrize("version", ["3", "2"])
+    def test_max_description_caps_every_description(self, client, version) -> None:
+        params = {"version": version, "max_description": "300"}
+        full = client.get("/v1/openapi.json", params={"version": version}, headers=_h(RAW_READ_A))
+        capped = client.get("/v1/openapi.json", params=params, headers=_h(RAW_READ_A))
+        assert capped.status_code == 200
+
+        def descriptions(node: Any) -> list[str]:
+            if isinstance(node, dict):
+                own = [v for k, v in node.items() if k == "description" and isinstance(v, str)]
+                return own + [d for v in node.values() for d in descriptions(v)]
+            if isinstance(node, list):
+                return [d for v in node for d in descriptions(v)]
+            return []
+
+        before, after = descriptions(full.json()), descriptions(capped.json())
+        assert max(map(len, before)) > 300  # the cap has something to do
+        assert len(after) == len(before) and max(map(len, after)) <= 300
+        assert any(d.endswith("…") for d in after)
+        assert capped.json()["paths"].keys() == full.json()["paths"].keys()
+
+    @pytest.mark.parametrize("bad", ["10", "abc", "-1"])
+    def test_max_description_rejects_bad_values(self, client, bad) -> None:
+        resp = client.get(
+            "/v1/openapi.json", params={"max_description": bad}, headers=_h(RAW_READ_A)
+        )
+        assert resp.status_code == 400

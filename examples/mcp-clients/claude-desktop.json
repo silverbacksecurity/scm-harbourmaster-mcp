@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "scm-harbourmaster": {
+      "command": "uv",
+      "args": [
+        "--directory", "/path/to/scm-harbourmaster-mcp",
+        "run", "scm-mcp", "--toolsets", "noc", "--read-only"
+      ]
+    }
+  }
+}

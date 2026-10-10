@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "scm-harbourmaster": {
+      "httpUrl": "https://scm-mcp.example.net/mcp",
+      "headers": {
+        "X-API-Key": "$SCM_MCP_HTTP_API_KEY"
+      },
+      "timeout": 300000,
+      "trust": false
+    }
+  }
+}

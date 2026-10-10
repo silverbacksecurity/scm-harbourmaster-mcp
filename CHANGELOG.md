@@ -8,6 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Examples and client config for other LLM platforms** (Phase D).
+  - **Agents over `/v1`:** `examples/openai_compatible_agent.py` (OpenAI,
+    DeepSeek, Qwen, Kimi) and `examples/gemini_agent.py`. They use inline
+    script dependencies (`uv run examples/...`), a stdlib gateway client, and
+    pass tool errors back to the model as data. `--model` is required, since
+    model names change.
+  - **MCP client snippets** (`examples/mcp-clients/`) for Claude Desktop,
+    Claude Code, Gemini CLI, Qwen Code, Antigravity, Kimi Code CLI and the
+    OpenAI Responses API. ChatGPT needs OAuth (Phase C2) for MCP, so its
+    guidance is a GPT Action over `/v1` in the meantime.
+  - **Copilot Studio** (`deploy/copilot-studio/`): wizard steps, a Swagger
+    2.0 MCP connector with `apiProperties.json`, and a REST connector from the
+    gateway's Swagger 2.0 output.
+  - **`/v1/openapi.json?max_description=N`** trims every description to N
+    characters (N ≥ 50) for importers with limits. GPT Actions allow 300.
+  - Every snippet uses the `noc` toolset profile. The docs explain that
+    `/mcp` is scoped server-wide (shared key), whereas `/v1` keys are scoped
+    per client.
 - **Full container image and Compose deployment** (Docker Phases 2–4).
   - **`full` build target**, published as `:X.Y.Z-full` and `:latest-full`.
     It adds Debian's Node and Chromium and a locked mermaid-cli

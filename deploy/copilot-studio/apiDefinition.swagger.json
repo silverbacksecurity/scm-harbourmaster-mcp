@@ -1,0 +1,40 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "SCM Harbourmaster MCP",
+    "description": "Palo Alto Networks Strata Cloud Manager operations for MSSPs: tenants, incidents, licensing, posture and service health, over MCP (Streamable HTTP).",
+    "version": "1.0.0"
+  },
+  "host": "scm-mcp.example.net",
+  "basePath": "/",
+  "schemes": ["https"],
+  "consumes": [],
+  "produces": [],
+  "paths": {
+    "/mcp": {
+      "post": {
+        "summary": "SCM Harbourmaster MCP server",
+        "description": "Strata Cloud Manager tools for MSSP operations.",
+        "x-ms-agentic-protocol": "mcp-streamable-1.0",
+        "operationId": "InvokeMCP",
+        "responses": {
+          "200": {
+            "description": "Success"
+          }
+        }
+      }
+    }
+  },
+  "securityDefinitions": {
+    "api_key": {
+      "type": "apiKey",
+      "in": "header",
+      "name": "X-API-Key"
+    }
+  },
+  "security": [
+    {
+      "api_key": []
+    }
+  ]
+}

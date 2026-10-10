@@ -1,0 +1,23 @@
+{
+  "properties": {
+    "connectionParameters": {
+      "api_key": {
+        "type": "securestring",
+        "uiDefinition": {
+          "displayName": "API key",
+          "description": "The server's SCM_MCP_HTTP_API_KEY",
+          "tooltip": "Sent as the X-API-Key header",
+          "constraints": {
+            "tabIndex": 2,
+            "clearText": false,
+            "required": "true"
+          }
+        }
+      }
+    },
+    "iconBrandColor": "#0B3D5C",
+    "capabilities": [],
+    "publisher": "REPLACE_WITH_PUBLISHER",
+    "stackOwner": "REPLACE_WITH_PUBLISHER"
+  }
+}

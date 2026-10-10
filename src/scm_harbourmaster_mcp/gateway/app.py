@@ -2,7 +2,7 @@
 
     GET  /v1/tools?format=openai|gemini|mcp&toolset=a,b
     POST /v1/tools/{name}/call      {"arguments": {...}, "max_chars": 20000}
-    GET  /v1/openapi.json[?version=2]&toolset=a,b
+    GET  /v1/openapi.json[?version=2]&toolset=a,b[&max_description=300]
 
 Authenticate with ``X-API-Key: <key>`` or ``Authorization: Bearer <key>``.
 Never as a query parameter: URLs end up in proxy and browser logs. A tool
@@ -27,7 +27,14 @@ from ..utils.tool_annotations import tool_access
 from . import audit
 from .keys import GatewayKey, authenticate, load_keys
 from .policy import GatewayDenied, allowed_tools, check_call, tools_by_toolset
-from .schemas import openapi3_document, swagger2_document, to_gemini, to_mcp, to_openai
+from .schemas import (
+    cap_descriptions,
+    openapi3_document,
+    swagger2_document,
+    to_gemini,
+    to_mcp,
+    to_openai,
+)
 
 logger = get_logger(__name__)
 
@@ -225,13 +232,21 @@ def gateway_routes(mcp: Any, keys: dict[str, GatewayKey] | None = None) -> list[
             tools = list((await _visible(key, request)).values())
         except GatewayDenied as exc:
             return _deny(exc)
+        cap_raw = request.query_params.get("max_description", "")
+        try:
+            cap = int(cap_raw) if cap_raw else 0
+        except ValueError:
+            cap = -1
+        if cap_raw and cap < 50:
+            return JSONResponse(
+                {"error": "max_description must be an integer >= 50"}, status_code=400
+            )
         title = "scm-harbourmaster-mcp tools"
         if request.query_params.get("version") == "2":
-            return JSONResponse(
-                swagger2_document(tools, request.url.netloc, request.url.scheme, title)
-            )
-        base = f"{request.url.scheme}://{request.url.netloc}"
-        return JSONResponse(openapi3_document(tools, base, title))
+            doc = swagger2_document(tools, request.url.netloc, request.url.scheme, title)
+        else:
+            doc = openapi3_document(tools, f"{request.url.scheme}://{request.url.netloc}", title)
+        return JSONResponse(cap_descriptions(doc, cap) if cap else doc)
 
     return [
         Route("/v1/tools", list_tools, methods=["GET"]),

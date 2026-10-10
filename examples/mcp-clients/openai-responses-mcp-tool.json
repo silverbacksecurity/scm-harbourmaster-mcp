@@ -1,0 +1,15 @@
+{
+  "model": "REPLACE_WITH_MODEL",
+  "input": "Which tenants have licences expiring in the next 90 days?",
+  "tools": [
+    {
+      "type": "mcp",
+      "server_label": "scm_harbourmaster",
+      "server_url": "https://scm-mcp.example.net/mcp",
+      "headers": {
+        "X-API-Key": "REPLACE_WITH_SCM_MCP_HTTP_API_KEY"
+      },
+      "require_approval": "always"
+    }
+  ]
+}

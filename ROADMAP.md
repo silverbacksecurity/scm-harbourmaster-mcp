@@ -730,13 +730,32 @@ Add a resource-server mode for `/mcp`:
 This needs a choice of authorization server and a test against a real
 ChatGPT connector.
 
-### Phase D — Examples & client config
+### Phase D — Examples & client config ✅ shipped 2026-10-09
 
-`examples/openai_compatible_agent.py` (DeepSeek/Qwen/Kimi/OpenAI via
-`base_url`), `examples/gemini_agent.py`, `deploy/copilot-studio/` (Power
-Platform connector), plus MCP config snippets for ChatGPT, Gemini CLI,
-Antigravity, Qwen Code, Kimi CLI and Claude. Placeholder tenants only, and
-every snippet uses a toolset profile.
+- `examples/openai_compatible_agent.py` covers OpenAI, DeepSeek, Qwen
+  (DashScope) and Moonshot Kimi through `base_url`.
+  `examples/gemini_agent.py` covers Gemini and Vertex AI, with automatic
+  function calling off so every call goes through the gateway. Both scripts
+  use PEP 723 inline dependencies, so `uv run` needs no install. Both loops
+  are tested in `tests/unit/test_examples.py` against the real gateway
+  routes with a fake model, and the Gemini test uses the real
+  `google-genai` types. The stdlib gateway client was also run against a
+  live `scm-mcp-http`.
+- `examples/mcp-clients/` has config for Claude Desktop, Claude Code,
+  Gemini CLI, Qwen Code, Antigravity, Kimi Code CLI and the OpenAI Responses
+  API `mcp` tool, plus ChatGPT guidance.
+- `deploy/copilot-studio/` covers the wizard steps, a Swagger 2.0 MCP
+  connector (`x-ms-agentic-protocol: mcp-streamable-1.0`, API key in
+  `X-API-Key`, validated with `openapi-spec-validator`), and a REST
+  connector built from `/v1/openapi.json?version=2`.
+- `/v1/openapi.json?max_description=N` trims descriptions for GPT Actions,
+  which allow 300 characters; tool docstrings run to 2,800. A GPT Action also
+  needs a single toolset (`mssp` 13 or `ops` 17 operations), because GPTs are
+  reported to allow about 30 operations. Behind a non-loopback proxy, set
+  `FORWARDED_ALLOW_IPS`, or the documents advertise `http://`.
+- Everything uses placeholder hosts and tenants and the `noc` profile.
+- Not yet tried against the real clients or models: these are written from
+  each vendor's current docs.
 
 ### Phase E — Advisor & planner on other models (optional)
 
@@ -746,12 +765,23 @@ Add an `llm_provider` setting with an OpenAI-compatible backend and
 
 ### To verify before building
 
-- Copilot Studio: SSE status, and the `x-ms-agentic-protocol` connector field.
-- Power Platform: is Swagger 2.0 still required?
-- ChatGPT connectors: auth options (OAuth only?) and transport.
-- Antigravity MCP config path and remote-server key.
-- ~~Which JSON Schema keywords Gemini function declarations reject~~ — output now validates against `google-genai` types; still to try a live Gemini call.
-- Tool count limits per platform, which set the default toolset size.
+Checked against vendor docs 2026-10-09:
+- **Copilot Studio:** Streamable HTTP only; SSE was dropped after August
+  2025. The connector uses `x-ms-agentic-protocol: mcp-streamable-1.0` on a
+  Swagger 2.0 `POST /mcp`. The wizard takes an API key in a named header.
+- **ChatGPT connectors:** OAuth, no auth, or mixed auth only, so a static
+  API key isn't possible. That confirms Phase C2 is needed. A custom GPT
+  Action over `/v1` with an API-key header works now.
+- **Antigravity:** the config is `~/.gemini/config/mcp_config.json` (older
+  builds use `~/.gemini/antigravity/`). Remote servers take `serverUrl`
+  only.
+- **Tool counts:** each read-only profile is 33–36 tools, against ~143 for
+  the full server, so the snippets default to `noc`.
+
+Still open:
+- A live call through each client and model, including Gemini.
+- Whether Copilot Studio's API-key option sends the header on every
+  `/mcp` request, including the session's GET.
 
 ## Snippet template backlog
 
