@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`scm_pab_policy`**, a read-only view of Prisma Browser policy.
+  - `rulebase` lists the access & data, security, customization and sign-in
+    rulebases in evaluation order, grouped by section, with counts by mode.
+    It reads the `active` (enforced) version by default; `draft` includes
+    unpublished edits. `include_details` fetches each rule's scope and
+    controls (one call per rule, up to 100).
+  - `rule` returns one rule's full definition.
+  - `pending_changes` lists draft edits awaiting publish.
+  - `integrations` shows IdP app-sync and cloud-storage providers and their
+    status, without the Entra tenant or client IDs.
+  - As of 2026-10-11 the policy and integration endpoints answer 403 "This
+    endpoint is not yet available" on every provisioned lab tenant. The tool
+    says so, and it will return data once Palo Alto Networks enables them.
+    Only `pending_changes` works today. Tests are built from the
+    published spec.
 - **OAuth for `/mcp` with Microsoft Entra ID** (Phase C2). The server acts as
   an OAuth 2.1 resource server, so clients that only do OAuth, such as
   ChatGPT connectors, can connect with each user's own Entra sign-in.
@@ -480,6 +495,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `/etc` are unchanged.
 
 ### Fixed
+- The Prisma Browser tools now say "most likely not provisioned" when a
+  tenant without Prisma Browser returns `500 INTERNAL_ERROR`. These tenants
+  used to return "tenant not found"; the bare 500 came through as a raw
+  error.
 - Entra mode fetched signing keys synchronously inside the request handler,
   stalling the server on a key fetch or rotation. It now runs in a thread.
 - CORS preflight requests to `/mcp` were refused with 401, because auth ran

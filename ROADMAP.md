@@ -259,9 +259,18 @@ code. New candidates are listed below._
   paths. New: browser policy rulebases (`policy/access-and-data`,
   `security`, `sign-in`, `customization`, each with rules, sections and
   positions), IdP app-sync and cloud-storage integrations, branding assets
-  and `configuration-management/draft/pending-changes`. The main value is
-  in backup and restore: `scm_pab_backup`/`scm_pab_restore` don't cover
-  policy rules yet. Read-only listing would come first.
+  and `configuration-management/draft/pending-changes`.
+  - ✅ Read-only listing built 2026-10-11 as `scm_pab_policy` (rulebases by
+    section, one rule, pending changes, integrations). On every provisioned
+    lab tenant the policy and integration GETs answer 403 `FORBIDDEN` "This
+    endpoint is not yet available"; only `pending-changes` answers 200.
+    Unprovisioned tenants now answer every `/seb-api` call with a bare 500
+    `INTERNAL_ERROR` instead of "tenant not found". Re-test when PAN enables
+    the endpoints, and check the live rule summary against the spec's
+    `Rule`/`Section` shape.
+  - Still open: policy rules in `scm_pab_backup`/`scm_pab_restore`, which is
+    the main value. It is blocked on the same 403.
+
 - **MSP PAYG API** (`sase/msp-paygo`, `api.apps.paloaltonetworks.com/mt/paygo/v1`,
   17 paths) — pay-as-you-go child-tenant lifecycle (activate, update or
   delete a child tenant), packages and their regions, locations, and usage

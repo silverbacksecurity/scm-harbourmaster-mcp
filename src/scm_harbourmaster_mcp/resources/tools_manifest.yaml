@@ -736,6 +736,12 @@ scm_pab_msp_summary:
   idempotent: true
   retry_policy: retry
   scope: tenant
+scm_pab_policy:
+  access: read
+  domain: pab
+  idempotent: true
+  retry_policy: retry
+  scope: tenant
 scm_pab_restore:
   access: write
   domain: pab

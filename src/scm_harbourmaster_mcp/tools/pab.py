@@ -5,8 +5,11 @@ Covers the pan.dev `prisma-browser` family (/seb-api/v1/*, "Prisma
 Browser Management Console Public API"): enrolled users, device inventory
 with endpoint posture (screen lock / disk encryption / firewall), user and
 device groups, the application catalog, and pending user access requests.
-Read-only — the write side (suspend/resume/force-reauth, config publish)
-is deliberately not exposed.
+Also lists the four browser policy rulebases (access & data, security,
+customization, sign-in), draft changes awaiting publish, and the IdP
+app-sync / cloud-storage integrations. Read-only — the write side
+(suspend/resume/force-reauth, rule edits, config publish) is deliberately
+not exposed.
 
 Complements tools/pab_msp.py, which is the MSP cross-tenant reporting layer
 (/mt/pab/*); this module is the per-tenant view.
@@ -43,8 +46,18 @@ def _get_json(client: Any, path: str, params: dict[str, Any] | None = None) -> t
         return resp.status_code, (resp.text or "")[:300]
 
 
-def _paginate(client: Any, path: str, params: dict[str, Any], limit: int) -> tuple[list[dict], str]:
-    """Follow cursor pagination until `limit` records or _MAX_PAGES; returns (items, error)."""
+def _paginate(
+    client: Any,
+    path: str,
+    params: dict[str, Any],
+    limit: int,
+    meta: dict[str, Any] | None = None,
+) -> tuple[list[dict], str]:
+    """Follow cursor pagination until `limit` records or _MAX_PAGES; returns (items, error).
+
+    Pass `meta` to collect the first page's `metadata` block (policy endpoints
+    report the configuration version served there).
+    """
     out: list[dict] = []
     cursor = ""
     for _ in range(_MAX_PAGES):
@@ -56,6 +69,8 @@ def _paginate(client: Any, path: str, params: dict[str, Any], limit: int) -> tup
             return out, _status_hint(path, status, body)
         if not isinstance(body, dict):
             return out, f"{path}: unexpected response shape"
+        if meta is not None and not meta:
+            meta.update(body.get("metadata") or {})
         out.extend(body.get("data") or [])
         info = body.get("pageInfo") or {}
         cursor = info.get("cursor") or ""
@@ -66,6 +81,11 @@ def _paginate(client: Any, path: str, params: dict[str, Any], limit: int) -> tup
 
 def _status_hint(path: str, status: int, body: Any) -> str:
     text = body if isinstance(body, str) else str(body)[:200]
+    if status == 403 and "not yet available" in text:
+        return (
+            f"{path}: HTTP 403 — Palo Alto Networks has published this endpoint in the "
+            'API spec but not enabled it yet ("This endpoint is not yet available").'
+        )
     if status in (401, 403):
         return (
             f"{path}: HTTP {status} — the service account lacks Prisma Browser access "
@@ -76,10 +96,97 @@ def _status_hint(path: str, status: int, body: Any) -> str:
             f"{path}: HTTP {status} — Prisma Access Browser is not provisioned on this "
             "tenant (unprovisioned tenants 404/500 here while /users returns empty lists)."
         )
+    if status == 500 and "INTERNAL_ERROR" in text:
+        return (
+            f"{path}: HTTP 500 INTERNAL_ERROR — Prisma Access Browser is most likely not "
+            "provisioned on this tenant (unprovisioned tenants answer every /seb-api "
+            "call this way)."
+        )
     return f"{path}: HTTP {status} {text}"
 
 
 _ENABLED_SUFFIX = "Enabled"
+
+# Tool-facing rulebase names -> /policy/{path}
+_POLICIES = {
+    "access_and_data": "access-and-data",
+    "security": "security",
+    "customization": "customization",
+    "sign_in": "sign-in",
+}
+_DETAIL_CAP = 100  # max per-rule detail fetches in one rulebase call
+
+
+def _config_version(meta: dict[str, Any]) -> dict[str, Any] | None:
+    cv = meta.get("configurationVersion")
+    return cv if isinstance(cv, dict) else None
+
+
+def _rulebase(
+    client: Any,
+    policy: str,
+    params: dict[str, Any],
+    limit: int,
+    include_details: bool,
+) -> dict[str, Any]:
+    """One rulebase in evaluation order, rules grouped under their sections."""
+    path = f"policy/{_POLICIES[policy]}"
+    meta: dict[str, Any] = {}
+    items, err = _paginate(client, path, params, limit, meta)
+    items.sort(key=lambda i: i.get("position") or 0)
+    sections: list[dict[str, Any]] = []
+    unsectioned: list[dict[str, Any]] = []
+    by_section: dict[str, dict[str, Any]] = {}
+    rules: list[dict[str, Any]] = []
+    for item in items:
+        if item.get("type") == "Section":
+            section: dict[str, Any] = {"id": item.get("id"), "name": item.get("name"), "rules": []}
+            by_section[str(item.get("id"))] = section
+            sections.append(section)
+    for item in items:
+        if item.get("type") != "Rule":
+            continue
+        rule: dict[str, Any] = {
+            "id": item.get("id"),
+            "name": item.get("name"),
+            "mode": item.get("mode"),
+            "evaluation_order": item.get("evaluationOrder"),
+        }
+        rules.append(rule)
+        sec_ref = item.get("section") or {}
+        parent = by_section.get(str(sec_ref.get("id"))) if sec_ref else None
+        (parent["rules"] if parent else unsectioned).append(rule)
+    warnings = [err] if err else []
+    if include_details:
+        version = params.get("configurationVersion")
+        detail_params = {"configurationVersion": version} if version else {}
+        for rule in rules[:_DETAIL_CAP]:
+            status, body = _get_json(client, f"{path}/rules/{rule['id']}", detail_params)
+            if status == 200 and isinstance(body, dict):
+                rule["detail"] = {
+                    k: v for k, v in body.items() if k not in ("id", "name", "mode", "metadata")
+                }
+            else:
+                warnings.append(_status_hint(f"{path}/rules/{rule['id']}", status, body))
+        if len(rules) > _DETAIL_CAP:
+            warnings.append(
+                f"{policy}: details fetched for the first {_DETAIL_CAP} of {len(rules)} rules"
+            )
+    by_mode: dict[str, int] = {}
+    for r in rules:
+        by_mode[r["mode"] or "?"] = by_mode.get(r["mode"] or "?", 0) + 1
+    out: dict[str, Any] = {
+        "policy": policy,
+        "configuration_version": _config_version(meta),
+        "rules_total": len(rules),
+        "rules_by_mode": by_mode,
+        "sections": sections,
+    }
+    if unsectioned:
+        out["unsectioned_rules"] = unsectioned
+    if warnings:
+        out["warnings"] = warnings
+    return out
 
 
 def _posture_ok(value: str | None) -> bool:
@@ -313,5 +420,133 @@ def register_pab_tools(mcp: FastMCP, get_client: Any) -> None:
             if err:
                 result["warnings"] = [err]
             return _fmt(result)
+        except Exception as exc:
+            return f"Error: {exc}"
+
+    @mcp.tool()
+    @tool
+    def scm_pab_policy(
+        client: Any,
+        view: str = "rulebase",
+        policy: str = "all",
+        configuration_version: str = "active",
+        rule_id: str = "",
+        name: str = "",
+        mode: str = "",
+        include_details: bool = False,
+        limit: int = 500,
+    ) -> str:
+        """Prisma Access Browser policy rulebases, draft changes, and integrations.
+
+        Views:
+        - rulebase: rules in evaluation order, grouped under their sections,
+          with mode (active / disabled / monitor) counts. The list API gives
+          rule summaries only; set include_details to fetch each rule's
+          scope, controls and actions (one call per rule, first 100).
+        - rule: one rule's full definition (needs policy + rule_id).
+        - pending_changes: draft edits not yet published (entity, operation,
+          last updated by) — what a publish would push.
+        - integrations: IdP application-sync and cloud-storage providers
+          and their connection status.
+
+        Args:
+            tenant_id: SCM tenant ID (MSSP mode).
+            view: rulebase | rule | pending_changes | integrations.
+            policy: access_and_data | security | customization | sign_in,
+                or all (rulebase view only).
+            configuration_version: active (default, what is enforced), draft
+                (includes unpublished edits), or a version number / ID.
+            rule_id: rule view — the rule ID from the rulebase view.
+            name: rulebase view — filter rules by name.
+            mode: rulebase view — filter by mode (active, disabled, monitor;
+                security and customization have no monitor mode).
+            include_details: rulebase view — fetch each rule's full body.
+            limit: Max items per rulebase (default 500, cursor-paginated).
+
+        Returns:
+            JSON with the requested view plus any endpoint warnings.
+        """
+        try:
+            if view == "rulebase":
+                if policy != "all" and policy not in _POLICIES:
+                    return f"Error: policy must be all or one of {', '.join(_POLICIES)}"
+                params: dict[str, Any] = {"configurationVersion": configuration_version}
+                if name:
+                    params["name"] = name
+                if mode:
+                    params["mode"] = [mode]
+                names = list(_POLICIES) if policy == "all" else [policy]
+                rulebases = [_rulebase(client, p, params, limit, include_details) for p in names]
+                result: dict[str, Any] = {"view": view, "rulebases": rulebases}
+                # Every rulebase failed (unprovisioned, no access, or not yet
+                # enabled): one note instead of four identical warnings.
+                if all(not rb["rules_total"] and rb.get("warnings") for rb in rulebases):
+                    return _fmt(
+                        {"view": view, "rulebases": [], "note": rulebases[0]["warnings"][0]}
+                    )
+                return _fmt(result)
+            if view == "rule":
+                if policy not in _POLICIES or not rule_id:
+                    return (
+                        "Error: rule view needs rule_id and policy set to one of "
+                        f"{', '.join(_POLICIES)}"
+                    )
+                path = f"policy/{_POLICIES[policy]}/rules/{rule_id}"
+                status, body = _get_json(
+                    client, path, {"configurationVersion": configuration_version}
+                )
+                if status != 200:
+                    return f"Error: {_status_hint(path, status, body)}"
+                return _fmt({"view": view, "policy": policy, "rule": body})
+            if view == "pending_changes":
+                path = "configuration-management/draft/pending-changes"
+                changes, err = _paginate(client, path, {}, limit)
+                by_type: dict[str, int] = {}
+                for c in changes:
+                    key = c.get("entityType") or "?"
+                    by_type[key] = by_type.get(key, 0) + 1
+                result = {
+                    "view": view,
+                    "total": len(changes),
+                    "by_entity_type": by_type,
+                    "pending_changes": [
+                        {
+                            "entity_type": c.get("entityType"),
+                            "name": c.get("name"),
+                            "operation": c.get("operation"),
+                            "last_updated_by": c.get("lastUpdatedBy"),
+                            "entity_id": c.get("entityId"),
+                        }
+                        for c in changes
+                    ],
+                }
+                if err:
+                    result["warnings"] = [err]
+                return _fmt(result)
+            if view == "integrations":
+                result = {"view": view}
+                warnings: list[str] = []
+                for key, path in (
+                    ("idp_application_sync", "integrations/idp-application-sync"),
+                    ("cloud_storage", "integrations/cloud-storage"),
+                ):
+                    status, body = _get_json(client, path)
+                    if status == 200 and isinstance(body, dict):
+                        result[key] = [
+                            {
+                                "display_name": p.get("displayName"),
+                                "type": p.get("type"),
+                                "status": p.get("status"),
+                                "id": p.get("id"),
+                            }
+                            for p in body.get("providers") or []
+                        ]
+                    else:
+                        result[key] = []
+                        warnings.append(_status_hint(path, status, body))
+                if warnings:
+                    result["warnings"] = warnings
+                return _fmt(result)
+            return "Error: view must be one of rulebase, rule, pending_changes, integrations"
         except Exception as exc:
             return f"Error: {exc}"

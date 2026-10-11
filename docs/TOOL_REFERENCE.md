@@ -4,7 +4,7 @@
 
 All tools authenticate via Bearer-token OAuth (SASE client credentials) configured in `settings.toml` / `.secrets.toml`.
 
-**<!-- tool-count -->173<!-- /tool-count --> tools** across <!-- module-count -->41<!-- /module-count --> modules.
+**<!-- tool-count -->174<!-- /tool-count --> tools** across <!-- module-count -->41<!-- /module-count --> modules.
 
 ## Table of Contents
 
@@ -1475,6 +1475,20 @@ the PAN EDLs, default services and default security profiles) is
 listed in the report and never pushed: it already exists in every
 tenant and cannot be created inside a folder.
 
+Reference preflight
+-------------------
+Before any write (dry run included) the target folder is read and
+every name reference in the objects to be pushed is resolved:
+application-group and service-group members, rule application /
+service / URL category / HIP / profile-group / log-forwarding
+references, decryption profiles and profile-group members.  SCM
+accepts dangling references at create time and only rejects them at
+push validation, one per push — the preflight lists them all up
+front.  References to catalogues the service account cannot read
+(e.g. DLP, AI Security) are reported as "unverifiable" and do not
+block.  Enabled decrypt rules are also checked against the target's
+forward-trust certificate, which is tenant-bound and never cloned.
+
 PSK safety
 ----------
 Pre-shared keys in IKE gateways are ALWAYS replaced with
@@ -1498,9 +1512,19 @@ Args:
     on_conflict: What to do if an object with the same name already
                  exists in the target — 'skip' (default) or 'overwrite'.
     dry_run: If True (default), preview what would be created without
-             making any API calls. Set to False to execute the push.
+             writing anything (the preflight still reads the target).
+             Set to False to execute the push.
     save_to: Optional file path to write the clone report.
     ticket_ref: Mandatory change-ticket reference (never sent to SCM).
+    on_missing_reference: What to do with objects that reference a
+                 name the target lacks — 'fail' (default: push
+                 nothing), 'skip_object' (skip them and anything that
+                 depends on them), or 'strip_member' (drop the bad
+                 member from groups and allow rules; objects where
+                 dropping it would loosen policy are skipped).
+    on_missing_trust_cert: Enabled decrypt rules when the target has
+                 no forward-trust certificate — 'fail' (default),
+                 'disable_rule' or 'skip_object'.
 
 **Write safety (SSR pattern):** ``dry_run=True`` by default;
 ``ticket_ref`` is mandatory.
@@ -1522,6 +1546,8 @@ Returns:
 | `dry_run` | `bool` | `True` |
 | `save_to` | `str` | `''` |
 | `ticket_ref` | `str` | `''` |
+| `on_missing_reference` | `str` | `'fail'` |
+| `on_missing_trust_cert` | `str` | `'fail'` |
 
 ---
 
@@ -4974,6 +5000,52 @@ Returns:
 | `status` | `str` | `''` |
 | `request_type` | `str` | `''` |
 | `limit` | `int` | `50` |
+
+### `scm_pab_policy`
+
+Prisma Access Browser policy rulebases, draft changes, and integrations.
+
+```
+Views:
+- rulebase: rules in evaluation order, grouped under their sections,
+  with mode (active / disabled / monitor) counts. The list API gives
+  rule summaries only; set include_details to fetch each rule's
+  scope, controls and actions (one call per rule, first 100).
+- rule: one rule's full definition (needs policy + rule_id).
+- pending_changes: draft edits not yet published (entity, operation,
+  last updated by) — what a publish would push.
+- integrations: IdP application-sync and cloud-storage providers
+  and their connection status.
+
+Args:
+    tenant_id: SCM tenant ID (MSSP mode).
+    view: rulebase | rule | pending_changes | integrations.
+    policy: access_and_data | security | customization | sign_in,
+        or all (rulebase view only).
+    configuration_version: active (default, what is enforced), draft
+        (includes unpublished edits), or a version number / ID.
+    rule_id: rule view — the rule ID from the rulebase view.
+    name: rulebase view — filter rules by name.
+    mode: rulebase view — filter by mode (active, disabled, monitor;
+        security and customization have no monitor mode).
+    include_details: rulebase view — fetch each rule's full body.
+    limit: Max items per rulebase (default 500, cursor-paginated).
+
+Returns:
+    JSON with the requested view plus any endpoint warnings.
+```
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `tenant_id` | `str` | `''` |
+| `view` | `str` | `'rulebase'` |
+| `policy` | `str` | `'all'` |
+| `configuration_version` | `str` | `'active'` |
+| `rule_id` | `str` | `''` |
+| `name` | `str` | `''` |
+| `mode` | `str` | `''` |
+| `include_details` | `bool` | `False` |
+| `limit` | `int` | `500` |
 
 ---
 

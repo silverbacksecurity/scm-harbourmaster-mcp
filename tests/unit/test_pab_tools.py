@@ -212,3 +212,207 @@ def test_rbac_hint_on_403(tools: Any) -> None:
     t = tools({"users": (403, ""), "devices": EMPTY})
     data = json.loads(t["scm_pab_inventory"](view="users"))
     assert any("Super User or View-Only" in w for w in data["warnings"])
+
+
+# ── scm_pab_policy ──────────────────────────────────────────────────────────
+# Shaped from the published spec: the policy endpoints answered 403 "not yet
+# available" on every provisioned lab tenant when this tool was written.
+
+CV_ACTIVE = {"configurationVersion": {"id": "0CV" + "A" * 26, "status": "active", "number": 7}}
+SECURITY_P1 = {
+    "pageInfo": {"hasNextPage": True, "cursor": "CUR2"},
+    "metadata": CV_ACTIVE,
+    "data": [
+        # Out of order on purpose: the tool sorts by position.
+        {
+            "id": "r2",
+            "type": "Rule",
+            "name": "Block dev tools",
+            "position": 3,
+            "mode": "disabled",
+            "evaluationOrder": 2,
+            "section": {"id": "s1", "name": "Baseline"},
+        },
+        {"id": "s1", "type": "Section", "name": "Baseline", "position": 1},
+        {
+            "id": "r1",
+            "type": "Rule",
+            "name": "Force HTTPS",
+            "position": 2,
+            "mode": "active",
+            "evaluationOrder": 1,
+            "section": {"id": "s1", "name": "Baseline"},
+        },
+    ],
+}
+SECURITY_P2 = {
+    "pageInfo": {"hasNextPage": False, "cursor": None},
+    "data": [
+        {
+            "id": "r3",
+            "type": "Rule",
+            "name": "Default",
+            "position": 4,
+            "mode": "active",
+            "evaluationOrder": 3,
+            "section": None,
+        },
+    ],
+}
+NOT_YET = (403, {"error": {"code": "FORBIDDEN", "message": "This endpoint is not yet available"}})
+INTERNAL = (500, {"error": {"code": "INTERNAL_ERROR", "message": "An unexpected error occurred"}})
+
+
+def _security(params: dict) -> Any:
+    return SECURITY_P2 if params.get("cursor") == "CUR2" else SECURITY_P1
+
+
+def test_policy_rulebase_groups_sections_in_order(tools: Any) -> None:
+    calls: list[dict] = []
+    t = tools({"policy/security": _security}, calls)
+    data = json.loads(t["scm_pab_policy"](policy="security"))
+    rb = data["rulebases"][0]
+    assert rb["policy"] == "security"
+    assert rb["configuration_version"]["number"] == 7
+    assert rb["rules_total"] == 3
+    assert rb["rules_by_mode"] == {"active": 2, "disabled": 1}
+    assert [s["name"] for s in rb["sections"]] == ["Baseline"]
+    assert [r["id"] for r in rb["sections"][0]["rules"]] == ["r1", "r2"]
+    assert [r["id"] for r in rb["unsectioned_rules"]] == ["r3"]
+    assert calls[0]["params"]["configurationVersion"] == "active"
+    assert calls[1]["params"]["cursor"] == "CUR2"
+
+
+def test_policy_filters_and_draft_version(tools: Any) -> None:
+    calls: list[dict] = []
+    t = tools({"policy/sign-in": SECURITY_P2}, calls)
+    t["scm_pab_policy"](
+        policy="sign_in", configuration_version="draft", name="Default", mode="monitor"
+    )
+    assert calls[0]["path"] == "policy/sign-in"
+    assert calls[0]["params"]["configurationVersion"] == "draft"
+    assert calls[0]["params"]["name"] == "Default"
+    assert calls[0]["params"]["mode"] == ["monitor"]
+
+
+def test_policy_all_fetches_four_rulebases(tools: Any) -> None:
+    calls: list[dict] = []
+    routes = {
+        f"policy/{p}": SECURITY_P2
+        for p in ("access-and-data", "security", "customization", "sign-in")
+    }
+    t = tools(routes, calls)
+    data = json.loads(t["scm_pab_policy"]())
+    assert [rb["policy"] for rb in data["rulebases"]] == [
+        "access_and_data",
+        "security",
+        "customization",
+        "sign_in",
+    ]
+
+
+def test_policy_include_details_fetches_each_rule(tools: Any) -> None:
+    calls: list[dict] = []
+    detail = {
+        "id": "r3",
+        "name": "Default",
+        "mode": "active",
+        "scope": {"users": "all"},
+        "controls": {"forceHttps": {"enabled": True}},
+        "metadata": {},
+    }
+    t = tools({"policy/security": SECURITY_P2, "policy/security/rules/r3": detail}, calls)
+    data = json.loads(
+        t["scm_pab_policy"](policy="security", include_details=True, configuration_version="draft")
+    )
+    rule = data["rulebases"][0]["unsectioned_rules"][0]
+    assert rule["detail"] == {
+        "scope": {"users": "all"},
+        "controls": {"forceHttps": {"enabled": True}},
+    }
+    assert calls[1]["params"] == {"configurationVersion": "draft"}
+
+
+def test_policy_not_yet_available_collapses_to_note(tools: Any) -> None:
+    routes = {
+        f"policy/{p}": NOT_YET for p in ("access-and-data", "security", "customization", "sign-in")
+    }
+    t = tools(routes)
+    data = json.loads(t["scm_pab_policy"]())
+    assert data["rulebases"] == []
+    assert "not enabled it yet" in data["note"]
+
+
+def test_policy_unprovisioned_500_hint(tools: Any) -> None:
+    t = tools({"policy/security": INTERNAL})
+    data = json.loads(t["scm_pab_policy"](policy="security"))
+    assert "not provisioned" in data["note"]
+
+
+def test_policy_rule_view(tools: Any) -> None:
+    t = tools({"policy/access-and-data/rules/r9": {"id": "r9", "name": "X", "access": {}}})
+    data = json.loads(t["scm_pab_policy"](view="rule", policy="access_and_data", rule_id="r9"))
+    assert data["rule"]["id"] == "r9"
+    assert "needs rule_id" in t["scm_pab_policy"](view="rule", policy="all", rule_id="r9")
+    assert t["scm_pab_policy"](view="rule", policy="security", rule_id="nope").startswith("Error:")
+
+
+def test_policy_bad_args(tools: Any) -> None:
+    t = tools({})
+    assert "policy must be" in t["scm_pab_policy"](policy="bogus")
+    assert "view must be one of" in t["scm_pab_policy"](view="bogus")
+
+
+def test_pending_changes_counts_by_type(tools: Any) -> None:
+    changes = {
+        "pageInfo": {"hasNextPage": False},
+        "data": [
+            {
+                "entityId": "e1",
+                "entityType": "securityRule",
+                "name": "A",
+                "operation": "updated",
+                "lastUpdatedBy": "admin@example.com",
+            },
+            {
+                "entityId": "e2",
+                "entityType": "securityRule",
+                "name": "B",
+                "operation": "created",
+                "lastUpdatedBy": "admin@example.com",
+            },
+            {
+                "entityId": "e3",
+                "entityType": "deviceGroup",
+                "name": "C",
+                "operation": "deleted",
+                "lastUpdatedBy": "admin@example.com",
+            },
+        ],
+    }
+    t = tools({"configuration-management/draft/pending-changes": changes})
+    data = json.loads(t["scm_pab_policy"](view="pending_changes"))
+    assert data["total"] == 3
+    assert data["by_entity_type"] == {"securityRule": 2, "deviceGroup": 1}
+    assert data["pending_changes"][2]["operation"] == "deleted"
+
+
+def test_integrations_providers_shape(tools: Any) -> None:
+    idp = {
+        "providers": [
+            {
+                "id": "p1",
+                "displayName": "Entra",
+                "type": "entraId",
+                "status": "connected",
+                "entraId": {"tenantId": "t-placeholder", "clientId": "c-placeholder"},
+            }
+        ]
+    }
+    t = tools({"integrations/idp-application-sync": idp, "integrations/cloud-storage": NOT_YET})
+    data = json.loads(t["scm_pab_policy"](view="integrations"))
+    assert data["idp_application_sync"] == [
+        {"display_name": "Entra", "type": "entraId", "status": "connected", "id": "p1"}
+    ]
+    assert data["cloud_storage"] == []
+    assert "not enabled it yet" in data["warnings"][0]
