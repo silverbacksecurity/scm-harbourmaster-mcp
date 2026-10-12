@@ -52,6 +52,7 @@ from ..audit.drift_baseline import (
 from ..audit.dspt_controls import BPA_TO_DSPT, DSPT_ASSERTIONS
 from ..audit.extractor import (
     backup_resource_payload,
+    backup_snippet_types,
     extract_adem,
     extract_airs,
     extract_allocated_ips,
@@ -391,6 +392,7 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
             "folder": folder,
             "tenant_id": snap.tenant_id,
             "resources": backup_resource_payload(snap),
+            "snippet_types": backup_snippet_types(snap),
             "extraction_errors": snap.extraction_errors,
         }
 
@@ -2561,10 +2563,14 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
         - POV → Prod promotion (clone lab folder to production folder)
         - Multi-site rollout (one branch config → N sites with same structure)
 
-        PAN predefined content (objects sourced from a predefined snippet —
-        the PAN EDLs, default services and default security profiles) is
-        listed in the report and never pushed: it already exists in every
-        tenant and cannot be created inside a folder.
+        PAN content (objects from PAN's snippets: predefined-snippet, and the
+        snippets SCM types "predefined" or "readonly" such as
+        Web-Security-Default and hip-default) is listed in the report and never
+        pushed: it already exists in every tenant and cannot be created inside
+        a folder.  The target folder sees a non-global PAN snippet only when the
+        snippet is associated with it; the preflight flags references to one it
+        cannot see.  Objects from the customer's own snippets are cloned into
+        the target folder.
 
         Reference preflight
         -------------------

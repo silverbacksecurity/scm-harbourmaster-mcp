@@ -57,8 +57,10 @@ from .clone_preflight import (
     PROVIDES,
     PreflightResult,
     TargetInventory,
+    _is_predefined,
     check_references,
     fetch_target_inventory,
+    pan_snippet,
     rewrite_references,
 )
 
@@ -177,9 +179,9 @@ _DEPLOY_ORDER: list[tuple[str, str, str]] = [
     ("bandwidth_allocations", "bandwidth_allocation", _FOLDER_REMOTE_NETWORKS),
 ]
 
-# PAN-supplied content lives in the predefined snippets. It is already present
-# in every tenant and cannot be created inside a folder, so it is never cloned.
-_PREDEFINED_FIELDS = ("snippet", "override_loc")
+# PAN-supplied content lives in PAN's snippets (clone_preflight.pan_snippet).
+# It is already present in every tenant and cannot be created inside a
+# folder, so it is never cloned.
 
 _IP_RE = re.compile(
     r"\b((?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?))"
@@ -205,6 +207,7 @@ class CloneReport:
     dry_run: bool
     results: list[PushResult] = field(default_factory=list)
     psk_warnings: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
     preflight: PreflightResult | None = None
 
     # ── Counts ──────────────────────────────────────────────────────────
@@ -260,6 +263,8 @@ class CloneReport:
         lines.append(f"| Failed | {self.failed} |")
         lines.append(f"| **Total** | **{len(self.results)}** |")
 
+        lines += [f"\n⚠️ {w}" for w in self.warnings]
+
         if self.preflight:
             lines += self.preflight.to_markdown(self.dry_run)
 
@@ -300,9 +305,39 @@ def _strip_system_fields(obj: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in obj.items() if k not in _SYSTEM_FIELDS}
 
 
-def _is_predefined(obj: dict[str, Any]) -> bool:
-    """True for PAN-supplied objects — those sourced from a predefined snippet."""
-    return any(str(obj.get(f) or "").startswith("predefined") for f in _PREDEFINED_FIELDS)
+def _snippet_types(data: dict[str, Any], client: Any) -> dict[str, str] | None:
+    """Snippet name → SCM snippet type, from the backup or else the target.
+
+    Backups written before snippet_types was recorded fall back to the
+    target's snippet list: PAN snippets have the same names in every tenant.
+    None when it is needed and neither source could be read.
+    """
+    # An empty map means the source snippet list failed to read, not that the
+    # tenant has no snippets, so it falls back like a missing one.
+    recorded = data.get("snippet_types")
+    if isinstance(recorded, dict) and recorded:
+        return {str(k): str(v) for k, v in recorded.items() if v}
+    snippets = {
+        str(o.get("snippet"))
+        for objs in (data.get("resources") or {}).values()
+        if isinstance(objs, list)
+        for o in objs
+        if isinstance(o, dict) and o.get("snippet")
+    }
+    if not any(not s.startswith("predefined") for s in snippets):
+        return {}
+    try:
+        rows = client.snippet.list()
+        return {str(r.name): str(r.type) for r in rows if getattr(r, "type", None)}
+    except Exception as exc:
+        logger.warning("clone_snippet_types_unavailable", error=str(exc)[:200])
+        return None
+
+
+_SNIPPET_TYPES_UNKNOWN = (
+    "Snippet types are not in the backup and the target's snippet list could not be read: "
+    "objects from PAN snippets other than predefined-snippet are cloned like the customer's own."
+)
 
 
 def _drop_nulls(value: Any) -> Any:
@@ -674,6 +709,7 @@ def _run_preflight(
     on_missing_reference: str,
     on_missing_trust_cert: str,
     inventory: TargetInventory | None,
+    snippet_types: dict[str, str],
 ) -> PreflightResult:
     if on_missing_reference not in MISSING_REFERENCE_MODES:
         raise ValueError(
@@ -708,6 +744,7 @@ def _run_preflight(
         on_missing_reference=on_missing_reference,
         trust_state=trust_state if session is not None else None,
         on_missing_trust_cert=on_missing_trust_cert,
+        snippet_types=snippet_types,
     )
 
 
@@ -767,6 +804,10 @@ def clone_config(
         dry_run=dry_run,
     )
     ip_map: dict[str, str] = {}
+    snippet_types = _snippet_types(data, client)
+    if snippet_types is None:
+        report.warnings.append(_SNIPPET_TYPES_UNKNOWN)
+        snippet_types = {}
     batches = _planned_batches(
         resources,
         include_deployment=include_deployment,
@@ -785,6 +826,7 @@ def clone_config(
             on_missing_reference=on_missing_reference,
             on_missing_trust_cert=on_missing_trust_cert,
             inventory=inventory,
+            snippet_types=snippet_types,
         )
         report.preflight = preflight
         if preflight.blocked and not dry_run:
@@ -799,7 +841,7 @@ def clone_config(
                 continue
             for obj in resources.get(key) or []:
                 name = str(obj.get("name") or "") if isinstance(obj, dict) else ""
-                if not name or _is_predefined(obj):
+                if not name or pan_snippet(obj, snippet_types):
                     continue
                 if preflight is not None and (key, name) in preflight.skip:
                     continue
@@ -816,20 +858,22 @@ def clone_config(
         folder_kwarg: bool = False,
     ) -> None:
         for obj in resources.get(snap_key, []):
-            # Checked before sanitising, which drops the source container the
-            # predefined marker lives in.
-            if _is_predefined(obj):
+            # Checked before sanitising, which drops the source snippet.
+            snippet = pan_snippet(obj, snippet_types)
+            if snippet:
+                detail = (
+                    "PAN predefined content — already present in every tenant"
+                    if _is_predefined(obj)
+                    else f"from PAN snippet `{snippet}` — associate the snippet with the target folder"
+                )
                 report.results.append(
-                    PushResult(
-                        snap_key,
-                        obj.get("name", "<unknown>"),
-                        "predefined",
-                        "PAN predefined content — already present in every tenant",
-                    )
+                    PushResult(snap_key, obj.get("name", "<unknown>"), "predefined", detail)
                 )
                 continue
             oid = (snap_key, str(obj.get("name", "")))
-            note = ""
+            notes: list[str] = []
+            if obj.get("snippet"):
+                notes.append(f"from custom snippet `{obj['snippet']}`, cloned into the folder")
             if preflight is not None:
                 if oid in preflight.skip:
                     report.results.append(
@@ -846,8 +890,11 @@ def clone_config(
                     obj = dict(obj)
                     for fld, bad in stripped.items():
                         obj[fld] = [v for v in obj.get(fld) or [] if v not in bad]
-                    note = "stripped " + "; ".join(
-                        f"{fld}: {', '.join(sorted(bad))}" for fld, bad in stripped.items()
+                    notes.append(
+                        "stripped "
+                        + "; ".join(
+                            f"{fld}: {', '.join(sorted(bad))}" for fld, bad in stripped.items()
+                        )
                     )
             obj_folder = folder if folder != "customer" else target_folder
             o, psk_w = _sanitise(
@@ -866,15 +913,15 @@ def clone_config(
                 _drop_empty_actions(o)
             if preflight is not None and oid in preflight.disable:
                 o["disabled"] = True
-                note = "created disabled — no forward-trust certificate"
+                notes.append("created disabled — no forward-trust certificate")
             kwargs = dict(create_kwargs or {})
             if folder_kwarg:
                 kwargs["folder"] = folder
             result = _push_one(
                 client, sdk_attr, o, on_conflict, dry_run, snap_key, create_kwargs=kwargs
             )
-            if note:
-                result.detail = f"{result.detail}; {note}" if result.detail else note
+            if notes:
+                result.detail = "; ".join([result.detail, *notes] if result.detail else notes)
             report.results.append(result)
 
     for snap_key, sdk_attr, folder, opts in batches:

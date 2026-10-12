@@ -431,3 +431,144 @@ def test_predefined_url_categories_resolve_from_their_own_list() -> None:
 
     inv = fetch_target_inventory(_S(), "dst")
     assert "scanning-activity" in inv.names["category"]
+
+
+# ── PAN snippets other than predefined-snippet ───────────────────────────────
+
+_SNIPPET_TYPES = {
+    "predefined-snippet": "",
+    "Web-Security-Default": "predefined",
+    "hip-default": "readonly",
+}
+
+
+def _snippet_backup(tmp_path: Path, resources: dict[str, Any], **extra: Any) -> str:
+    path = tmp_path / "backup.json"
+    path.write_text(
+        json.dumps({"backup_version": "1", "folder": "src", "resources": resources, **extra})
+    )
+    return str(path)
+
+
+def test_objects_from_pan_snippets_are_not_cloned(tmp_path: Path) -> None:
+    src = _snippet_backup(
+        tmp_path,
+        {
+            "tags": [
+                {"name": "pan-tag", "snippet": "Web-Security-Default"},
+                {"name": "own-tag", "snippet": "Customer-Snippet"},
+                {"name": "plain", "folder": "src"},
+            ],
+            "hip_objects": [{"name": "pan-hip", "snippet": "hip-default"}],
+        },
+        snippet_types=_SNIPPET_TYPES,
+    )
+    client = _Client()
+    report = cloner.clone_config(client, src, "dst", dry_run=False)
+    assert [d["name"] for _, d in client.created] == ["own-tag", "plain"]
+    assert report.predefined == 2
+    by_name = {r.name: r for r in report.results}
+    assert "`Web-Security-Default`" in by_name["pan-tag"].detail
+    assert "`hip-default`" in by_name["pan-hip"].detail
+    assert "custom snippet `Customer-Snippet`" in by_name["own-tag"].detail
+
+
+def test_legacy_backup_reads_snippet_types_from_the_target(tmp_path: Path) -> None:
+    src = _snippet_backup(
+        tmp_path, {"tags": [{"name": "pan-tag", "snippet": "Web-Security-Default"}]}
+    )
+
+    class _Snippets:
+        def list(self) -> list[Any]:
+            row = type("Row", (), {"name": "Web-Security-Default", "type": "predefined"})
+            return [row()]
+
+    client = _Client()
+    client.snippet = _Snippets()  # type: ignore[attr-defined]
+    report = cloner.clone_config(client, src, "dst", dry_run=False)
+    assert client.created == [] and report.predefined == 1
+
+
+def test_preflight_checks_pan_snippet_objects_against_the_target() -> None:
+    resources = {
+        "profile_groups": [{"name": "best-practice", "snippet": "Web-Security-Default"}],
+        "security_rules_pre": [_rule("r", profile_setting={"group": ["best-practice"]})],
+    }
+    keys = ["profile_groups", "security_rules_pre"]
+    # Not created by the clone and not visible from the target folder
+    [issue] = check_references(resources, keys, _inv(), snippet_types=_SNIPPET_TYPES).missing
+    assert issue.name == "best-practice" and "`Web-Security-Default`" in issue.detail
+    # The snippet is associated with the target folder
+    inv = _inv(profile_group={"best-practice"})
+    assert check_references(resources, keys, inv, snippet_types=_SNIPPET_TYPES).issues == []
+    # Without the type map the group is customer content the clone creates
+    assert check_references(resources, keys, _inv()).issues == []
+
+
+def test_name_prefix_leaves_references_to_pan_snippet_objects(tmp_path: Path) -> None:
+    src = _snippet_backup(
+        tmp_path,
+        {
+            "tags": [{"name": "pan-tag", "snippet": "Web-Security-Default"}, {"name": "web"}],
+            "addresses": [{"name": "srv", "ip_netmask": "192.0.2.1/32", "tag": ["pan-tag", "web"]}],
+        },
+        snippet_types=_SNIPPET_TYPES,
+    )
+    client = _Client()
+    cloner.clone_config(client, src, "dst", name_prefix="C_", dry_run=False)
+    made = {data["name"]: data for _, data in client.created}
+    assert set(made) == {"C_web", "C_srv"}
+    assert made["C_srv"]["tag"] == ["pan-tag", "C_web"]
+
+
+def test_backup_records_snippet_types() -> None:
+    from scm_harbourmaster_mcp.audit.extractor import backup_snippet_types
+
+    snap = AuditSnapshot(folder="f", tenant_id="t")
+    snap.scm_snippets = [
+        {"name": "predefined-snippet", "type": None},
+        {"name": "hip-default", "type": "readonly"},
+        {"name": "Customer-Snippet", "type": "custom"},
+    ]
+    assert backup_snippet_types(snap) == {"hip-default": "readonly", "Customer-Snippet": "custom"}
+
+
+def test_empty_recorded_snippet_types_fall_back_to_the_target(tmp_path: Path) -> None:
+    src = _snippet_backup(
+        tmp_path,
+        {"tags": [{"name": "pan-tag", "snippet": "Web-Security-Default"}]},
+        snippet_types={},
+    )
+
+    class _Snippets:
+        def list(self) -> list[Any]:
+            return [type("Row", (), {"name": "Web-Security-Default", "type": "predefined"})()]
+
+    client = _Client()
+    client.snippet = _Snippets()  # type: ignore[attr-defined]
+    report = cloner.clone_config(client, src, "dst", dry_run=False)
+    assert client.created == [] and report.predefined == 1 and not report.warnings
+
+
+def test_unreadable_snippet_types_are_reported(tmp_path: Path) -> None:
+    src = _snippet_backup(tmp_path, {"tags": [{"name": "t", "snippet": "Web-Security-Default"}]})
+
+    class _Snippets:
+        def list(self) -> list[Any]:
+            raise RuntimeError("HTTP 403")
+
+    client = _Client()
+    client.snippet = _Snippets()  # type: ignore[attr-defined]
+    report = cloner.clone_config(client, src, "dst", dry_run=True)
+    assert report.warnings and "could not be read" in report.to_markdown()
+
+
+def test_predefined_override_reads_as_global_pan_content(tmp_path: Path) -> None:
+    src = _snippet_backup(
+        tmp_path,
+        {"edls": [{"name": "o365", "snippet": "office365", "override_loc": PREDEFINED}]},
+        snippet_types=_SNIPPET_TYPES,
+    )
+    report = cloner.clone_config(_Client(), src, "dst", dry_run=True)
+    [result] = report.results
+    assert result.status == "predefined" and "every tenant" in result.detail

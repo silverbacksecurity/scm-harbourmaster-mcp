@@ -424,6 +424,26 @@ def _is_predefined(obj: dict[str, Any]) -> bool:
     return any(str(obj.get(f) or "").startswith("predefined") for f in ("snippet", "override_loc"))
 
 
+# Snippet types SCM gives PAN-supplied snippets (Web-Security-Default,
+# hip-default, Auto-VPN-Default-Snippet, ...).  "predefined-snippet" itself
+# lists with a null type, so the name test above still applies.
+PAN_SNIPPET_TYPES = frozenset({"predefined", "readonly"})
+
+
+def pan_snippet(obj: dict[str, Any], snippet_types: dict[str, str] | None = None) -> str:
+    """The PAN snippet *obj* comes from, or "" for the customer's own content.
+
+    *snippet_types* maps snippet name → SCM snippet type.  Objects from PAN
+    snippets are never cloned: the snippet is already in the target tenant.
+    Only "predefined-snippet" content is visible from every folder; the other
+    PAN snippets apply to the folders they are associated with.
+    """
+    if _is_predefined(obj):
+        return str(obj.get("snippet") or obj.get("override_loc"))
+    name = str(obj.get("snippet") or "")
+    return name if name and (snippet_types or {}).get(name) in PAN_SNIPPET_TYPES else ""
+
+
 # ── Target inventory ─────────────────────────────────────────────────────────
 
 
@@ -669,13 +689,15 @@ def check_references(
     on_missing_reference: str = "fail",
     trust_state: Callable[[], str] | None = None,
     on_missing_trust_cert: str = "fail",
+    snippet_types: dict[str, str] | None = None,
 ) -> PreflightResult:
     """Resolve every reference in the objects of *planned_keys*.
 
     *planned_keys* are the backup keys the clone will push, in push order.
     *trust_state* returns the target's forward-trust state ("configured",
     "missing" or "unknown"); it is only called when an enabled decrypt rule
-    would be pushed.
+    would be pushed.  *snippet_types* (snippet name → SCM type) marks objects
+    from PAN snippets, which the clone does not create.
     """
     result = PreflightResult(
         target_folder=inventory.folder,
@@ -685,7 +707,7 @@ def check_references(
 
     def objects(key: str) -> list[dict[str, Any]]:
         value = resources.get(key) or []
-        return [o for o in value if isinstance(o, dict) and not _is_predefined(o)]
+        return [o for o in value if isinstance(o, dict) and not pan_snippet(o, snippet_types)]
 
     # Names the clone creates, by kind (as named in the target)
     created: dict[str, dict[str, tuple[str, str]]] = {}
@@ -696,12 +718,20 @@ def check_references(
                 created.setdefault(kind, {})[f"{name_prefix}{name}"] = (key, name)
     # PAN predefined content is in every tenant.  Applications are excluded:
     # the backup's catalogue is the source tenant's content version.
+    # Other PAN snippets reach only the folders they are associated with, so
+    # their objects resolve against the target inventory like any other.
     predefined: dict[str, set[str]] = {}
+    in_pan_snippet: dict[str, dict[str, str]] = {}
     for key, kinds in PROVIDES.items():
         for obj in resources.get(key) or []:
-            if isinstance(obj, dict) and _is_predefined(obj) and obj.get("name"):
-                for kind in kinds:
+            if not (isinstance(obj, dict) and obj.get("name")):
+                continue
+            snippet = pan_snippet(obj, snippet_types)
+            for kind in kinds:
+                if _is_predefined(obj):
                     predefined.setdefault(kind, set()).add(str(obj["name"]))
+                elif snippet:
+                    in_pan_snippet.setdefault(kind, {})[str(obj["name"])] = snippet
 
     def resolve(kind: str, name: str) -> tuple[str, str]:
         if name in KINDS[kind].keywords or name in predefined.get(kind, set()):
@@ -718,7 +748,13 @@ def check_references(
         if owner:
             return "missing", f"skipped by preflight: {result.skip[owner]}"
         hint = ""
-        if kind == "application":
+        snippet = in_pan_snippet.get(kind, {}).get(name)
+        if snippet:
+            hint = (
+                f"from PAN snippet `{snippet}` in the source, which the target folder "
+                "does not see — associate the snippet with the target folder"
+            )
+        elif kind == "application":
             hint = (
                 "no App-ID, application group or application filter of that name in the "
                 "target (a retired App-ID, or a custom application, which the clone does "

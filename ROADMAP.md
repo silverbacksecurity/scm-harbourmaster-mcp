@@ -420,9 +420,12 @@ code. New candidates are listed below._
 
   Still open:
   - Custom applications aren't cloned (no lab tenant has one to test).
-  - Objects from non-predefined PAN snippets (e.g. `Web-Security-Default`
-    application filters, `Auto-VPN-Default-Snippet` zones) are cloned into
-    the target folder like the customer's own objects.
+  - ✅ Objects from PAN's other snippets (`Web-Security-Default`,
+    `hip-default`, `Auto-VPN-Default-Snippet`, ...; SCM snippet type
+    `predefined` or `readonly`) are no longer cloned. Done 2026-10-12;
+    backups record `snippet_types`. Objects from the customer's own snippets
+    are still flattened into the target folder: there is no snippet clone
+    yet.
   - SCM candidate validation (checked 2026-09-25 against pan.dev `1f192ff`):
     there is no public endpoint. The jobs schema lists a `Validate` job
     type (`type_str`), presumably the UI push dialog's Validate button, but

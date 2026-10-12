@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`scm_config_clone` no longer copies content from PAN's snippets into the
+  target folder.** Objects from `Web-Security-Default`, `hip-default`,
+  `default`, `office365`, `Auto-VPN-Default-Snippet` and other snippets SCM
+  marks `predefined` or `readonly` are skipped, as `predefined-snippet`
+  content already was. On a lab backup that took 88 objects out of the
+  clone. The preflight checks references to them against the target folder,
+  which sees a PAN snippet only when it's associated with that folder, and
+  says to associate the snippet when one is missing. Objects from the
+  customer's own snippets are still cloned into the folder, and the report
+  names the snippet they came from.
+  - Backups now record `snippet_types` (snippet name → type). For older
+    backups the clone reads the target's snippet list instead.
+
 ### Added
 - **Clone follow-ups.**
   - **References follow `name_prefix`.** `scm_config_clone` now rewrites

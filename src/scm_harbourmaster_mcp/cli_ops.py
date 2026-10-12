@@ -61,6 +61,7 @@ class BackupResult:
 def run_backup(tenant: TenantConfig, on_progress: OnProgress = None) -> BackupResult:
     from .audit.extractor import (
         backup_resource_payload,
+        backup_snippet_types,
         extract_sdwan_snapshot,
         extract_snapshot,
     )
@@ -123,6 +124,7 @@ def run_backup(tenant: TenantConfig, on_progress: OnProgress = None) -> BackupRe
         "label": tenant.label,
         "folder": "All",
         "resources": resources,
+        "snippet_types": backup_snippet_types(snap),
         "extraction_errors": snap.extraction_errors,
     }
     out.write_text(json.dumps(payload, indent=2, default=str))

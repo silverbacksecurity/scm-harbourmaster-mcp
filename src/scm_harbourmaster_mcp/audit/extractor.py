@@ -825,6 +825,19 @@ def _extract_snapshot_uncached(client: Any, folder: str, tenant_id: str) -> Audi
     return snap
 
 
+def backup_snippet_types(snap: AuditSnapshot) -> dict[str, str]:
+    """Snippet name → SCM snippet type, for the ``snippet_types`` backup field.
+
+    The cloner uses it to tell objects from PAN's snippets ("predefined",
+    "readonly") apart from the customer's own snippet content.
+    """
+    return {
+        str(s["name"]): str(s["type"])
+        for s in snap.scm_snippets
+        if isinstance(s, dict) and s.get("name") and s.get("type")
+    }
+
+
 def backup_resource_payload(snap: AuditSnapshot) -> dict[str, Any]:
     """Build the ``resources`` section of a config backup JSON from *snap*.
 
