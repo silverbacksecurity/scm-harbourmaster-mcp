@@ -394,15 +394,35 @@ code. New candidates are listed below._
   certificate check for enabled decrypt rules (`on_missing_trust_cert`).
   The "truncated applications list" turned out not to be truncation: the
   applications API lists leaf App-IDs only (each twice), and container apps
-  are reachable only via the children's `container` field. Follow-ups:
-  - The extractor's custom-app filter tests `snippet != "predefined"` but
-    PAN content is `predefined-snippet`, so every backup carries the full
-    ~11k-row App-ID catalogue. Fix the filter so custom apps are what's kept.
-  - The backup carries no application filters, so a rule using one resolves
-    only if the target already has it. Back them up and clone them.
-  - `name_prefix` renames cloned objects but not the references to them; the
-    preflight flags this, but the cloner should rewrite the references.
-  - Not yet checked: address/address-group, zone and tag references.
+  are reachable only via the children's `container` field. Follow-ups
+  ✅ done 2026-10-10:
+  - Backups keep custom applications only (the filter missed
+    `predefined-snippet`, so each carried ~11k App-IDs). The snapshot still
+    holds the catalogue for `scm_config_index(include_predefined=True)`, and
+    both backup diffs ignore predefined App-IDs in older backups.
+  - Application filters are backed up and cloned over REST: the SDK model
+    has no `tagging`, the App-ID tag match.
+  - `name_prefix` now rewrites references to the objects it renames, from
+    the same table the preflight checks, including dynamic address group
+    tag filters. Not rewritten: log forwarding to syslog/HTTP server
+    profiles, HIP profile match expressions, zone protection on zones.
+  - The preflight checks address/address-group, zone and tag references,
+    NAT rules (zones, addresses, services, translated addresses) and URL
+    access profile categories. IP literals and regions resolve, and
+    `trust`/`untrust` are built in (the zones API lists none for Prisma
+    Access folders). Never strips from a negated source/destination or
+    from NAT. Live-checked read-only: four backups from other tenants,
+    checked against a lab tenant. The first run flagged two real predefined
+    URL categories (the best-practice profile doesn't list every PAN-DB
+    category), so `url-filtering-categories` is now a category source. After
+    that, the only new-kind finding was an address object the lab tenant
+    genuinely lacks.
+
+  Still open:
+  - Custom applications aren't cloned (no lab tenant has one to test).
+  - Objects from non-predefined PAN snippets (e.g. `Web-Security-Default`
+    application filters, `Auto-VPN-Default-Snippet` zones) are cloned into
+    the target folder like the customer's own objects.
   - SCM candidate validation (checked 2026-09-25 against pan.dev `1f192ff`):
     there is no public endpoint. The jobs schema lists a `Validate` job
     type (`type_str`), presumably the UI push dialog's Validate button, but

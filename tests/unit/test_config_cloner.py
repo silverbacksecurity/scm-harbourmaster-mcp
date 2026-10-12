@@ -399,9 +399,16 @@ def test_folder_kwarg_conflict_overwrite_passes_folder_once(tmp_path):
 def test_url_categories_and_profile_groups_precede_dependants(tmp_path):
     client = FakeClient()
     order: list[str] = []
-    for attr in ("url_category", "url_access_profile", "profile_group", "security_rule"):
+    for attr in ("url_category", "url_access_profile", "security_rule"):
         res = client.resources.setdefault(attr, FakeResource())
         res.create = (lambda a: lambda data, **kw: order.append(a))(attr)  # type: ignore[method-assign]
+
+    class _Recorder:  # profile groups are pushed over REST
+        def post(self, url: str, json: Any = None, timeout: Any = None) -> Any:
+            order.append("profile_group")
+            return _Resp(201, {"id": "new"})
+
+    client.resources["session"] = _Recorder()  # type: ignore[assignment]
     src = _backup(
         tmp_path,
         {

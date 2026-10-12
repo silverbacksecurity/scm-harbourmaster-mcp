@@ -22,6 +22,11 @@ class Status(StrEnum):
     SKIP = "skip"  # could not evaluate (missing data / unsupported config)
 
 
+def is_predefined(obj: Any) -> bool:
+    """True for PAN-supplied content (objects from a ``predefined*`` snippet)."""
+    return isinstance(obj, dict) and str(obj.get("snippet") or "").startswith("predefined")
+
+
 @dataclass
 class Finding:
     """A single audit finding from a BPA or NCSC check."""
@@ -72,6 +77,7 @@ class AuditSnapshot:
     edls: list[dict[str, Any]] = field(default_factory=list)
     applications: list[dict[str, Any]] = field(default_factory=list)
     application_groups: list[dict[str, Any]] = field(default_factory=list)
+    application_filters: list[dict[str, Any]] = field(default_factory=list)
     hip_objects: list[dict[str, Any]] = field(default_factory=list)
     hip_profiles: list[dict[str, Any]] = field(default_factory=list)
 

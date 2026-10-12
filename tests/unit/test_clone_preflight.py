@@ -319,7 +319,8 @@ def test_stripped_group_used_by_a_deny_rule_warns():
     assert any("block-bad" in w for w in result.warnings)
 
 
-def test_name_prefix_hint_when_reference_points_at_a_renamed_clone():
+def test_reference_to_a_prefixed_clone_resolves():
+    # The cloner rewrites "grp" to "C1_grp", the copy it creates
     resources = {
         "application_groups": [{"name": "grp", "members": ["ssl"]}],
         "security_rules_pre": [_rule("r1", application=["grp"])],
@@ -330,8 +331,7 @@ def test_name_prefix_hint_when_reference_points_at_a_renamed_clone():
         _inv(**_base()),
         name_prefix="C1_",
     )
-    [issue] = result.missing
-    assert "C1_grp" in issue.detail
+    assert result.missing == []
 
 
 def test_only_planned_keys_are_checked_or_counted_as_created():

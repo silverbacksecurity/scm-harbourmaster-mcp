@@ -21,7 +21,7 @@ from typing import Any
 
 from ..resources.endpoint_catalog import find_endpoint
 from ..utils.logging import get_logger
-from .models import AuditSnapshot
+from .models import AuditSnapshot, is_predefined
 
 # The pan-scm-sdk logs at ERROR for expected 404 responses (e.g. infrastructure_settings
 # not present on a tenant). Silence the SDK's own loggers — our extractor records
@@ -326,6 +326,20 @@ def _extract_snapshot_uncached(client: Any, folder: str, tenant_id: str) -> Audi
                 snap.extraction_errors.append(f"profile_group (REST): {exc}")
             return []
 
+    # Application filters: the SDK model has no "tagging" field (filter by
+    # App-ID tag), so a backup made through it would lose those filters' match.
+    def _fetch_application_filters_rest() -> list[dict[str, Any]]:
+        session = getattr(client, "session", None)
+        if session is None:
+            return []
+        url = f"{_SCM_API_HOST}/config/objects/v1/application-filters"
+        try:
+            return _rest_list(session, url, {"folder": folder, "limit": str(_LIMIT)})
+        except Exception as exc:
+            with errors_lock:
+                snap.extraction_errors.append(f"application_filter (REST): {exc}")
+            return []
+
     # IKE Gateways: SDK Pydantic model drops local_address (e.g. {"interface": "vlan"})
     # which is required for a complete AS-BUILT and for config backup/restore.
     def _fetch_ike_gateways_rest() -> list[dict[str, Any]]:
@@ -436,6 +450,7 @@ def _extract_snapshot_uncached(client: Any, folder: str, tenant_id: str) -> Audi
         # returns thousands of built-in predefined apps and consistently exceeds
         # the 22s parallel timeout.  Custom app objects are fetched post-pool.
         ("application_groups", lambda: _safe("application_group", **kw)),
+        ("application_filters", _fetch_application_filters_rest),
         ("hip_objects", lambda: _safe("hip_object", **kw)),
         ("hip_profiles", lambda: _safe("hip_profile", **kw_nolimit)),
         # Security profiles
@@ -676,17 +691,14 @@ def _extract_snapshot_uncached(client: Any, folder: str, tenant_id: str) -> Audi
                     logger.warning("extraction_error", resource=label, error=err)
                 return None
 
-    # Custom application objects only — the SCM applications API returns
-    # 3000+ predefined PAN app-id entries alongside tenant-defined apps.
-    # We filter post-fetch to apps whose folder matches the queried folder
-    # (predefined apps have folder="predefined" or no folder field).
-    def _fetch_custom_apps() -> list[dict[str, Any]]:
-        all_apps = _safe("application", **kw)
-        # Predefined PANW app-id entries have snippet="predefined"; exclude them
-        # so only tenant-defined custom applications are captured.
-        return [a for a in all_apps if a.get("snippet") != "predefined"]
+    # Every application visible from the folder: the ~11k predefined App-IDs
+    # (snippet "predefined-snippet") as well as custom ones.  The config index
+    # can include the predefined catalogue; the backup keeps custom apps only
+    # (backup_resource_payload).
+    def _fetch_apps() -> list[dict[str, Any]]:
+        return _safe("application", **kw)
 
-    apps = _singleton("applications", _fetch_custom_apps, timeout=_SINGLETON_TIMEOUT_SLOW)
+    apps = _singleton("applications", _fetch_apps, timeout=_SINGLETON_TIMEOUT_SLOW)
     if apps is not None:
         snap.applications = apps
 
@@ -830,8 +842,11 @@ def backup_resource_payload(snap: AuditSnapshot) -> dict[str, Any]:
         "service_groups": snap.service_groups,
         "tags": snap.tags,
         "edls": snap.edls,
-        "applications": snap.applications,
+        # Custom applications only: the predefined App-ID catalogue is in
+        # every tenant and would be ~11k rows of every backup.
+        "applications": [a for a in snap.applications if not is_predefined(a)],
         "application_groups": snap.application_groups,
+        "application_filters": snap.application_filters,
         "hip_objects": snap.hip_objects,
         "hip_profiles": snap.hip_profiles,
         # Security profiles

@@ -10,6 +10,12 @@ Workflow:
      groups → profiles → rules → deployment).
   4. Return a detailed push report (or a dry-run preview).
 
+name_prefix renames every cloned object and rewrites the references to it in
+the fields the preflight checks (clone_preflight.REFERENCE_FIELDS): rules,
+groups, profile groups, URL access profiles, tags and dynamic address group
+filters.  Other references (log forwarding to syslog/HTTP server profiles,
+HIP profile match expressions, zone protection on zones) keep the old name.
+
 PSK handling: pre-shared keys in IKE gateways are ALWAYS replaced with
   CHANGEME_<gateway-name>  — they must be set manually before committing.
 
@@ -19,7 +25,7 @@ Tier 0  tags, services, EDLs, URL categories, server/crypto/sec profiles,
         GP & identity
 Tier 1  addresses, service groups, log-forwarding profiles, zone-protection,
         profile groups
-Tier 2  address groups, app groups, HIP objects
+Tier 2  address groups, app filters, app groups, HIP objects
 Tier 3  HIP profiles, security zones
 Rules   security (pre), security (post), NAT, decryption, app-override
 Deploy  IKE gateways, IPSec tunnels, remote networks, service connections
@@ -37,6 +43,7 @@ import copy
 import inspect
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -47,10 +54,12 @@ from ..utils.logging import get_logger
 from .clone_preflight import (
     MISSING_REFERENCE_MODES,
     MISSING_TRUST_CERT_MODES,
+    PROVIDES,
     PreflightResult,
     TargetInventory,
     check_references,
     fetch_target_inventory,
+    rewrite_references,
 )
 
 logger = get_logger(__name__)
@@ -125,6 +134,8 @@ _PUSH_ORDER: list[tuple[str, str, str]] = [
     ("profile_groups", "profile_group", "customer"),
     # ── Tier 2 ────────────────────────────────────────────────────────────
     ("address_groups", "address_group", "customer"),
+    # Application groups can list application filters
+    ("application_filters", "application_filter", "customer"),
     ("application_groups", "application_group", "customer"),
     # ── Tier 3 ────────────────────────────────────────────────────────────
     ("hip_profiles", "hip_profile", "customer"),
@@ -368,9 +379,14 @@ def _sanitise(
     ip_map: dict[str, str],
     is_ike_gateway: bool = False,
     set_folder: bool = True,
+    rewrite: Callable[[dict[str, Any]], Any] | None = None,
 ) -> tuple[dict[str, Any], str | None]:
     """
     Returns (sanitised_obj, psk_warning_or_None).
+
+    *rewrite* points references at renamed objects.  It runs before IP
+    anonymisation, which would otherwise change an IP-bearing name such as
+    ``H-192.0.2.1`` before the rename map could match it.
     """
     o = _drop_nulls(_strip_system_fields(copy.deepcopy(obj)))
     # SCM models accept exactly one container, so the source snippet/device has
@@ -393,6 +409,8 @@ def _sanitise(
 
     if name_prefix:
         o = _apply_name_prefix(o, name_prefix)
+    if rewrite is not None:
+        rewrite(o)
 
     if anonymise_ips:
         o = _anonymise_ips(o, ip_map)
@@ -453,9 +471,12 @@ class _RestResource:
         return self._check(self._session.put(f"{self._url}/{data['id']}", json=payload, timeout=30))
 
 
-# Resources with no pan-scm-sdk wrapper (0.15.1), pushed via raw REST
+# Resources pushed via raw REST: profile groups have no pan-scm-sdk wrapper
+# (0.15.1), and its application-filter model has no "tagging" field, which
+# the API returns and filters on.
 _REST_ONLY_RESOURCES: dict[str, str] = {
     "profile_group": "https://api.sase.paloaltonetworks.com/sse/config/v1/profile-groups",
+    "application_filter": "https://api.sase.paloaltonetworks.com/config/objects/v1/application-filters",
 }
 
 
@@ -531,10 +552,7 @@ class _AliasedRestResource(_RestResource):
 
 def _resource(client: Any, sdk_attr: str) -> Any:
     if sdk_attr in _REST_ONLY_RESOURCES:
-        try:
-            return getattr(client, sdk_attr)
-        except AttributeError:
-            return _RestResource(client.session, _REST_ONLY_RESOURCES[sdk_attr])
+        return _RestResource(client.session, _REST_ONLY_RESOURCES[sdk_attr])
     resource = getattr(client, sdk_attr)
     renames = _ALIASED_KEYS.get(sdk_attr)
     endpoint = getattr(resource, "ENDPOINT", None)
@@ -772,6 +790,22 @@ def clone_config(
         if preflight.blocked and not dry_run:
             return report
 
+    # References to objects this clone creates under a prefix follow the rename
+    renames: dict[str, dict[str, str]] = {}
+    if name_prefix:
+        planned = {b[0] for b in batches}
+        for key, kinds in PROVIDES.items():
+            if key not in planned:
+                continue
+            for obj in resources.get(key) or []:
+                name = str(obj.get("name") or "") if isinstance(obj, dict) else ""
+                if not name or _is_predefined(obj):
+                    continue
+                if preflight is not None and (key, name) in preflight.skip:
+                    continue
+                for kind in kinds:
+                    renames.setdefault(kind, {})[name] = f"{name_prefix}{name}"
+
     def _process_batch(
         snap_key: str,
         sdk_attr: str,
@@ -824,6 +858,7 @@ def clone_config(
                 ip_map=ip_map,
                 is_ike_gateway=is_ike_gateway,
                 set_folder=not folder_kwarg and sdk_attr not in _FOLDERLESS_RESOURCES,
+                rewrite=(lambda x: rewrite_references(snap_key, x, renames)) if renames else None,
             )
             if psk_w:
                 report.psk_warnings.append(psk_w)

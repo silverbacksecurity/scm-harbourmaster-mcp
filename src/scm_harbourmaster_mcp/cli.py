@@ -1126,6 +1126,8 @@ def _op_config_diff(tenant: TenantConfig) -> None:
         Prompt.ask("\nPress Enter to continue")
         return
 
+    from .audit.models import is_predefined
+
     with console.status("[cyan]Loading backups...[/cyan]"):
         data_a = json.loads(file_a.read_text())
         data_b = json.loads(file_b.read_text())
@@ -1133,7 +1135,12 @@ def _op_config_diff(tenant: TenantConfig) -> None:
     def _extract_resources(data: dict[str, Any]) -> dict[str, list[Any]]:
         """Support both new ('resources') and old ('data') backup formats."""
         if "resources" in data:
-            return {k: v for k, v in data["resources"].items() if isinstance(v, list)}
+            # Older backups carry the whole App-ID catalogue; compare custom apps only
+            return {
+                k: [i for i in v if not (k == "applications" and is_predefined(i))]
+                for k, v in data["resources"].items()
+                if isinstance(v, list)
+            }
         legacy = data.get("data", {})
         return {k: v for k, v in legacy.items() if isinstance(v, list)}
 

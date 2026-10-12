@@ -13,7 +13,7 @@ from collections import Counter
 from datetime import UTC, datetime
 from typing import Any
 
-from .models import AuditSnapshot, Finding, Severity, Status
+from .models import AuditSnapshot, Finding, Severity, Status, is_predefined
 from .ncsc_controls import NCSC_CONTROLS
 
 
@@ -138,7 +138,7 @@ class ReportBuilder:
             ("Service objects", len(snap.services)),
             ("Tags", len(snap.tags)),
             ("External dynamic lists", len(snap.edls)),
-            ("Applications", len(snap.applications)),
+            ("Custom applications", sum(1 for a in snap.applications if not is_predefined(a))),
             ("HIP objects", len(snap.hip_objects)),
             ("Anti-spyware profiles", len(snap.anti_spyware_profiles)),
             ("Vulnerability profiles", len(snap.vulnerability_profiles)),

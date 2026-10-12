@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Clone follow-ups.**
+  - **References follow `name_prefix`.** `scm_config_clone` now rewrites
+    references to the objects it renames, including dynamic address group
+    tag filters. Before, a prefixed clone pointed at names that didn't exist.
+  - **More preflight checks.** The reference preflight now covers addresses,
+    address groups, zones, tags, NAT rules and URL access profile categories.
+    IP literals, regions and the built-in `trust`/`untrust` zones resolve.
+  - **Application filters** are backed up and cloned.
 - **`scm_pab_policy`**, a read-only view of Prisma Browser policy.
   - `rulebase` lists the access & data, security, customization and sign-in
     rulebases in evaluation order, grouped by section, with counts by mode.
@@ -495,6 +503,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `/etc` are unchanged.
 
 ### Fixed
+- **Backups no longer carry the whole App-ID catalogue.** The custom-app
+  filter missed PAN's `predefined-snippet`, so every backup held ~11,000
+  predefined App-IDs. Backup diffs ignore them in older backups, and the
+  report counts custom applications only.
+- `strip_member` no longer strips a member from a negated source or
+  destination, which would have widened the rule. The stripped-group warning
+  now covers address groups, NAT and decryption rules, and negated matches.
 - The Prisma Browser tools now say "most likely not provisioned" when a
   tenant without Prisma Browser returns `500 INTERNAL_ERROR`. These tenants
   used to return "tenant not found"; the bare 500 came through as a raw

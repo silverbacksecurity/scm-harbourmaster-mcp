@@ -24,10 +24,20 @@ Findings from the live restore that motivated this:
     403.  Those references are "unverifiable", never "missing".
   * An enabled decrypt rule fails the push unless the target selects a
     forward-trust certificate, and certificates are not cloned.
+  * The zones API lists nothing for the Prisma Access folders, whose rules
+    use the built-in zones "trust" and "untrust"; those two are keywords.
+  * The regions list holds the predefined countries and reserved ranges, so
+    region names resolve from it.  IP literals in address fields resolve
+    as themselves.
+
+The same reference table drives the name_prefix rewrite in the cloner
+(:func:`rewrite_references`), so the check and the rewrite cannot disagree.
 """
 
 from __future__ import annotations
 
+import ipaddress
+import re
 import time
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
@@ -41,6 +51,7 @@ logger = get_logger(__name__)
 _HOST = "https://api.sase.paloaltonetworks.com"
 _OBJECTS = f"{_HOST}/config/objects/v1"
 _SECURITY = f"{_HOST}/config/security/v1"
+_NETWORK = f"{_HOST}/config/network/v1"
 _SSE = f"{_HOST}/sse/config/v1"
 # The applications list takes ~18s per 1000-row page (~11 pages: every App-ID
 # comes back twice), slowing to ~40s a page under concurrency; a 5000-row page
@@ -70,6 +81,11 @@ def _names(row: dict[str, Any]) -> Iterable[str]:
 
 def _app_names(row: dict[str, Any]) -> Iterable[str]:
     return [n for n in (row.get("name"), row.get("container")) if n]
+
+
+def _category_values(row: dict[str, Any]) -> Iterable[str]:
+    # url-filtering-categories rows are {"value": ..., "type": ...}
+    return [str(row["value"])] if row.get("value") else []
 
 
 def _url_profile_categories(row: dict[str, Any]) -> Iterable[str]:
@@ -108,6 +124,9 @@ KINDS: dict[str, _Kind] = {
         "URL category",
         (
             (f"{_SECURITY}/url-categories", _names),
+            # Every predefined PAN-DB category; the best-practice profile
+            # below misses some (e.g. scanning-activity)
+            (f"{_SECURITY}/url-filtering-categories", _category_values),
             (f"{_SECURITY}/url-access-profiles", _url_profile_categories),
             # URL-type EDLs are valid in a rule's category field
             (f"{_OBJECTS}/external-dynamic-lists", _names),
@@ -146,26 +165,48 @@ KINDS: dict[str, _Kind] = {
     "log_setting": _Kind(
         "log forwarding profile", ((f"{_OBJECTS}/log-forwarding-profiles", _names),)
     ),
+    "address": _Kind(
+        "address",
+        (
+            (f"{_OBJECTS}/addresses", _names),
+            (f"{_OBJECTS}/address-groups", _names),
+            # IP-type EDLs are valid in source/destination
+            (f"{_OBJECTS}/external-dynamic-lists", _names),
+            # Custom regions plus the predefined countries and reserved ranges
+            (f"{_OBJECTS}/regions", _names),
+        ),
+        frozenset({"any"}),
+    ),
+    # Prisma Access rules use the built-in trust/untrust zones, which the
+    # zones API does not list for its folders.
+    "zone": _Kind("zone", ((f"{_NETWORK}/zones", _names),), frozenset({"any", "trust", "untrust"})),
+    "tag": _Kind("tag", ((f"{_OBJECTS}/tags", _names),)),
 }
 
-# Backup keys whose objects, once cloned, satisfy references of a kind.
+# Backup keys whose objects, once cloned, satisfy references of these kinds.
 # Custom applications are absent: the cloner does not push them.
-_PROVIDES: dict[str, str] = {
-    "application_groups": "application",
-    "services": "service",
-    "service_groups": "service",
-    "url_categories": "category",
-    "edls": "category",
-    "hip_profiles": "hip",
-    "profile_groups": "profile_group",
-    "anti_spyware_profiles": "spyware",
-    "vulnerability_profiles": "vulnerability",
-    "wildfire_profiles": "virus_and_wildfire_analysis",
-    "url_access_profiles": "url_filtering",
-    "file_blocking_profiles": "file_blocking",
-    "dns_security_profiles": "dns_security",
-    "decryption_profiles": "decryption_profile",
-    "log_forwarding_profiles": "log_setting",
+PROVIDES: dict[str, tuple[str, ...]] = {
+    "tags": ("tag",),
+    "addresses": ("address",),
+    "address_groups": ("address",),
+    "zones": ("zone",),
+    "application_groups": ("application",),
+    "application_filters": ("application",),
+    "services": ("service",),
+    "service_groups": ("service",),
+    "url_categories": ("category",),
+    # An EDL is a URL list (categories) or an IP list (addresses)
+    "edls": ("category", "address"),
+    "hip_profiles": ("hip",),
+    "profile_groups": ("profile_group",),
+    "anti_spyware_profiles": ("spyware",),
+    "vulnerability_profiles": ("vulnerability",),
+    "wildfire_profiles": ("virus_and_wildfire_analysis",),
+    "url_access_profiles": ("url_filtering",),
+    "file_blocking_profiles": ("file_blocking",),
+    "dns_security_profiles": ("dns_security",),
+    "decryption_profiles": ("decryption_profile",),
+    "log_forwarding_profiles": ("log_setting",),
 }
 
 _PROFILE_GROUP_FIELDS = (
@@ -183,14 +224,31 @@ _PROFILE_GROUP_FIELDS = (
 
 @dataclass(frozen=True)
 class _Ref:
-    field: str  # dotted path for nested fields
+    # Dotted path for nested fields.  Backups hold SDK field names, so a
+    # rule's zones are under "from_"/"to_".
+    field: str
     kind: str
     # Dropping a member narrows what the object matches.  Only safe for group
     # members and allow rules — see _can_strip.
     strippable: bool = False
+    # The value is a tag-match expression ("'web' and not 'old'") rather than
+    # a name or list of names.
+    expression: bool = False
+
+
+_TAG = _Ref("tag", "tag")
+_ZONES = (_Ref("from_", "zone", True), _Ref("to_", "zone", True))
+_ADDRESSES = (_Ref("source", "address", True), _Ref("destination", "address", True))
+
+
+def _fixed(refs: Iterable[_Ref]) -> tuple[_Ref, ...]:
+    """The same references, none strippable."""
+    return tuple(_Ref(r.field, r.kind, False, r.expression) for r in refs)
 
 
 _SECURITY_RULE_REFS = (
+    *_ZONES,
+    *_ADDRESSES,
     _Ref("application", "application", True),
     _Ref("service", "service", True),
     _Ref("category", "category", True),
@@ -198,29 +256,119 @@ _SECURITY_RULE_REFS = (
     _Ref("destination_hip", "hip", True),
     _Ref("profile_setting.group", "profile_group"),
     _Ref("log_setting", "log_setting"),
+    _TAG,
+)
+
+# Changing which traffic a NAT rule translates, or where to, is never safe,
+# so nothing in a NAT rule is strippable.
+_NAT_RULE_REFS = (
+    *_fixed(_ZONES),
+    *_fixed(_ADDRESSES),
+    _Ref("service", "service"),
+    _Ref("source_translation.dynamic_ip_and_port.translated_address", "address"),
+    _Ref("source_translation.dynamic_ip.translated_address", "address"),
+    _Ref("source_translation.static_ip.translated_address", "address"),
+    _Ref("destination_translation.translated_address", "address"),
+    _TAG,
 )
 
 REFERENCE_FIELDS: dict[str, tuple[_Ref, ...]] = {
+    "addresses": (_TAG,),
+    "address_groups": (
+        _Ref("static", "address", True),
+        _Ref("dynamic.filter", "tag", expression=True),
+        _TAG,
+    ),
+    "services": (_TAG,),
+    "service_groups": (_Ref("members", "service", True), _TAG),
     "application_groups": (_Ref("members", "application", True),),
-    "service_groups": (_Ref("members", "service", True),),
     "profile_groups": tuple(_Ref(f, f) for f in _PROFILE_GROUP_FIELDS),
+    # Removing a category from a block list loosens the profile
+    "url_access_profiles": tuple(
+        _Ref(f, "category") for f in ("alert", "allow", "block", "continue_", "continue")
+    ),
     "security_rules_pre": _SECURITY_RULE_REFS,
     "security_rules_post": _SECURITY_RULE_REFS,
+    "nat_rules_pre": _NAT_RULE_REFS,
+    "nat_rules_post": _NAT_RULE_REFS,
+    "nat_rules": _NAT_RULE_REFS,
     # Removing a match criterion from a decryption rule changes what gets
     # decrypted in either direction, so nothing there is strippable.
     "decryption_rules": (
+        *_fixed(_ZONES),
+        *_fixed(_ADDRESSES),
         _Ref("service", "service"),
         _Ref("category", "category"),
         _Ref("source_hip", "hip"),
         _Ref("destination_hip", "hip"),
         _Ref("profile", "decryption_profile"),
         _Ref("log_setting", "log_setting"),
+        _TAG,
     ),
-    "app_override_rules": (_Ref("application", "application"),),
+    "app_override_rules": (
+        *_fixed(_ZONES),
+        *_fixed(_ADDRESSES),
+        _Ref("application", "application"),
+        _TAG,
+    ),
 }
 
 _SECURITY_RULE_KEYS = frozenset({"security_rules_pre", "security_rules_post"})
-_GROUP_KEYS = frozenset({"application_groups", "service_groups"})
+_RULE_KEYS = _SECURITY_RULE_KEYS | {
+    "nat_rules_pre",
+    "nat_rules_post",
+    "nat_rules",
+    "decryption_rules",
+    "app_override_rules",
+}
+_GROUP_KEYS = frozenset({"application_groups", "service_groups", "address_groups"})
+# Group key → the rule fields its members can stand in for
+_GROUP_FIELDS = {
+    "application_groups": ("application",),
+    "service_groups": ("service",),
+    "address_groups": ("source", "destination"),
+}
+
+# A tag expression: quoted names, parentheses, operators, bare names
+_EXPR_TOKEN = re.compile(r"'[^']*'|\"[^\"]*\"|[()]|[^\s()]+")
+_EXPR_OPERATORS = frozenset({"and", "or", "not"})
+
+
+def _expression_names(expr: str) -> list[str]:
+    names = []
+    for token in _EXPR_TOKEN.findall(expr):
+        if token in "()" or token.lower() in _EXPR_OPERATORS:
+            continue
+        names.append(token[1:-1] if token[0] in "'\"" else token)
+    return [n for n in names if n]
+
+
+def _rewrite_expression(expr: str, renames: dict[str, str]) -> str:
+    def swap(m: re.Match[str]) -> str:
+        token = m.group(0)
+        quoted = token[0] in "'\""
+        name = token[1:-1] if quoted else token
+        if token in "()" or token.lower() in _EXPR_OPERATORS or name not in renames:
+            return token
+        new = renames[name]
+        quote = token[0] if quoted else "'"
+        return f"{quote}{new}{quote}" if quoted or " " in new else new
+
+    return _EXPR_TOKEN.sub(swap, expr)
+
+
+def is_ip_literal(value: str) -> bool:
+    """An address field value that is an IP, network or range, not a name."""
+    parts = value.split("-")
+    try:
+        if len(parts) == 2:
+            ipaddress.ip_address(parts[0])
+            ipaddress.ip_address(parts[1])
+        else:
+            ipaddress.ip_network(value, strict=False)
+    except ValueError:
+        return False
+    return True
 
 
 def _values(obj: dict[str, Any], path: str) -> list[str]:
@@ -234,6 +382,42 @@ def _values(obj: dict[str, Any], path: str) -> list[str]:
     if isinstance(value, str) and value:
         return [value]
     return []
+
+
+def _ref_values(obj: dict[str, Any], ref: _Ref) -> list[str]:
+    values = _values(obj, ref.field)
+    if ref.expression:
+        return [n for v in values for n in _expression_names(v)]
+    return values
+
+
+def rewrite_references(
+    key: str, obj: dict[str, Any], renames: dict[str, dict[str, str]]
+) -> dict[str, Any]:
+    """Point *obj*'s references at renamed objects, in place.
+
+    *renames* maps kind → old name → new name, for the objects a clone
+    creates under a ``name_prefix``.  Only the fields in REFERENCE_FIELDS
+    are rewritten.
+    """
+    for ref in REFERENCE_FIELDS.get(key, ()):
+        names = renames.get(ref.kind)
+        if not names:
+            continue
+        *parents, leaf = ref.field.split(".")
+        holder: Any = obj
+        for part in parents:
+            holder = holder.get(part) if isinstance(holder, dict) else None
+        if not isinstance(holder, dict) or leaf not in holder:
+            continue
+        value = holder[leaf]
+        if ref.expression and isinstance(value, str):
+            holder[leaf] = _rewrite_expression(value, names)
+        elif isinstance(value, list):
+            holder[leaf] = [names.get(v, v) if isinstance(v, str) else v for v in value]
+        elif isinstance(value, str):
+            holder[leaf] = names.get(value, value)
+    return obj
 
 
 def _is_predefined(obj: dict[str, Any]) -> bool:
@@ -468,7 +652,10 @@ def _can_strip(key: str, obj: dict[str, Any], ref: _Ref) -> bool:
     if not ref.strippable:
         return False
     if key in _SECURITY_RULE_KEYS:
-        # Narrowing a deny/drop/reset rule lets through what the source denied
+        # Narrowing a deny/drop/reset rule lets through what the source denied,
+        # and dropping a member of a negated list widens the rule.
+        if ref.field in ("source", "destination") and obj.get(f"negate_{ref.field}"):
+            return False
         return str(obj.get("action") or "") == "allow"
     return key in _GROUP_KEYS
 
@@ -503,36 +690,39 @@ def check_references(
     # Names the clone creates, by kind (as named in the target)
     created: dict[str, dict[str, tuple[str, str]]] = {}
     for key in planned_keys:
-        kind = _PROVIDES.get(key)
-        if kind:
+        for kind in PROVIDES.get(key, ()):
             for obj in objects(key):
                 name = str(obj.get("name", ""))
                 created.setdefault(kind, {})[f"{name_prefix}{name}"] = (key, name)
     # PAN predefined content is in every tenant.  Applications are excluded:
     # the backup's catalogue is the source tenant's content version.
     predefined: dict[str, set[str]] = {}
-    for key, kind in _PROVIDES.items():
+    for key, kinds in PROVIDES.items():
         for obj in resources.get(key) or []:
             if isinstance(obj, dict) and _is_predefined(obj) and obj.get("name"):
-                predefined.setdefault(kind, set()).add(str(obj["name"]))
+                for kind in kinds:
+                    predefined.setdefault(kind, set()).add(str(obj["name"]))
 
     def resolve(kind: str, name: str) -> tuple[str, str]:
         if name in KINDS[kind].keywords or name in predefined.get(kind, set()):
             return "", ""
-        if name in inventory.names.get(kind, set()):
+        if kind == "address" and is_ip_literal(name):
             return "", ""
-        owner = created.get(kind, {}).get(name)
+        # The cloner rewrites a reference to the copy it creates, so that copy
+        # wins over a same-named object already in the target.
+        owner = created.get(kind, {}).get(f"{name_prefix}{name}")
         if owner and owner not in result.skip:
+            return "", ""
+        if name in inventory.names.get(kind, set()):
             return "", ""
         if owner:
             return "missing", f"skipped by preflight: {result.skip[owner]}"
         hint = ""
-        if name_prefix and f"{name_prefix}{name}" in created.get(kind, {}):
-            hint = f"cloned as `{name_prefix}{name}`; name_prefix does not rewrite references"
-        elif kind == "application":
+        if kind == "application":
             hint = (
                 "no App-ID, application group or application filter of that name in the "
-                "target (a retired App-ID, or a custom object the backup does not carry)"
+                "target (a retired App-ID, or a custom application, which the clone does "
+                "not create)"
             )
         if kind in inventory.unreadable:
             return "unverifiable", inventory.unreadable[kind]
@@ -552,7 +742,7 @@ def check_references(
                 oid = (key, str(obj.get("name", "")))
                 obj_issues: list[tuple[_Ref, RefIssue]] = []
                 for ref in refs:
-                    for name in _values(obj, ref.field):
+                    for name in _ref_values(obj, ref):
                         status, detail = resolve(ref.kind, name)
                         if status:
                             obj_issues.append(
@@ -610,23 +800,28 @@ def check_references(
         k: why for k, why in inventory.unreadable.items() if any(i.kind == k for i in result.issues)
     }
 
-    # A stripped group narrows every rule that uses it, deny rules included
+    # A stripped group narrows every rule that uses it.  That is only safe
+    # for an allow rule matching on the group directly.
     for key, name in result.strip:
         if key not in _GROUP_KEYS:
             continue
-        users = [
-            str(r.get("name"))
-            for rk in _SECURITY_RULE_KEYS & set(planned_keys)
-            for r in objects(rk)
-            if str(r.get("action") or "") != "allow"
-            and (rk, str(r.get("name"))) not in result.skip
-            and name in _values(r, "application") + _values(r, "service")
-        ]
+        users = []
+        for rk in _RULE_KEYS & set(planned_keys):
+            for r in objects(rk):
+                rname = str(r.get("name"))
+                if (rk, rname) in result.skip:
+                    continue
+                fields = [f for f in _GROUP_FIELDS[key] if name in _values(r, f)]
+                safe = rk in _SECURITY_RULE_KEYS and str(r.get("action") or "") == "allow"
+                negated = any(r.get(f"negate_{f}") for f in fields)
+                if fields and (not safe or negated):
+                    users.append(rname)
         if users:
             result.warnings.append(
-                f"Stripped group `{name}` is used by non-allow rule(s) "
+                f"Stripped group `{name}` is used by rule(s) "
                 + ", ".join(f"`{u}`" for u in users)
-                + " — they will block less than in the source."
+                + " that are not plain allow rules — they will match differently than in "
+                "the source (a deny or NAT rule covers less; a negated match covers more)."
             )
 
     _check_decrypt_prerequisite(result, objects, planned_keys, trust_state, on_missing_trust_cert)

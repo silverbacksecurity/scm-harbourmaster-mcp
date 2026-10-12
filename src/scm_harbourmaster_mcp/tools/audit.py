@@ -80,7 +80,7 @@ from ..audit.extractor import (
     extract_ztna_connectors,
 )
 from ..audit.incident_rca import collect_candidates, parse_any_ts, render_rca_report
-from ..audit.models import Status
+from ..audit.models import Status, is_predefined
 from ..audit.ncsc_controls import NCSC_CONTROLS
 from ..audit.report import ReportBuilder
 from ..auth.oauth import fetch_licenses, get_scm_client, get_tenant_meta
@@ -122,6 +122,17 @@ def _prune_asbuilt_jobs() -> None:
         stale = [k for k, v in _ASBUILT_JOBS.items() if v["started_at"] < cutoff]
         for k in stale:
             del _ASBUILT_JOBS[k]
+
+
+def _drop_predefined_apps(rtype: str, items: Any) -> Any:
+    """Backups made before custom-apps-only carry the whole App-ID catalogue.
+
+    Comparing one with a newer backup would report ~11k removed applications,
+    so predefined App-IDs are left out of the comparison on both sides.
+    """
+    if rtype == "applications" and isinstance(items, list):
+        return [i for i in items if not is_predefined(i)]
+    return items
 
 
 def _index_backup_resources(items: Any) -> dict[str, Any]:
@@ -2451,11 +2462,11 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
             data_b = json.loads(Path(backup_file_b).read_text())
 
             res_a: dict[str, dict[str, Any]] = {
-                rtype: _index_backup_resources(items)
+                rtype: _index_backup_resources(_drop_predefined_apps(rtype, items))
                 for rtype, items in data_a.get("resources", {}).items()
             }
             res_b: dict[str, dict[str, Any]] = {
-                rtype: _index_backup_resources(items)
+                rtype: _index_backup_resources(_drop_predefined_apps(rtype, items))
                 for rtype, items in data_b.get("resources", {}).items()
             }
 
@@ -2559,9 +2570,12 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
         -------------------
         Before any write (dry run included) the target folder is read and
         every name reference in the objects to be pushed is resolved:
-        application-group and service-group members, rule application /
-        service / URL category / HIP / profile-group / log-forwarding
-        references, decryption profiles and profile-group members.  SCM
+        address-, application- and service-group members, dynamic address
+        group tag filters, object tags, URL access profile categories, rule
+        zones / addresses / applications / services / URL categories / HIP
+        profiles / profile groups / log forwarding / tags, NAT translated
+        addresses, decryption profiles and profile-group members.  IP
+        literals, regions and the built-in trust/untrust zones resolve.  SCM
         accepts dangling references at create time and only rejects them at
         push validation, one per push — the preflight lists them all up
         front.  References to catalogues the service account cannot read
@@ -2580,7 +2594,11 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
             target_folder: Destination SCM folder name.
             target_tenant_id: Destination tenant (empty = same tenant as server default).
             name_prefix: Prefix prepended to every object name (e.g. "CUST1_").
-                         Useful when cloning into a shared folder.
+                         Useful when cloning into a shared folder.  References
+                         to cloned objects follow the rename in every field the
+                         preflight checks; log-forwarding server profiles, HIP
+                         profile match expressions and zone protection on
+                         zones keep the old name.
             anonymise_ips: Replace all IPv4 literals with {{IP_N}} template
                            variables. Use when sharing configs as templates.
             include_deployment: Also clone IKE gateways, IPSec tunnels,
