@@ -42,7 +42,11 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 WORKDIR /mermaid
 COPY deploy/mermaid/package.json deploy/mermaid/package-lock.json ./
+COPY deploy/mermaid/stubs ./stubs
 ENV PUPPETEER_SKIP_DOWNLOAD=1
+# Debian's npm 9 rejects the file: override for the extract-zip stub, so this
+# throwaway stage installs with the npm that wrote the lockfile.
+RUN npm install -g --no-audit --no-fund npm@11.17.0
 RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund
 
 # ── Base runtime stage ────────────────────────────────────────────────────────
@@ -103,6 +107,8 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends nodejs chromium fonts-dejavu-core && \
     rm -rf /var/lib/apt/lists/*
 COPY --from=mermaid-build /mermaid/node_modules /app/mermaid/node_modules
+# node_modules/extract-zip is a symlink to this local stub (see package.json)
+COPY --from=mermaid-build /mermaid/stubs /app/mermaid/stubs
 # Chromium's sandbox needs user namespaces, which a hardened container
 # (cap_drop ALL, default seccomp) doesn't grant: run it without, as the only
 # page it ever loads is mmdc's local diagram renderer.

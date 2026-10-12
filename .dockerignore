@@ -8,5 +8,6 @@
 !src/
 !deploy/mermaid/package.json
 !deploy/mermaid/package-lock.json
+!deploy/mermaid/stubs/
 **/__pycache__
 **/*.py[cod]

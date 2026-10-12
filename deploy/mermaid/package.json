@@ -4,10 +4,13 @@
   "description": "mermaid-cli for the full image's AS-BUILT/HLD diagrams. Chromium comes from Debian, so puppeteer never downloads a browser.",
   "dependencies": {
     "@mermaid-js/mermaid-cli": "11.17.0",
-    "puppeteer": "24.43.1"
+    "puppeteer": "24.43.1",
+    "extract-zip": "file:./stubs/extract-zip"
   },
   "overrides": {
-    "basic-ftp": "6.2.1"
+    "basic-ftp": "6.2.1",
+    "katex": "0.18.2",
+    "extract-zip": "$extract-zip"
   },
-  "//overrides": "basic-ftp: CVE-2026-102990 (HIGH) is fixed in 6.2.1; get-uri still asks for ^5. It's only reached through puppeteer's ftp:// proxy/download path, which mmdc never takes."
+  "//overrides": "basic-ftp: CVE-2026-102990 (HIGH) is fixed in 6.2.1; get-uri still asks for ^5. It's only reached through puppeteer's ftp:// proxy/download path, which mmdc never takes. katex: GHSA-238p-pmpm-9mq7 is fixed in 0.18.2; mermaid still asks for ^0.16. extract-zip: GHSA-7pqw-9j4j-h8q3 and GHSA-jmr9-qjv8-65gv have no fixed release; @puppeteer/browsers imports it only to unpack a downloaded browser, so a stub that throws replaces it (stubs/extract-zip). puppeteer 25 drops it but needs Node 22, and the image has Debian's Node 20."
 }

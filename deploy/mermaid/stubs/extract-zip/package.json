@@ -1,0 +1,8 @@
+{
+  "name": "extract-zip",
+  "version": "2.0.1-stub",
+  "private": true,
+  "description": "Stand-in for extract-zip, which has unpatched symlink path-traversal advisories (GHSA-7pqw-9j4j-h8q3, GHSA-jmr9-qjv8-65gv). @puppeteer/browsers only imports it to unpack a downloaded browser, and this image never downloads one.",
+  "main": "index.js",
+  "license": "MIT"
+}

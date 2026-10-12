@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- **virtualenv 21.13.0** (dev only, through pre-commit) fixes four advisories
+  (GHSA-p58f-9548-mpm2, GHSA-x78j-v8h9-3j2q, GHSA-94p9-xgh2-xp45,
+  GHSA-9h9j-4vrj-gf7g). python-discovery moves to 1.6.1 with it.
+- **Full image, mermaid-cli:**
+  - KaTeX is overridden to 0.18.2 for GHSA-238p-pmpm-9mq7. Mermaid still
+    asks for `^0.16`; math labels render the same.
+  - `extract-zip` (GHSA-7pqw-9j4j-h8q3, GHSA-jmr9-qjv8-65gv) has no fixed
+    release, so it is replaced by a local stub that throws if called.
+    `@puppeteer/browsers` only imports it to unpack a downloaded browser,
+    and the image uses Debian's Chromium. puppeteer 25 drops the dependency
+    but needs Node 22, and the image has Debian's Node 20.
+  - The mermaid build stage installs npm 11.17.0: Debian's npm 9 rejects the
+    stub's `file:` override. npm is still left out of the runtime image.
+
 ### Fixed
 - **`scm_config_clone` no longer copies content from PAN's snippets into the
   target folder.** Objects from `Web-Security-Default`, `hip-default`,
