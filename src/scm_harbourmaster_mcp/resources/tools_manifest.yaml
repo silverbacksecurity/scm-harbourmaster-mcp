@@ -946,6 +946,16 @@ scm_software_upgrade:
     not run yet.
   retry_policy: retry
   scope: tenant
+scm_software_upgrade_manage:
+  access: write
+  domain: deployment
+  idempotent: false
+  known_failure_modes: SSR pattern — dry_run default, mandatory ticket_ref (never sent
+    in the body).  An enabled download-install-reboot schedule reboots every matched
+    firewall.  Update is a full PUT merged over the current object.  Rule delete is
+    refused while a schedule names the rule.  Schedule start dates are sent as YYYY/MM/DD.
+  retry_policy: fail_fast
+  scope: tenant
 scm_spi_status:
   access: read
   domain: deployment

@@ -292,9 +292,18 @@ code. New candidates are listed below._
     BGP and OSPF auth profiles, route maps, community and path access
     lists, interfaces (also read per firewall with `?device=`), GRE tunnels
     and PBF rules. Backups of `All`/`ngfw-shared` walk the device folders.
-  - Still open: creating and editing upgrade rules and schedules, which can
-    queue a download-install-reboot on customer firewalls, so it needs the
-    SSR write pattern.
+  - ✅ Software-upgrade writes, built 2026-10-13 as
+    `scm_software_upgrade_manage`.
+    - It creates, updates and deletes schedules and rules on the SSR
+      pattern: dry run by default and `ticket_ref` required.
+    - A dry run returns the exact request, a diff against the current
+      object and the firewalls the rules match now.
+    - It refuses past start times, rules that don't exist, and deleting a
+      rule a schedule still uses.
+    - Only dry runs were checked live. These are still unproven: whether
+      POST accepts `YYYY/MM/DD` dates, what `enabled` defaults to on create,
+      which time zone the start times use, and whether a change needs a push
+      to take effect.
   - Still open in backups:
     - `route-prefix-lists`, `route-access-lists` and `auto-vpn-settings`
       answer 500 on every lab tenant.

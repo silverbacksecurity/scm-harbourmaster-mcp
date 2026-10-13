@@ -35,6 +35,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     changing the candidate config. Neither path has been sent live yet.
   - **`scm_config_versions`** lists the tenant's named snapshots.
   - **Config backups** save application tags (`application_tags`).
+- **`scm_software_upgrade_manage`** creates, updates and deletes NGFW
+  software-upgrade schedules and rules (`config/device/v1`) on the SSR
+  pattern. `ticket_ref` is required, audit-logged and never sent to SCM.
+  - It runs as a dry run by default. A dry run returns the exact request, a
+    diff against the current object and the firewalls the rules match now.
+  - Before sending anything it checks for past start times, a start-time
+    field that doesn't match the job type, rules that don't exist (rule ids
+    are converted to names), duplicate names, and deleting a rule a schedule
+    still uses.
+  - It warns about download-install-reboot reboots, downgrades, re-enabling
+    a schedule, and rule changes that change which firewalls an enabled
+    schedule upgrades.
+  - An update sends the whole object (PUT) merged over the current one.
+    Setting a field to `null` removes it.
+  - The preview for a new rule sends a rule position. Rules are first-match,
+    and the match API counts no firewalls for a rule with no position.
 - **Config backups include NGFW network config.** `scm_config_backup` and
   the CLI backup now save logical and virtual routers, BGP profiles, route
   maps, OSPF auth profiles, community and path access lists, ethernet,

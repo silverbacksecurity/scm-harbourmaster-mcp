@@ -53,6 +53,8 @@ EXPECTED_WRITE_TOOLS = {
     "scm_config_orch_profiles",
     "scm_config_orch_remote_networks",
     "scm_site_management",
+    # NGFW software-upgrade schedule/rule writes (can queue reboots).
+    "scm_software_upgrade_manage",
     # Compliance Center framework CRUD (create/update/delete/clone/benchmark).
     "scm_compliance_framework",
     # Phase 3b: the conversational planner run can orchestrate approved

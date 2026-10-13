@@ -4,7 +4,7 @@
 
 All tools authenticate via Bearer-token OAuth (SASE client credentials) configured in `settings.toml` / `.secrets.toml`.
 
-**<!-- tool-count -->177<!-- /tool-count --> tools** across <!-- module-count -->43<!-- /module-count --> modules.
+**<!-- tool-count -->178<!-- /tool-count --> tools** across <!-- module-count -->43<!-- /module-count --> modules.
 
 ## Table of Contents
 
@@ -5669,7 +5669,7 @@ Returns:
 
 ## Software Upgrade
 
-_MCP tool for NGFW software-upgrade rules, schedules and status (read-only)._
+_MCP tools for NGFW software-upgrade rules, schedules and status._
 
 ### `scm_software_upgrade`
 
@@ -5717,6 +5717,76 @@ Returns:
 | `rule` | `str` | `''` |
 | `serial` | `str` | `''` |
 | `from_date` | `str` | `''` |
+
+### `scm_software_upgrade_manage`
+
+Create, update or delete NGFW software-upgrade schedules and rules.
+
+```
+Write side of ``scm_software_upgrade`` (use that tool to look first).
+A **schedule** says which PAN-OS image to download or install and
+when; a **rule** says which firewalls a schedule targets. An enabled
+schedule with job_type ``download-install-reboot`` installs the image
+on, and REBOOTS, every firewall its rules match at the install time.
+
+**Write safety (SSR pattern):**
+  - ``dry_run=True`` by default: validates, then returns the exact
+    request (method, URL, JSON body) that would be sent, the current
+    object and a diff for update/delete, and, for an enabled schedule
+    or a rule's criteria, the firewalls matched now. Nothing is
+    written (the device preview is a match-criteria POST that only
+    reads). Rules are first-match, so a new rule (added last) only
+    counts firewalls no earlier rule matches; the preview also gives
+    the count as if it were first.
+  - ``ticket_ref`` is mandatory on every call, dry run included. It is
+    written to the audit log and echoed back, never sent to SCM.
+
+Checks before anything is sent: only spec fields are allowed (``id``
+and ``ticket_ref`` are rejected); start times set by the call must
+not be in the past; job_type must match its start time; a
+schedule's rules must exist (ids are converted to names, which is
+how schedules reference rules); names must be unique; a rule used
+by a schedule cannot be deleted; re-enabling a schedule needs a
+future start time.
+
+body_json fields:
+  - schedule: name, description, enabled, image_version, job_type
+    (download | install | download-install-reboot),
+    download_starttime / install_starttime
+    ``{"date": "YYYY-MM-DD", "at": "HH:MM"}`` (download jobs use
+    download_starttime, the others install_starttime), allow_downgrade,
+    ha_orchestration, rules (rule names).
+  - rule: name, description, enabled, match_criteria with folders
+    ``{"include": [...]}`` / ``{"any": {}}`` / ``exclude``, models
+    ``{"include": ["PA-440"]}``, labels (a label expression) and
+    exclude_devices (serials).
+
+Update sends the whole object (the API's PUT replaces it): the
+current object is read and body_json's fields are merged over it;
+set a field to null to remove it.
+
+Args:
+    tenant_id: SCM tenant ID (MSSP mode).
+    resource: schedule | rule.
+    action: create | update | delete.
+    target: Name or id of the schedule/rule, for update and delete.
+    body_json: JSON object of fields, for create and update.
+    dry_run: If True (default), plan and validate without writing.
+    ticket_ref: Mandatory change-ticket reference (never sent to SCM).
+
+Returns:
+    JSON: the planned or applied request, diff, impact and warnings.
+```
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `tenant_id` | `str` | `''` |
+| `resource` | `str` | `—` |
+| `action` | `str` | `—` |
+| `target` | `str` | `''` |
+| `body_json` | `str` | `''` |
+| `dry_run` | `bool` | `True` |
+| `ticket_ref` | `str` | `''` |
 
 ---
 
