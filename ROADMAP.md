@@ -288,9 +288,22 @@ code. New candidates are listed below._
     `scm_software_upgrade` (schedules joined with per-device status and
     failure reasons, rules, per-phase status for one schedule, matching
     firewalls for a rule). Live on two lab tenants with schedules.
+  - ✅ NGFW network config in config backups, built 2026-10-12: routers,
+    BGP and OSPF auth profiles, route maps, community and path access
+    lists, interfaces (also read per firewall with `?device=`), GRE tunnels
+    and PBF rules. Backups of `All`/`ngfw-shared` walk the device folders.
   - Still open: creating and editing upgrade rules and schedules, which can
     queue a download-install-reboot on customer firewalls, so it needs the
-    SSR write pattern; and the other R3 resources.
+    SSR write pattern.
+  - Still open in backups:
+    - `route-prefix-lists`, `route-access-lists` and `auto-vpn-settings`
+      answer 500 on every lab tenant.
+    - The `vr-*` virtual-router profiles answer 404.
+    - Per-firewall subinterfaces need an `ethernet-interface` parameter.
+    - Restoring network config with the cloner isn't built.
+  - Still open, other R3 resources: GP tunnel settings, device models,
+    named snapshots (`:load`), application tags (`bulk`),
+    `config-versions:push`, and `sites:query` / `remote-networks:query`.
 
 - ✅ **Site Management (NGFW device onboarding)** — shipped 2026-07-31 as
   `scm_site_management` (`tools/site_management.py`), covering the new

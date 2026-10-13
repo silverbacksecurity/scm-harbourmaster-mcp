@@ -831,10 +831,15 @@ Export a complete SCM configuration snapshot to a JSON backup file.
 ```
 Pulls all resource types for the folder — addresses, security rules,
 profiles, zones, VPN and deployment objects, network infrastructure
-(crypto/QoS profiles, internal DNS, BGP routing, GP IP pools) and the
+(crypto/QoS profiles, internal DNS, BGP routing, GP IP pools), the
 GlobalProtect mobile-agent stack (auth settings, tunnel and forwarding
-profiles, portals/gateways, SAML/Radius/LDAP auth profiles) — and
-writes a timestamped JSON file. The backup file can be used as input
+profiles, portals/gateways, SAML/Radius/LDAP auth profiles) and NGFW
+network config (logical routers, BGP/OSPF profiles, interfaces, GRE
+tunnels, PBF rules) — and writes a timestamped JSON file.
+
+Objects are those the folder holds or inherits.  For "All" and
+"ngfw-shared" the NGFW network config of every firewall's device
+folder is included too, and interfaces are read per firewall. The backup file can be used as input
 to scm_config_diff and scm_config_clone, and as the data source for
 the AS-BUILT report.
 

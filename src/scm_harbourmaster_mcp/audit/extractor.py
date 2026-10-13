@@ -9,6 +9,7 @@ data still produces useful findings.
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import logging
 import re
 import threading
@@ -918,6 +919,9 @@ def backup_resource_payload(snap: AuditSnapshot) -> dict[str, Any]:
         "saml_server_profiles": snap.saml_server_profiles,
         "radius_server_profiles": snap.radius_server_profiles,
         "ldap_server_profiles": snap.ldap_server_profiles,
+        # NGFW network config (extract_network_config): every key is written,
+        # empty when not extracted, so readers see a stable shape.
+        **{key: snap.network_config.get(key, []) for key in NETWORK_CONFIG_RESOURCES},
     }
 
 
@@ -2015,6 +2019,170 @@ def extract_ngfw_routing(client: Any, snap: Any) -> Any:
         bgp_af_profiles=len(snap.ngfw_bgp_address_family_profiles),
         bgp_redist_profiles=len(snap.ngfw_bgp_redistribution_profiles),
         bgp_route_maps=len(snap.ngfw_bgp_route_maps),
+    )
+    return snap
+
+
+# Backup key → /config/network/v1 path for extract_network_config.  Left out
+# because they 500 on every lab tenant (2026-10-12): route-prefix-lists,
+# route-access-lists and auto-vpn-settings.  The vr-* routing profiles from
+# the R3 virtual-router spec 404, so they are not deployed yet.
+NETWORK_CONFIG_RESOURCES: dict[str, str] = {
+    # Routing
+    "logical_routers": "logical-routers",
+    "virtual_routers": "virtual-routers",
+    "bgp_address_family_profiles": "bgp-address-family-profiles",
+    "bgp_auth_profiles": "bgp-auth-profiles",
+    "bgp_filtering_profiles": "bgp-filtering-profiles",
+    "bgp_redistribution_profiles": "bgp-redistribution-profiles",
+    "bgp_route_maps": "bgp-route-maps",
+    "bgp_route_map_redistributions": "bgp-route-map-redistributions",
+    "ospf_auth_profiles": "ospf-auth-profiles",
+    "route_community_lists": "route-community-lists",
+    "route_path_access_lists": "route-path-access-lists",
+    # Interfaces
+    "ethernet_interfaces": "ethernet-interfaces",
+    "aggregate_interfaces": "aggregate-interfaces",
+    "layer3_subinterfaces": "layer3-subinterfaces",
+    "layer2_subinterfaces": "layer2-subinterfaces",
+    "loopback_interfaces": "loopback-interfaces",
+    "tunnel_interfaces": "tunnel-interfaces",
+    "vlan_interfaces": "vlan-interfaces",
+    "dhcp_interfaces": "dhcp-interfaces",
+    "interface_management_profiles": "interface-management-profiles",
+    # Tunnels and forwarding
+    "gre_tunnels": "gre-tunnels",
+    "pbf_rules": "pbf-rules",
+}
+
+_NETWORK_V1 = f"{_SCM_API_HOST}/config/network/v1"
+# Folders whose backup also walks each NGFW device folder: a folder query
+# returns the folder's own and inherited objects, never its children's, and
+# interfaces and routers live in the device folders under "ngfw-shared".
+_NGFW_PARENT_FOLDERS = frozenset({"All", "ngfw-shared"})
+# Resources also read per firewall (?device=<serial>).  Interfaces set on one
+# firewall exist only at device scope, and a folder template comes back
+# resolved for each firewall under the template's id.  The other resources
+# only echo their folder objects there, and the subinterface lists answer
+# 500 "ethernet-interface param missing".
+_DEVICE_SCOPED_RESOURCES = frozenset(
+    {
+        "ethernet_interfaces",
+        "aggregate_interfaces",
+        "loopback_interfaces",
+        "tunnel_interfaces",
+        "vlan_interfaces",
+        "dhcp_interfaces",
+    }
+)
+
+
+def _rest_list_paged(session: Any, url: str, scope: dict[str, str]) -> list[dict[str, Any]]:
+    """GET every page of an SCM list endpoint scoped by folder or device.
+
+    Returns [] when the resource is not available to the tenant (400 for a
+    scope the resource does not apply to, or a not-licensed status).
+    """
+    items: list[dict[str, Any]] = []
+    while True:
+        params = {**scope, "limit": str(_LIMIT), "offset": str(len(items))}
+        resp = session.get(url, params=params, timeout=(5, 20))
+        if resp.status_code == 400 or resp.status_code in _NOT_LICENSED_STATUSES:
+            return items
+        resp.raise_for_status()
+        body = resp.json()
+        page = list(body.get("data", [])) if isinstance(body, dict) else list(body)
+        items.extend(page)
+        total = body.get("total") if isinstance(body, dict) else None
+        if len(page) < _LIMIT or (isinstance(total, int) and len(items) >= total):
+            return items
+
+
+def _ngfw_devices(session: Any, snap: Any) -> list[dict[str, Any]]:
+    """The tenant's NGFW devices, from the snapshot or the API."""
+    devices = snap.ngfw_devices or _rest_list(
+        session, f"{_SCM_API_HOST}/config/setup/v1/devices", {"limit": str(_LIMIT)}
+    )
+    return [d for d in devices if isinstance(d, dict) and d.get("folder")]
+
+
+def backup_snapshot(client: Any, snap: AuditSnapshot, folder: str) -> AuditSnapshot:
+    """Copy of the (possibly cached) *snap* with the backup-only extractions.
+
+    The copy keeps the shared snapshot that the report tools read free of the
+    backup's network config and its extraction errors.
+    """
+    return extract_network_config(client, dataclasses.replace(snap), folder)
+
+
+def extract_network_config(client: Any, snap: Any, folder: str) -> Any:
+    """Fetch NGFW network config for the config backup into snap.network_config.
+
+    Covers NETWORK_CONFIG_RESOURCES for *folder*: its own objects plus those
+    it inherits.  For "All" and "ngfw-shared" each NGFW device folder is
+    queried as well.  Interfaces are also read for each firewall in the
+    walked folders, which adds the interfaces set on that firewall and its
+    resolved copy of each folder template.  Rows are de-duplicated by
+    (id, device), so every firewall keeps its own copy.
+
+    Kept out of extract_snapshot, which the report tools share, because only
+    the backup writers need it.  Every key is set, empty when the tenant has
+    none, and a failed fetch is recorded in snap.extraction_errors.
+    """
+    session = getattr(client, "session", None)
+    if session is None:
+        return snap
+
+    folders = [folder]
+    try:
+        devices = _ngfw_devices(session, snap)
+    except Exception as exc:
+        devices = []
+        snap.extraction_errors = [*snap.extraction_errors, f"network_config devices: {exc}"]
+    if folder in _NGFW_PARENT_FOLDERS:
+        folders += sorted({str(d["folder"]) for d in devices} - {folder})
+    serials = sorted({str(d["id"]) for d in devices if d.get("id") and d["folder"] in folders})
+
+    def _fetch(key: str) -> tuple[str, list[dict[str, Any]], list[str]]:
+        scopes = [{"folder": f} for f in folders]
+        if key in _DEVICE_SCOPED_RESOURCES:
+            scopes += [{"device": s} for s in serials]
+        seen: set[tuple[str, str]] = set()
+        combined: list[dict[str, Any]] = []
+        errors: list[str] = []
+        for scope in scopes:
+            url = f"{_NETWORK_V1}/{NETWORK_CONFIG_RESOURCES[key]}"
+            try:
+                rows = _rest_list_paged(session, url, scope)
+            except Exception as exc:
+                errors.append(f"{key}[{next(iter(scope.values()))}]: {exc}")
+                continue
+            for row in rows:
+                uid = (
+                    str(row.get("id") or f"{row.get('folder')}/{row.get('name')}"),
+                    str(row.get("device") or ""),
+                )
+                if uid not in seen:
+                    seen.add(uid)
+                    combined.append(row)
+        return key, combined, errors
+
+    config: dict[str, list[dict[str, Any]]] = {}
+    all_errors: list[str] = []
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        for key, rows, errors in pool.map(_fetch, NETWORK_CONFIG_RESOURCES):
+            config[key] = rows
+            all_errors.extend(errors)
+    # Rebind rather than mutate: *snap* may share its lists with the cached
+    # snapshot (see backup_snapshot).
+    snap.network_config = config
+    snap.extraction_errors = [*snap.extraction_errors, *all_errors]
+
+    logger.info(
+        "network_config_extracted",
+        folders=len(folders),
+        devices=len(serials),
+        objects=sum(len(v) for v in snap.network_config.values()),
     )
     return snap
 

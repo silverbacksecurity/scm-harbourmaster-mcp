@@ -8,6 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Config backups include NGFW network config.** `scm_config_backup` and
+  the CLI backup now save logical and virtual routers, BGP profiles, route
+  maps, OSPF auth profiles, community and path access lists, ethernet,
+  aggregate, subinterface, loopback, tunnel, VLAN and DHCP interfaces,
+  interface management profiles, GRE tunnels and PBF rules.
+  - A backup of `All` or `ngfw-shared` also reads every firewall's device
+    folder, because a folder query never returns its children's objects.
+    Before, a tenant-wide backup had no device interfaces or routers.
+  - Interfaces are also read for each firewall in those folders
+    (`?device=<serial>`). That adds interfaces set on one firewall and each
+    firewall's resolved copy of a folder's interface templates.
+  - Not covered yet: `route-prefix-lists`, `route-access-lists` and
+    `auto-vpn-settings` answer 500 on every lab tenant, and the R3
+    virtual-router profiles (`vr-bfd-profiles` and the rest) answer 404.
+    Per-firewall subinterfaces need a parent interface parameter.
+  - These keys are backed up only. Diff reads them; clone leaves them alone.
 - **`scm_software_upgrade`**, a read-only view of SCM's NGFW software-upgrade
   scheduler (`config/device/v1`).
   - `overview` lists each schedule (job type, image, start time, rules) with

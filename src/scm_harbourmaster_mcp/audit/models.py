@@ -225,6 +225,10 @@ class AuditSnapshot:
     ngfw_bgp_redistribution_profiles: list[dict[str, Any]] = field(default_factory=list)
     ngfw_bgp_auth_profiles: list[dict[str, Any]] = field(default_factory=list)
     ngfw_bgp_route_maps: list[dict[str, Any]] = field(default_factory=list)
+    # NGFW network config for the config backup (extract_network_config):
+    # routers, BGP/OSPF profiles, interfaces, GRE tunnels and PBF rules,
+    # keyed by backup resource name.
+    network_config: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
 
     # Prisma AIRS — AI Runtime Security (via /aisec/v1/mgmt/ management API)
     airs_apps: list[dict[str, Any]] = field(default_factory=list)

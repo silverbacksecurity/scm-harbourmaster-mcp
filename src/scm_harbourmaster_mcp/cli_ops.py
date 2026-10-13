@@ -61,6 +61,7 @@ class BackupResult:
 def run_backup(tenant: TenantConfig, on_progress: OnProgress = None) -> BackupResult:
     from .audit.extractor import (
         backup_resource_payload,
+        backup_snapshot,
         backup_snippet_types,
         extract_sdwan_snapshot,
         extract_snapshot,
@@ -71,7 +72,7 @@ def run_backup(tenant: TenantConfig, on_progress: OnProgress = None) -> BackupRe
     client = get_scm_client(tenant)
 
     _progress(on_progress, "Extracting Prisma Access config...")
-    snap = extract_snapshot(client, "All", tenant.tenant_id)
+    snap = backup_snapshot(client, extract_snapshot(client, "All", tenant.tenant_id), "All")
     prisma_counts = {
         "addresses": len(snap.addresses),
         "rules": len(snap.security_rules_pre) + len(snap.security_rules_post),
