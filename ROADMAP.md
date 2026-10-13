@@ -340,9 +340,9 @@ code. New candidates are listed below._
     - `sites:query` and `remote-networks:query` answer 403 on every lab
       tenant, the same as an unknown path, so they don't appear to be routed.
     - Deleting a named snapshot isn't built.
-    - Check the `config-versions/{version}:load` path that rollback uses.
-      Every spec documents `config-versions:load` with `{"version": N}` in
-      the body instead.
+    - Rollback now sends `config-versions:load` with `{"version": N}` in the
+      body, as every spec documents. Until 2026-10-13 it sent
+      `config-versions/{version}:load`. The new call hasn't been sent live.
 
 - ✅ **Site Management (NGFW device onboarding)** — shipped 2026-07-31 as
   `scm_site_management` (`tools/site_management.py`), covering the new

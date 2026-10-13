@@ -46,6 +46,15 @@ def _cv_get(client: Any, path: str) -> dict[str, Any]:
     return {}
 
 
+def _load_version(client: Any, version: Any) -> None:
+    """Load a stored config version into the candidate config.
+
+    Every spec documents ``POST config-versions:load`` with the version in
+    the body; there is no ``config-versions/{version}:load`` route.
+    """
+    client.post(f"{_CV_BASE}:load", json={"version": int(version)})
+
+
 def _running_versions(client: Any, folders: list[str]) -> dict[str, Any]:
     """Running config version per pushed scope, for dry-run previews and rollback."""
     versions: dict[str, Any] = {}
@@ -567,7 +576,7 @@ def register_deployment_tools(mcp: FastMCP, get_client: Any) -> None:
                     failed: list[str] = []
                     for scope, ver in rollback_versions.items():
                         try:
-                            client.post(f"{_CV_BASE}/{ver}:load")
+                            _load_version(client, ver)
                             loaded.append(f"{scope} → v{ver}")
                         except Exception as rb_exc:
                             failed.append(f"{scope}: {rb_exc}")
@@ -769,7 +778,7 @@ def register_deployment_tools(mcp: FastMCP, get_client: Any) -> None:
             tenant_id=tenant_id,
             commit_immediately=commit_immediately,
         )
-        client.post(f"{_CV_BASE}/{version}:load")
+        _load_version(client, version)
         logger.info("config_rollback_loaded", version=version, tenant_id=tenant_id)
 
         lines = [

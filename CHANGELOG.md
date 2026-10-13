@@ -482,6 +482,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     stub's `file:` override. npm is still left out of the runtime image.
 
 ### Fixed
+- **`scm_config_rollback` and the auto-rollback in `scm_config_push_track`
+  now call the documented load endpoint.** They sent
+  `POST config-versions/{version}:load`, a route no spec documents. They now
+  send `POST config-versions:load` with `{"version": N}` in the body, as the
+  SASE, NGFW and Cloud NGFW specs all define it. The new call hasn't been sent
+  live yet.
 - **`scm_config_clone` no longer copies content from PAN's snippets into the
   target folder.** Objects from `Web-Security-Default`, `hip-default`,
   `default`, `office365`, `Auto-VPN-Default-Snippet` and other snippets SCM

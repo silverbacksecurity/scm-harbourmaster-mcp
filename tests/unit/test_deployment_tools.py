@@ -294,7 +294,7 @@ class TestPushTrack:
         assert "❌ Config Push — FAIL" in out
         assert "**Details:** not json" in out
         assert "| Duration | — |" in out
-        client.post.assert_called_once_with(f"{_CV}/20:load")
+        client.post.assert_called_once_with(f"{_CV}:load", json={"version": 20})
         assert "Auto-rollback triggered**: Mobile Users → v20" in out
 
     def test_failure_rollback_errors_and_skips(self) -> None:
@@ -347,7 +347,7 @@ class TestRollback:
         client = MagicMock()
         client.get.return_value = ver_info
         out = _tools(client)["scm_config_rollback"](tenant_id=TENANT, version=17)
-        client.post.assert_called_once_with(f"{_CV}/17:load")
+        client.post.assert_called_once_with(f"{_CV}:load", json={"version": 17})
         client.commit.assert_not_called()
         assert "Version 17 Loaded to Candidate" in out
         assert "| Original description | good |" in out

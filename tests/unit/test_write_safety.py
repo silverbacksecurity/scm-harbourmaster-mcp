@@ -313,7 +313,8 @@ class TestConfigRollback:
         fn = _tool(register_deployment_tools, "scm_config_rollback", client)
         out = fn(version=40, dry_run=False, ticket_ref=TICKET)
         client.post.assert_called_once()
-        assert client.post.call_args.args[0].endswith("/40:load")
+        assert client.post.call_args.args[0].endswith("/config-versions:load")
+        assert client.post.call_args.kwargs == {"json": {"version": 40}}
         client.commit.assert_not_called()
         assert "Loaded to Candidate" in out
 
