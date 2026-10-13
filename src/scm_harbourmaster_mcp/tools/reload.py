@@ -103,6 +103,7 @@ _RELOAD_ORDER = [
     "scm_harbourmaster_mcp.tools.policy_optimizer",
     "scm_harbourmaster_mcp.tools.config_orch",
     "scm_harbourmaster_mcp.tools.site_management",
+    "scm_harbourmaster_mcp.tools.software_upgrade",
     "scm_harbourmaster_mcp.tools.cdl_logforwarding",
     "scm_harbourmaster_mcp.tools.insights",
     "scm_harbourmaster_mcp.tools.adnsr",

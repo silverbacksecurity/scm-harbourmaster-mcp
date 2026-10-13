@@ -7,7 +7,7 @@
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 
-MCP (Model Context Protocol) server for **Palo Alto Networks Strata Cloud Manager (SCM)**, built for Managed Security Service Providers. Exposes <!-- tool-count -->174<!-- /tool-count --> SCM operations as MCP tools consumable by Claude Desktop, Cursor, Copilot Studio, or any MCP-compatible AI assistant.
+MCP (Model Context Protocol) server for **Palo Alto Networks Strata Cloud Manager (SCM)**, built for Managed Security Service Providers. Exposes <!-- tool-count -->175<!-- /tool-count --> SCM operations as MCP tools consumable by Claude Desktop, Cursor, Copilot Studio, or any MCP-compatible AI assistant.
 
 ---
 
@@ -178,7 +178,7 @@ Add to `~/.config/Claude/claude_desktop_config.json`:
 }
 ```
 
-Restart Claude Desktop. The server registers as <!-- tool-count -->174<!-- /tool-count --> tools in Cowork mode.
+Restart Claude Desktop. The server registers as <!-- tool-count -->175<!-- /tool-count --> tools in Cowork mode.
 
 ### Cursor / VS Code
 
@@ -638,6 +638,7 @@ List all tenants, their auth status, and which licences are expiring soonest.
 | `scm_pab_restore` | Restore a PAB backup onto a tenant; dry run by default, skips same-name objects, remaps app IDs and user emails, optional draft publish |
 | `scm_pab_policy` | List Prisma Browser policy rulebases (access & data, security, customization, sign-in) by section, draft changes awaiting publish, and IdP/cloud-storage integrations |
 | `scm_ngfw_device_list` | List NGFW managed devices onboarded to Strata Cloud Manager |
+| `scm_software_upgrade` | NGFW software-upgrade schedules and rules, per-device upgrade progress with failure reasons, and the firewalls a rule matches (read-only) |
 | `scm_airs_list` | List Prisma AIRS (AI Runtime Security) configuration and profiles |
 
 ### Operational visibility

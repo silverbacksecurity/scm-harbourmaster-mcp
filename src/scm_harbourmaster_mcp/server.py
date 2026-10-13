@@ -60,6 +60,7 @@ from .tools.security import register_security_tools
 from .tools.service_status import register_service_status_tools
 from .tools.setup import register_setup_tools
 from .tools.site_management import register_site_management_tools
+from .tools.software_upgrade import register_software_upgrade_tools
 from .tools.ssr import register_ssr_tools
 from .tools.tenant_copy import register_tenant_copy_tools
 from .toolsets import (
@@ -194,6 +195,7 @@ def _registrars(
         "register_policy_optimizer_tools": lambda m: register_policy_optimizer_tools(m, get_client),
         "register_config_orch_tools": lambda m: register_config_orch_tools(m, get_client),
         "register_site_management_tools": lambda m: register_site_management_tools(m, get_client),
+        "register_software_upgrade_tools": lambda m: register_software_upgrade_tools(m, get_client),
         "register_mssp_tools": lambda m: register_mssp_tools(m, get_client, get_settings),
         "register_region_tools": lambda m: register_region_tools(m, get_client),
         "register_capability_tools": lambda m: register_capability_tools(m, get_client),

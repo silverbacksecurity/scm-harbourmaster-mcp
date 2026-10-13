@@ -7,36 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Security
-- **virtualenv 21.13.0** (dev only, through pre-commit) fixes four advisories
-  (GHSA-p58f-9548-mpm2, GHSA-x78j-v8h9-3j2q, GHSA-94p9-xgh2-xp45,
-  GHSA-9h9j-4vrj-gf7g). python-discovery moves to 1.6.1 with it.
-- **Full image, mermaid-cli:**
-  - KaTeX is overridden to 0.18.2 for GHSA-238p-pmpm-9mq7. Mermaid still
-    asks for `^0.16`; math labels render the same.
-  - `extract-zip` (GHSA-7pqw-9j4j-h8q3, GHSA-jmr9-qjv8-65gv) has no fixed
-    release, so it is replaced by a local stub that throws if called.
-    `@puppeteer/browsers` only imports it to unpack a downloaded browser,
-    and the image uses Debian's Chromium. puppeteer 25 drops the dependency
-    but needs Node 22, and the image has Debian's Node 20.
-  - The mermaid build stage installs npm 11.17.0: Debian's npm 9 rejects the
-    stub's `file:` override. npm is still left out of the runtime image.
-
-### Fixed
-- **`scm_config_clone` no longer copies content from PAN's snippets into the
-  target folder.** Objects from `Web-Security-Default`, `hip-default`,
-  `default`, `office365`, `Auto-VPN-Default-Snippet` and other snippets SCM
-  marks `predefined` or `readonly` are skipped, as `predefined-snippet`
-  content already was. On a lab backup that took 88 objects out of the
-  clone. The preflight checks references to them against the target folder,
-  which sees a PAN snippet only when it's associated with that folder, and
-  says to associate the snippet when one is missing. Objects from the
-  customer's own snippets are still cloned into the folder, and the report
-  names the snippet they came from.
-  - Backups now record `snippet_types` (snippet name → type). For older
-    backups the clone reads the target's snippet list instead.
-
 ### Added
+- **`scm_software_upgrade`**, a read-only view of SCM's NGFW software-upgrade
+  scheduler (`config/device/v1`).
+  - `overview` lists each schedule (job type, image, start time, rules) with
+    its latest result. Failed devices are grouped by the phase they failed
+    at, with PAN's error text, so a missing base image or a download timeout
+    shows up directly. A schedule that has never run reads "no status yet".
+  - `status` shows one schedule's per-device, per-phase progress.
+  - `rules` shows each rule's match criteria, and `match` lists the
+    firewalls a rule matches now.
+  - `from_date` keeps schedules starting on or after a date. It is applied
+    locally: the API's own `date` filter fails whenever paging is requested.
+  - Creating and editing schedules is not exposed yet.
 - **Clone follow-ups.**
   - **References follow `name_prefix`.** `scm_config_clone` now rewrites
     references to the objects it renames, including dynamic address group
@@ -424,114 +407,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   — `focus` entries are now `(rulebase, name)` tuples. 32 new tests
   (18 → 41 in `test_commit_preview.py`, 9 new in `test_config_cleanup_tools.py`)
 
-### Removed
-- **Gold / Silver / Bronze service tiers** — the whole tier subsystem is gone as
-  redundant with the compliance tooling that already reports the same posture
-  per tenant (`scm_bpa_assess`, `scm_ncsc_assess`, `scm_iso27001_assess`,
-  `scm_compliance_center`). Deleted `audit/tiers.py` (tier definitions, severity
-  scoring, upgrade-gap analysis, `SNIPPET_TEMPLATES`) and its tests.
-  - **Six MCP tools removed** (161 tools, down from 167): `mssp_tier_assess`,
-    `mssp_tier_report`, `mssp_tier_comparison`, `mssp_upgrade_path`,
-    `mssp_onboard_tenant`, `mssp_snippet_catalogue`. The last two were entirely
-    defined by the tier snippet spec, so they had no content left once it went;
-    `scm_folder_get` + `scm_snippet_list` cover what onboarding actually checked.
-    `mssp_onboard_tenant` was also the only write tool in the MSSP domain, so the
-    planner manifest's write-tool set shrinks by one.
-  - **Breaking config change**: `TenantConfig.tier` is removed. `TenantConfig`
-    is `extra="forbid"`, so a leftover `tier = "..."` line in `settings.toml`
-    makes that whole tenant block fail validation and silently drop out of
-    `load_all_tenant_configs()` — **delete the `tier` key from every
-    `[tenants.*]` block** when upgrading.
-  - **MSR pack**: compliance depth is no longer tier-gated. Every tenant now gets
-    the framework score table *and* the 30-day trend annex; Bronze tenants
-    previously got neither and an upsell note instead.
-  - **Planner**: `estate.py`'s `tier_steps()` becomes `estate_steps()` — one
-    uniform check set per tenant (licensing, certs, connectivity, BPA, change
-    audit, NCSC CAF, ISO 27001, DLP/SSPM) rather than bronze ⊂ silver ⊂ gold
-    depth, so previously-Bronze tenants now run the full sweep (~2-3 min each;
-    the BPA/NCSC/ISO steps still share one snapshot via the extractor TTL cache).
-    Nightly digests drop the `mssp_tier_assess` step and the `--no-tier-assess`
-    flag, and rank findings by severity then tenant name rather than tier.
-  - **CLI**: the MSSP Operations menu loses its "TIERS & MIGRATION" section
-    (options 11-15 removed; Discover Tenants / PAN Service Status / Cross-Tenant
-    Analytics renumber to 11/12/13). Tenant banners, listings, and
-    `list-tenants` show the default folder where they showed the tier.
-
-### Changed
-- **Breaking for existing `SCM_MCP_HTTP_AUTH_MODE=entra` deployments.** A
-  token now needs the API's delegated scope (`access` by default, set with
-  `SCM_MCP_HTTP_ENTRA_SCOPE`) or, for app-only callers such as Power Automate
-  with a managed identity, an app role named in `SCM_MCP_HTTP_ENTRA_APP_ROLE`.
-  Before, any token with the right audience and issuer was accepted. If your
-  API's scope has another name (for example `user_impersonation`), set
-  `SCM_MCP_HTTP_ENTRA_SCOPE` to it.
-- **One data directory for everything the server writes**
-  (`utils/paths.py`, new file). Backups, baselines, reports, plans, the
-  config index and CLI history now resolve under `SCM_MCP_DATA_DIR`, which
-  defaults to the current directory, so a checkout behaves as before. The
-  CLI's hardcoded `backups/` and `reports/` paths now honour it, along with
-  `SCM_MCP_BACKUP_DIR`. The systemd unit uses `StateDirectory=scm-mcp`. Before
-  this, `ProtectSystem=strict` left only `logs/` writable, so backup and
-  report tools failed under systemd.
-- **Docker image fixed and hardened.**
-  - The runtime image previously shipped an empty venv: `uv sync --python`
-    installed into `/build/.venv`, so the image could not start. It now sets
-    `UV_PROJECT_ENVIRONMENT`.
-  - Runs as a fixed UID (10001) with `WORKDIR /data` as the volume.
-  - `tini` runs as PID 1, so `docker stop` and `scm_restart` work.
-  - The venv is root-owned and base images are pinned by digest, with a new
-    Dependabot `docker` ecosystem to keep them current.
-  - Added an allowlist `.dockerignore`, so `.env`, secrets and backups no
-    longer go to the builder.
-  - The example `settings.toml` is no longer baked into the image.
-  - `EXPOSE 8000` was stale and is removed.
-  - The documented `docker run … scm-mcp-http` now works: the old
-    ENTRYPOINT passed it to `scm-mcp` as an argument.
-- **Dependency refresh (October 2026)** — `mcp` 1.28.1 → 1.30.0, now capped
-  `<2` in `pyproject.toml` (2.x has known breaking changes; a plain
-  `uv lock --upgrade` would otherwise pull it in). Also `uvicorn` 0.54.0,
-  `dynaconf` 3.3.5, `pydantic` 2.13.5, `pydantic-settings` 2.15.0,
-  `markdown` 3.11, plus dev tools (`ruff` 0.16.10, `mypy` 2.4.0,
-  `pytest` 9.1.1, `pre-commit` 4.6.2, type stubs). `anthropic` 1.x is
-  left for a separate change. `prisma-sase` 6.8.1b1 and `pan-scm-sdk`
-  0.15.1 were already the latest.
-- **Endpoint catalog regenerated** (pan.dev `45052ce5`, 4,193 paths, 31
-  families). The Prisma Browser spec moved from `access/browser-mgmt` to its
-  own `openapi-specs/prisma-browser` tree on 2026-09-18. Without a new tree
-  the catalog would have dropped it, so `gen_endpoint_catalog.py` now
-  indexes that tree and the family is named `prisma-browser`. No endpoint
-  the PAB tools call was removed; the spec grew from 33 to 66 paths.
-- **Documented tool counts now derive from the live registry**
-  (`scripts/check_tool_counts.py`, new file) — the "164 tools" figures in
-  README.md and docs/ had drifted and are now placeholders regenerated from
-  actually registering every tool on a throwaway FastMCP instance (no
-  credentials needed), kept honest by a CI check and `test_tool_counts.py`.
-- **Renamed the Python package and distribution** — `scm-mcp-mssp` is now
-  **`scm-harbourmaster-mcp`**, and the import package `scm_mcp_mssp` is now
-  `scm_harbourmaster_mcp`. A harbourmaster directs many independent vessels
-  through one port without owning any of them, which is the MSSP shape this
-  server has always had.
-  - **Breaking for anything that imports the package directly**: update
-    `import scm_mcp_mssp...` to `import scm_harbourmaster_mcp...`. Existing
-    installs must be reinstalled, since the distribution name changed.
-  - **Not breaking for MCP clients**: the console scripts keep their names
-    (`scm-mcp`, `scm-mcp-http`, `scm-mcp-cli`, `scm-planner-nightly`,
-    `scm-planner-estate`), so existing Claude Desktop / Cursor configs that
-    invoke `scm-mcp` continue to work unchanged.
-  - The `SCM_MCP_MSSP_MODE` environment variable is **unchanged**, so existing
-    `.env` files and deployed units keep working.
-  - SaaS-posture exports are now tagged `scm-harbourmaster-mcp/saas-posture@1`;
-    the previous `scm-mcp-mssp/saas-posture@1` marker is still accepted on
-    load, so older exports remain readable.
-  - The IP-enrichment cache moved to `~/.cache/scm-harbourmaster-mcp/`. The old
-    cache is not migrated and is simply re-populated on next use.
-  - The GitHub repositories were renamed to `scm-harbourmaster-mcp` (public)
-    and `scm-harbourmaster-mcp-dev` (private). GitHub redirects the old URLs,
-    so existing clones and remotes keep working without changes.
-  - The Docker/GHCR image name and the deployment paths under `/opt` and
-    `/etc` are unchanged.
+### Security
+- **virtualenv 21.13.0** (dev only, through pre-commit) fixes four advisories
+  (GHSA-p58f-9548-mpm2, GHSA-x78j-v8h9-3j2q, GHSA-94p9-xgh2-xp45,
+  GHSA-9h9j-4vrj-gf7g). python-discovery moves to 1.6.1 with it.
+- **Full image, mermaid-cli:**
+  - KaTeX is overridden to 0.18.2 for GHSA-238p-pmpm-9mq7. Mermaid still
+    asks for `^0.16`; math labels render the same.
+  - `extract-zip` (GHSA-7pqw-9j4j-h8q3, GHSA-jmr9-qjv8-65gv) has no fixed
+    release, so it is replaced by a local stub that throws if called.
+    `@puppeteer/browsers` only imports it to unpack a downloaded browser,
+    and the image uses Debian's Chromium. puppeteer 25 drops the dependency
+    but needs Node 22, and the image has Debian's Node 20.
+  - The mermaid build stage installs npm 11.17.0: Debian's npm 9 rejects the
+    stub's `file:` override. npm is still left out of the runtime image.
 
 ### Fixed
+- **`scm_config_clone` no longer copies content from PAN's snippets into the
+  target folder.** Objects from `Web-Security-Default`, `hip-default`,
+  `default`, `office365`, `Auto-VPN-Default-Snippet` and other snippets SCM
+  marks `predefined` or `readonly` are skipped, as `predefined-snippet`
+  content already was. On a lab backup that took 88 objects out of the
+  clone. The preflight checks references to them against the target folder,
+  which sees a PAN snippet only when it's associated with that folder, and
+  says to associate the snippet when one is missing. Objects from the
+  customer's own snippets are still cloned into the folder, and the report
+  names the snippet they came from.
+  - Backups now record `snippet_types` (snippet name → type). For older
+    backups the clone reads the target's snippet list instead.
 - **Backups no longer carry the whole App-ID catalogue.** The custom-app
   filter missed PAN's `predefined-snippet`, so every backup held ~11,000
   predefined App-IDs. Backup diffs ignore them in older backups, and the
@@ -764,6 +667,113 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and the cloner falls back to it only when neither split key is present. Same
   backup after the fixes: 106 of 125 cloneable objects valid, with the
   remaining deployment-family gaps reported per object.
+
+### Removed
+- **Gold / Silver / Bronze service tiers** — the whole tier subsystem is gone as
+  redundant with the compliance tooling that already reports the same posture
+  per tenant (`scm_bpa_assess`, `scm_ncsc_assess`, `scm_iso27001_assess`,
+  `scm_compliance_center`). Deleted `audit/tiers.py` (tier definitions, severity
+  scoring, upgrade-gap analysis, `SNIPPET_TEMPLATES`) and its tests.
+  - **Six MCP tools removed** (161 tools, down from 167): `mssp_tier_assess`,
+    `mssp_tier_report`, `mssp_tier_comparison`, `mssp_upgrade_path`,
+    `mssp_onboard_tenant`, `mssp_snippet_catalogue`. The last two were entirely
+    defined by the tier snippet spec, so they had no content left once it went;
+    `scm_folder_get` + `scm_snippet_list` cover what onboarding actually checked.
+    `mssp_onboard_tenant` was also the only write tool in the MSSP domain, so the
+    planner manifest's write-tool set shrinks by one.
+  - **Breaking config change**: `TenantConfig.tier` is removed. `TenantConfig`
+    is `extra="forbid"`, so a leftover `tier = "..."` line in `settings.toml`
+    makes that whole tenant block fail validation and silently drop out of
+    `load_all_tenant_configs()` — **delete the `tier` key from every
+    `[tenants.*]` block** when upgrading.
+  - **MSR pack**: compliance depth is no longer tier-gated. Every tenant now gets
+    the framework score table *and* the 30-day trend annex; Bronze tenants
+    previously got neither and an upsell note instead.
+  - **Planner**: `estate.py`'s `tier_steps()` becomes `estate_steps()` — one
+    uniform check set per tenant (licensing, certs, connectivity, BPA, change
+    audit, NCSC CAF, ISO 27001, DLP/SSPM) rather than bronze ⊂ silver ⊂ gold
+    depth, so previously-Bronze tenants now run the full sweep (~2-3 min each;
+    the BPA/NCSC/ISO steps still share one snapshot via the extractor TTL cache).
+    Nightly digests drop the `mssp_tier_assess` step and the `--no-tier-assess`
+    flag, and rank findings by severity then tenant name rather than tier.
+  - **CLI**: the MSSP Operations menu loses its "TIERS & MIGRATION" section
+    (options 11-15 removed; Discover Tenants / PAN Service Status / Cross-Tenant
+    Analytics renumber to 11/12/13). Tenant banners, listings, and
+    `list-tenants` show the default folder where they showed the tier.
+
+### Changed
+- **Breaking for existing `SCM_MCP_HTTP_AUTH_MODE=entra` deployments.** A
+  token now needs the API's delegated scope (`access` by default, set with
+  `SCM_MCP_HTTP_ENTRA_SCOPE`) or, for app-only callers such as Power Automate
+  with a managed identity, an app role named in `SCM_MCP_HTTP_ENTRA_APP_ROLE`.
+  Before, any token with the right audience and issuer was accepted. If your
+  API's scope has another name (for example `user_impersonation`), set
+  `SCM_MCP_HTTP_ENTRA_SCOPE` to it.
+- **One data directory for everything the server writes**
+  (`utils/paths.py`, new file). Backups, baselines, reports, plans, the
+  config index and CLI history now resolve under `SCM_MCP_DATA_DIR`, which
+  defaults to the current directory, so a checkout behaves as before. The
+  CLI's hardcoded `backups/` and `reports/` paths now honour it, along with
+  `SCM_MCP_BACKUP_DIR`. The systemd unit uses `StateDirectory=scm-mcp`. Before
+  this, `ProtectSystem=strict` left only `logs/` writable, so backup and
+  report tools failed under systemd.
+- **Docker image fixed and hardened.**
+  - The runtime image previously shipped an empty venv: `uv sync --python`
+    installed into `/build/.venv`, so the image could not start. It now sets
+    `UV_PROJECT_ENVIRONMENT`.
+  - Runs as a fixed UID (10001) with `WORKDIR /data` as the volume.
+  - `tini` runs as PID 1, so `docker stop` and `scm_restart` work.
+  - The venv is root-owned and base images are pinned by digest, with a new
+    Dependabot `docker` ecosystem to keep them current.
+  - Added an allowlist `.dockerignore`, so `.env`, secrets and backups no
+    longer go to the builder.
+  - The example `settings.toml` is no longer baked into the image.
+  - `EXPOSE 8000` was stale and is removed.
+  - The documented `docker run … scm-mcp-http` now works: the old
+    ENTRYPOINT passed it to `scm-mcp` as an argument.
+- **Dependency refresh (October 2026)** — `mcp` 1.28.1 → 1.30.0, now capped
+  `<2` in `pyproject.toml` (2.x has known breaking changes; a plain
+  `uv lock --upgrade` would otherwise pull it in). Also `uvicorn` 0.54.0,
+  `dynaconf` 3.3.5, `pydantic` 2.13.5, `pydantic-settings` 2.15.0,
+  `markdown` 3.11, plus dev tools (`ruff` 0.16.10, `mypy` 2.4.0,
+  `pytest` 9.1.1, `pre-commit` 4.6.2, type stubs). `anthropic` 1.x is
+  left for a separate change. `prisma-sase` 6.8.1b1 and `pan-scm-sdk`
+  0.15.1 were already the latest.
+- **Endpoint catalog regenerated** (pan.dev `45052ce5`, 4,193 paths, 31
+  families). The Prisma Browser spec moved from `access/browser-mgmt` to its
+  own `openapi-specs/prisma-browser` tree on 2026-09-18. Without a new tree
+  the catalog would have dropped it, so `gen_endpoint_catalog.py` now
+  indexes that tree and the family is named `prisma-browser`. No endpoint
+  the PAB tools call was removed; the spec grew from 33 to 66 paths.
+- **Documented tool counts now derive from the live registry**
+  (`scripts/check_tool_counts.py`, new file) — the "164 tools" figures in
+  README.md and docs/ had drifted and are now placeholders regenerated from
+  actually registering every tool on a throwaway FastMCP instance (no
+  credentials needed), kept honest by a CI check and `test_tool_counts.py`.
+- **Renamed the Python package and distribution** — `scm-mcp-mssp` is now
+  **`scm-harbourmaster-mcp`**, and the import package `scm_mcp_mssp` is now
+  `scm_harbourmaster_mcp`. A harbourmaster directs many independent vessels
+  through one port without owning any of them, which is the MSSP shape this
+  server has always had.
+  - **Breaking for anything that imports the package directly**: update
+    `import scm_mcp_mssp...` to `import scm_harbourmaster_mcp...`. Existing
+    installs must be reinstalled, since the distribution name changed.
+  - **Not breaking for MCP clients**: the console scripts keep their names
+    (`scm-mcp`, `scm-mcp-http`, `scm-mcp-cli`, `scm-planner-nightly`,
+    `scm-planner-estate`), so existing Claude Desktop / Cursor configs that
+    invoke `scm-mcp` continue to work unchanged.
+  - The `SCM_MCP_MSSP_MODE` environment variable is **unchanged**, so existing
+    `.env` files and deployed units keep working.
+  - SaaS-posture exports are now tagged `scm-harbourmaster-mcp/saas-posture@1`;
+    the previous `scm-mcp-mssp/saas-posture@1` marker is still accepted on
+    load, so older exports remain readable.
+  - The IP-enrichment cache moved to `~/.cache/scm-harbourmaster-mcp/`. The old
+    cache is not migrated and is simply re-populated on next use.
+  - The GitHub repositories were renamed to `scm-harbourmaster-mcp` (public)
+    and `scm-harbourmaster-mcp-dev` (private). GitHub redirects the old URLs,
+    so existing clones and remotes keep working without changes.
+  - The Docker/GHCR image name and the deployment paths under `/opt` and
+    `/etc` are unchanged.
 
 ## [0.13.0] - 2026-07-31
 

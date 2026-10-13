@@ -50,6 +50,7 @@ TOOLSETS: dict[str, tuple[str, ...]] = {
         "register_network_tools",
         "register_config_orch_tools",
         "register_site_management_tools",
+        "register_software_upgrade_tools",
     ),
     "deployment": ("register_deployment_tools",),
     "audit": ("register_audit_tools",),

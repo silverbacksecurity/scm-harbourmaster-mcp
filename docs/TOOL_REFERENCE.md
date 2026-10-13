@@ -4,7 +4,7 @@
 
 All tools authenticate via Bearer-token OAuth (SASE client credentials) configured in `settings.toml` / `.secrets.toml`.
 
-**<!-- tool-count -->174<!-- /tool-count --> tools** across <!-- module-count -->41<!-- /module-count --> modules.
+**<!-- tool-count -->175<!-- /tool-count --> tools** across <!-- module-count -->42<!-- /module-count --> modules.
 
 ## Table of Contents
 
@@ -47,6 +47,7 @@ All tools authenticate via Bearer-token OAuth (SASE client credentials) configur
 - [Region Detect](#region-detect)
 - [Service Status](#service-status)
 - [Site Management](#site-management)
+- [Software Upgrade](#software-upgrade)
 - [Ssr](#ssr)
 - [Tenant Copy](#tenant-copy)
 
@@ -1483,9 +1484,12 @@ Reference preflight
 -------------------
 Before any write (dry run included) the target folder is read and
 every name reference in the objects to be pushed is resolved:
-application-group and service-group members, rule application /
-service / URL category / HIP / profile-group / log-forwarding
-references, decryption profiles and profile-group members.  SCM
+address-, application- and service-group members, dynamic address
+group tag filters, object tags, URL access profile categories, rule
+zones / addresses / applications / services / URL categories / HIP
+profiles / profile groups / log forwarding / tags, NAT translated
+addresses, decryption profiles and profile-group members.  IP
+literals, regions and the built-in trust/untrust zones resolve.  SCM
 accepts dangling references at create time and only rejects them at
 push validation, one per push — the preflight lists them all up
 front.  References to catalogues the service account cannot read
@@ -1504,7 +1508,11 @@ Args:
     target_folder: Destination SCM folder name.
     target_tenant_id: Destination tenant (empty = same tenant as server default).
     name_prefix: Prefix prepended to every object name (e.g. "CUST1_").
-                 Useful when cloning into a shared folder.
+                 Useful when cloning into a shared folder.  References
+                 to cloned objects follow the rename in every field the
+                 preflight checks; log-forwarding server profiles, HIP
+                 profile match expressions and zone protection on
+                 zones keep the old name.
     anonymise_ips: Replace all IPv4 literals with {{IP_N}} template
                    variables. Use when sharing configs as templates.
     include_deployment: Also clone IKE gateways, IPSec tunnels,
@@ -5523,6 +5531,59 @@ Returns:
 | `reference` | `str` | `''` |
 | `dry_run` | `bool` | `True` |
 | `ticket_ref` | `str` | `''` |
+
+---
+
+## Software Upgrade
+
+_MCP tool for NGFW software-upgrade rules, schedules and status (read-only)._
+
+### `scm_software_upgrade`
+
+Show NGFW software-upgrade schedules, rules and upgrade progress.
+
+```
+Read-only view of SCM's software-upgrade scheduler for NGFWs (the
+``config/device/v1`` software-upgrade API). Schedules say which
+PAN-OS image to download or install and when; rules say which
+firewalls a schedule targets (by folder, model, label or excluded
+serials). Rules and schedules are tenant-wide, not per folder.
+
+Views:
+  - ``overview`` (default): every schedule with its job type, image,
+    start time and rules, joined with its latest upgrade status
+    (overall result, devices by outcome, and the phase and PAN error
+    text for failed devices).
+  - ``schedules``: full detail of each schedule, including ids.
+  - ``rules``: each rule's match criteria.
+  - ``status``: per-device, per-phase progress for one schedule
+    (``schedule`` = name or id; ``serial`` narrows to one firewall).
+    Phases run initialize, content, precheck, downloading, upgrading,
+    postcheck.
+  - ``match``: the firewalls a rule matches now (``rule`` = name).
+    The API is a POST, but it only reads.
+
+Args:
+    tenant_id: SCM tenant ID (MSSP mode).
+    view: overview | schedules | rules | status | match.
+    schedule: Schedule name or id, for view='status'.
+    rule: Rule name, for view='match'.
+    serial: Firewall serial number, to narrow view='status'.
+    from_date: YYYY-MM-DD; overview and schedules then list only
+        schedules starting on or after that date.
+
+Returns:
+    Markdown.
+```
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `tenant_id` | `str` | `''` |
+| `view` | `str` | `'overview'` |
+| `schedule` | `str` | `''` |
+| `rule` | `str` | `''` |
+| `serial` | `str` | `''` |
+| `from_date` | `str` | `''` |
 
 ---
 

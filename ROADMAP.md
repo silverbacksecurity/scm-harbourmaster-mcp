@@ -282,9 +282,15 @@ code. New candidates are listed below._
   GP tunnel settings, software-upgrade rules, schedules, status and versions,
   device models, named snapshots (`:load`), application tags (with
   `bulk`), `config-versions:push`, and `sites:query` /
-  `remote-networks:query` on the deployment API. Software-upgrade
-  status and schedules are the most useful for MSSP ops; the rest feed
-  config backup coverage.
+  `remote-networks:query` on the deployment API. The rest feed config
+  backup coverage.
+  - ✅ Software-upgrade read-only view built 2026-10-12 as
+    `scm_software_upgrade` (schedules joined with per-device status and
+    failure reasons, rules, per-phase status for one schedule, matching
+    firewalls for a rule). Live on two lab tenants with schedules.
+  - Still open: creating and editing upgrade rules and schedules, which can
+    queue a download-install-reboot on customer firewalls, so it needs the
+    SSR write pattern; and the other R3 resources.
 
 - ✅ **Site Management (NGFW device onboarding)** — shipped 2026-07-31 as
   `scm_site_management` (`tools/site_management.py`), covering the new

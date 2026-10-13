@@ -916,6 +916,15 @@ scm_snippet_list:
   idempotent: true
   retry_policy: retry
   scope: tenant
+scm_software_upgrade:
+  access: read
+  domain: deployment
+  idempotent: true
+  known_failure_modes: NGFW software-upgrade API (config/device/v1). view='match' is a
+    POST that only reads.  Status answers 201.  A schedule with no status entries has
+    not run yet.
+  retry_policy: retry
+  scope: tenant
 scm_spi_status:
   access: read
   domain: deployment
