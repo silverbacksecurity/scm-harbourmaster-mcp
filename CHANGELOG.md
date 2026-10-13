@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`scm_config_clone` restores NGFW network config** when given
+  `include_network=True` (off by default).
+  - It restores interface management profiles, interfaces, community and
+    AS-path lists, BGP auth profiles, route maps and profiles, OSPF auth
+    profiles, logical and virtual routers, GRE tunnels and PBF rules from a
+    backup into the target folder, in dependency order.
+  - These are reported and never pushed into a folder: interfaces set on a
+    single firewall, snippet-placeholder PBF rules, and same-name objects
+    from a second firewall folder.
+  - BGP and OSPF auth secrets, routers' inline auth keys and PPPoE passwords
+    become `CHANGEME` and are listed in the report.
+  - `name_prefix` never renames interfaces, and the reference preflight
+    checks the new profile and list references.
+  - No create request has been sent live yet.
 - **Config backups include NGFW network config.** `scm_config_backup` and
   the CLI backup now save logical and virtual routers, BGP profiles, route
   maps, OSPF auth profiles, community and path access lists, ethernet,

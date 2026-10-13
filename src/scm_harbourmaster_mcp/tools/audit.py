@@ -2544,6 +2544,7 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
         ticket_ref: str = "",
         on_missing_reference: str = "fail",
         on_missing_trust_cert: str = "fail",
+        include_network: bool = False,
     ) -> str:
         """Clone a SCM config backup into a new folder or tenant.
 
@@ -2596,11 +2597,31 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
         block.  Enabled decrypt rules are also checked against the target's
         forward-trust certificate, which is tenant-bound and never cloned.
 
-        PSK safety
-        ----------
+        NGFW network config (include_network=True)
+        ------------------------------------------
+        Restores the backup's NGFW network config into target_folder:
+        interface management profiles → aggregate/ethernet interfaces →
+        subinterfaces, loopback, tunnel, VLAN and DHCP interfaces (before
+        zones) → community and AS-path lists → BGP auth profiles, route maps
+        and profiles → OSPF auth profiles → logical/virtual routers → GRE
+        tunnels, and PBF rules after the other rules (skip_rules drops
+        them).  Off by default: interfaces are hardware-specific.  Rows set
+        on a single firewall (device-scoped, no folder) are listed as skipped
+        and never pushed into a folder; snippet-placeholder PBF rows and a
+        second object of the same name from another firewall folder are
+        skipped too.  name_prefix renames profiles, lists, routers, GRE
+        tunnels and PBF rules and the references to them, but never
+        interfaces (ethernet1/1, ae1, tunnel.1, $variables).  The preflight
+        checks the profile and list references; interface references it
+        cannot resolve are reported unverifiable.
+
+        PSK and secret safety
+        ---------------------
         Pre-shared keys in IKE gateways are ALWAYS replaced with
         CHANGEME_<gateway-name>. The report lists every gateway that needs
-        a real PSK set before committing.
+        a real PSK set before committing.  With include_network, BGP/OSPF
+        auth secrets, routers' inline auth keys and PPPoE passwords become
+        CHANGEME and are listed the same way.
 
         Args:
             source_backup_file: Path to a JSON backup from scm_config_backup.
@@ -2636,6 +2657,8 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
             on_missing_trust_cert: Enabled decrypt rules when the target has
                          no forward-trust certificate — 'fail' (default),
                          'disable_rule' or 'skip_object'.
+            include_network: Also restore the NGFW network config (see
+                         above).  Default False.
 
         **Write safety (SSR pattern):** ``dry_run=True`` by default;
         ``ticket_ref`` is mandatory.
@@ -2678,6 +2701,7 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
                 dry_run=dry_run,
                 on_missing_reference=on_missing_reference,
                 on_missing_trust_cert=on_missing_trust_cert,
+                include_network=include_network,
             )
             report.target_tenant_id = target_tenant_id
 

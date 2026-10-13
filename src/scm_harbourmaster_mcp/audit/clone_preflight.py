@@ -30,6 +30,11 @@ Findings from the live restore that motivated this:
     region names resolve from it.  IP literals in address fields resolve
     as themselves.
 
+  * NGFW network config (cloner include_network) references interfaces,
+    which a folder cannot see when they are set on a firewall, so an
+    interface that resolves nowhere is "unverifiable".  Access and prefix
+    lists answer 500 on every tenant probed and are unverifiable too.
+
 The same reference table drives the name_prefix rewrite in the cloner
 (:func:`rewrite_references`), so the check and the rewrite cannot disagree.
 """
@@ -103,6 +108,14 @@ class _Kind:
     # (list URL, row → names).  An empty tuple means no read API is wired.
     sources: tuple[tuple[str, Callable[[dict[str, Any]], Iterable[str]]], ...]
     keywords: frozenset[str] = frozenset()
+    # NGFW network config kinds are only read when the clone pushes network
+    # config (cloner include_network), so other clones skip their list calls.
+    network: bool = False
+    # Why the kind is unverifiable when it has no sources
+    no_api: str = "no list API for this profile type"
+    # When set, a name that resolves nowhere is "unverifiable" for this
+    # reason instead of "missing".
+    unverified_reason: str = ""
 
 
 KINDS: dict[str, _Kind] = {
@@ -183,6 +196,121 @@ KINDS: dict[str, _Kind] = {
     "tag": _Kind("tag", ((f"{_OBJECTS}/tags", _names),)),
 }
 
+# ── NGFW network config (cloner include_network) ────────────────────────────
+
+# Profile fields that say "use none" or "inherit from the peer group" rather
+# than naming a profile.
+_NETWORK_KEYWORDS = frozenset({"none", "None", "inherit"})
+_INTERFACE_PATHS = (
+    "ethernet-interfaces",
+    "aggregate-interfaces",
+    "layer3-subinterfaces",
+    "layer2-subinterfaces",
+    "loopback-interfaces",
+    "tunnel-interfaces",
+    "vlan-interfaces",
+)
+# Backup key → the kind its names provide (also the reference kind)
+_NETWORK_PROFILE_KINDS: dict[str, tuple[str, str, str]] = {
+    # backup key: (kind, label, /config/network/v1 path)
+    "interface_management_profiles": (
+        "interface_management_profile",
+        "interface management profile",
+        "interface-management-profiles",
+    ),
+    "route_community_lists": ("community_list", "community list", "route-community-lists"),
+    "route_path_access_lists": (
+        "as_path_access_list",
+        "AS-path access list",
+        "route-path-access-lists",
+    ),
+    "bgp_auth_profiles": ("bgp_auth_profile", "BGP auth profile", "bgp-auth-profiles"),
+    "bgp_route_maps": ("bgp_route_map", "BGP route map", "bgp-route-maps"),
+    "bgp_route_map_redistributions": (
+        "route_map_redistribution",
+        "redistribution route map",
+        "bgp-route-map-redistributions",
+    ),
+    "bgp_address_family_profiles": (
+        "bgp_address_family_profile",
+        "BGP address-family profile",
+        "bgp-address-family-profiles",
+    ),
+    "bgp_filtering_profiles": (
+        "bgp_filtering_profile",
+        "BGP filtering profile",
+        "bgp-filtering-profiles",
+    ),
+    "bgp_redistribution_profiles": (
+        "bgp_redistribution_profile",
+        "BGP redistribution profile",
+        "bgp-redistribution-profiles",
+    ),
+    "ospf_auth_profiles": ("ospf_auth_profile", "OSPF auth profile", "ospf-auth-profiles"),
+    "logical_routers": ("logical_router", "logical router", "logical-routers"),
+    "virtual_routers": ("virtual_router", "virtual router", "virtual-routers"),
+}
+_LIST_500 = (
+    "{} answers 500 on every tenant probed, so it is neither backed up nor listable — "
+    "check it exists in the target by hand"
+)
+KINDS.update(
+    {
+        kind: _Kind(label, ((f"{_NETWORK}/{path}", _names),), _NETWORK_KEYWORDS, network=True)
+        for kind, label, path in _NETWORK_PROFILE_KINDS.values()
+    }
+)
+KINDS.update(
+    {
+        # Interfaces set on one firewall are only visible per device, never
+        # from a folder, so an interface the target folder does not list may
+        # still exist on the firewall: unverifiable, not missing.
+        "interface": _Kind(
+            "interface",
+            tuple((f"{_NETWORK}/{p}", _names) for p in _INTERFACE_PATHS),
+            _NETWORK_KEYWORDS,
+            network=True,
+            unverified_reason=(
+                "not in the target folder or the clone; interfaces set on a firewall "
+                "are not visible from a folder"
+            ),
+        ),
+        "access_list": _Kind(
+            "access list", (), network=True, no_api=_LIST_500.format("route-access-lists")
+        ),
+        "prefix_list": _Kind(
+            "prefix list", (), network=True, no_api=_LIST_500.format("route-prefix-lists")
+        ),
+    }
+)
+
+# Interface backup keys.  Their names are hardware or variable names
+# (ethernet1/1, ae1, ethernet1/1.100, tunnel.1, $outside), so name_prefix
+# never renames them.  DHCP rows are named after the interface they serve.
+INTERFACE_KEYS = frozenset(
+    {
+        "ethernet_interfaces",
+        "aggregate_interfaces",
+        "layer3_subinterfaces",
+        "layer2_subinterfaces",
+        "loopback_interfaces",
+        "tunnel_interfaces",
+        "vlan_interfaces",
+    }
+)
+UNRENAMED_KEYS = INTERFACE_KEYS | {"dhcp_interfaces"}
+
+
+def device_row(obj: dict[str, Any]) -> str:
+    """The firewall serial of a device-scoped backup row, or "".
+
+    The network backup reads interfaces per firewall (``?device=<serial>``);
+    those rows carry the serial and no folder, and are never pushed into a
+    folder.
+    """
+    return "" if obj.get("folder") else str(obj.get("device") or "")
+
+
 # Backup keys whose objects, once cloned, satisfy references of these kinds.
 # Custom applications are absent: the cloner does not push them.
 PROVIDES: dict[str, tuple[str, ...]] = {
@@ -207,6 +335,8 @@ PROVIDES: dict[str, tuple[str, ...]] = {
     "dns_security_profiles": ("dns_security",),
     "decryption_profiles": ("decryption_profile",),
     "log_forwarding_profiles": ("log_setting",),
+    **{key: (kind,) for key, (kind, _, _) in _NETWORK_PROFILE_KINDS.items()},
+    **{key: ("interface",) for key in INTERFACE_KEYS},
 }
 
 _PROFILE_GROUP_FIELDS = (
@@ -234,6 +364,10 @@ class _Ref:
     # The value is a tag-match expression ("'web' and not 'old'") rather than
     # a name or list of names.
     expression: bool = False
+    # Dotted path to names the object defines itself that also satisfy the
+    # reference (a router's inline auth profiles).  Those are never checked
+    # against the target nor renamed.
+    local: str = ""
 
 
 _TAG = _Ref("tag", "tag")
@@ -313,6 +447,157 @@ REFERENCE_FIELDS: dict[str, tuple[_Ref, ...]] = {
     ),
 }
 
+
+# ── NGFW network config references ───────────────────────────────────────────
+# Paths are the API's field names (the network backup is read over REST) and
+# step into lists (see holders).  None is strippable: dropping an interface
+# or a route map changes routing.  From the R3 network-services, logical- and
+# virtual-router specs.  Not checked: BFD/timer/dampening/monitor/netflow
+# profiles, certificates, schedules and multicast, which the clone neither
+# creates nor lists.
+
+_IMP = "interface_management_profile"
+
+
+def _refs(prefix: str, fields: Iterable[tuple[str, str]]) -> tuple[_Ref, ...]:
+    return tuple(_Ref(f"{prefix}{f}", kind) for f, kind in fields)
+
+
+# A route map entry's match/set fields (BGP route maps, and the
+# redistribution route maps whose OSPF variants drop the "ipv4." level)
+_ROUTE_MAP_FIELDS: tuple[tuple[str, str], ...] = (
+    ("match.as_path_access_list", "as_path_access_list"),
+    ("match.regular_community", "community_list"),
+    ("match.large_community", "community_list"),
+    ("match.extended_community", "community_list"),
+    ("match.interface", "interface"),
+    *(
+        (f"match.{af}{target}.{lst}", kind)
+        for af in ("ipv4.", "")
+        for target in ("address", "next_hop", "route_source")
+        for lst, kind in (("access_list", "access_list"), ("prefix_list", "prefix_list"))
+    ),
+    ("set.remove_regular_community", "community_list"),
+    ("set.remove_large_community", "community_list"),
+)
+
+_BGP_FILTER_FIELDS: tuple[tuple[str, str], ...] = (
+    ("filter_list.inbound", "as_path_access_list"),
+    ("filter_list.outbound", "as_path_access_list"),
+    ("inbound_network_filters.distribute_list", "access_list"),
+    ("inbound_network_filters.prefix_list", "prefix_list"),
+    ("outbound_network_filters.distribute_list", "access_list"),
+    ("outbound_network_filters.prefix_list", "prefix_list"),
+    ("route_maps.inbound", "bgp_route_map"),
+    ("route_maps.outbound", "bgp_route_map"),
+    ("conditional_advertisement.exist.advertise_map", "bgp_route_map"),
+    ("conditional_advertisement.exist.exist_map", "bgp_route_map"),
+    ("conditional_advertisement.non_exist.advertise_map", "bgp_route_map"),
+    ("conditional_advertisement.non_exist.non_exist_map", "bgp_route_map"),
+    ("unsuppress_map", "bgp_route_map"),
+)
+
+_STATIC_ROUTES = ("routing_table.ip.static_route.", "routing_table.ipv6.static_route.")
+_AF = ("ipv4", "ipv6")
+_LR_OSPF_AUTH = "vrf.ospf.auth_profile.name"
+
+NETWORK_REFERENCE_FIELDS: dict[str, tuple[_Ref, ...]] = {
+    "ethernet_interfaces": (
+        _Ref("layer3.interface_management_profile", _IMP),
+        _Ref("aggregate_group", "interface"),
+    ),
+    "aggregate_interfaces": (_Ref("layer3.interface_management_profile", _IMP),),
+    "layer3_subinterfaces": (
+        _Ref("interface_management_profile", _IMP),
+        _Ref("parent_interface", "interface"),
+    ),
+    "layer2_subinterfaces": (_Ref("parent_interface", "interface"),),
+    "loopback_interfaces": (_Ref("interface_management_profile", _IMP),),
+    "tunnel_interfaces": (_Ref("interface_management_profile", _IMP),),
+    "vlan_interfaces": (_Ref("interface_management_profile", _IMP),),
+    # A DHCP server/relay row is named after the interface it runs on
+    "dhcp_interfaces": (_Ref("name", "interface"),),
+    "bgp_route_maps": _refs("route_map.", _ROUTE_MAP_FIELDS),
+    "bgp_route_map_redistributions": tuple(
+        ref
+        for src in ("bgp", "ospf", "connected_static")
+        for dst in ("bgp", "ospf", "rib")
+        if src != dst
+        for ref in _refs(f"{src}.{dst}.route_map.", _ROUTE_MAP_FIELDS)
+    ),
+    "bgp_address_family_profiles": tuple(
+        _Ref(f"ipv4.{cast}.default_originate_map", "bgp_route_map")
+        for cast in ("unicast", "multicast")
+    ),
+    "bgp_filtering_profiles": tuple(
+        ref
+        for cast in ("unicast", "multicast")
+        for ref in _refs(f"ipv4.{cast}.", _BGP_FILTER_FIELDS)
+    ),
+    "bgp_redistribution_profiles": tuple(
+        _Ref(f"ipv4.unicast.{src}.route_map", "route_map_redistribution")
+        for src in ("static", "ospf", "connected")
+    ),
+    "logical_routers": (
+        _Ref("vrf.interface", "interface"),
+        *(
+            _Ref(f"vrf.bgp.peer_group.address_family.{af}", "bgp_address_family_profile")
+            for af in _AF
+        ),
+        *(
+            _Ref(f"vrf.bgp.peer_group.filtering_profile.{af}", "bgp_filtering_profile")
+            for af in _AF
+        ),
+        _Ref("vrf.bgp.peer_group.connection_options.authentication", "bgp_auth_profile"),
+        _Ref("vrf.bgp.peer_group.peer.connection_options.authentication", "bgp_auth_profile"),
+        # A peer that does not inherit its group's profiles names its own
+        *(
+            _Ref(f"vrf.bgp.peer_group.peer.inherit.no.{fld}.{af}", kind)
+            for fld, kind in (
+                ("address_family", "bgp_address_family_profile"),
+                ("filtering_profile", "bgp_filtering_profile"),
+            )
+            for af in _AF
+        ),
+        _Ref("vrf.bgp.peer_group.peer.local_address.interface", "interface"),
+        *(
+            _Ref(f"vrf.bgp.redistribution_profile.{af}.unicast", "bgp_redistribution_profile")
+            for af in _AF
+        ),
+        *(
+            _Ref(f"vrf.rib_filter.{af}.{proto}.route_map", "route_map_redistribution")
+            for af in _AF
+            for proto in ("static", "bgp", "ospf", "rip")
+        ),
+        _Ref("vrf.ospf.area.interface.name", "interface"),
+        _Ref("vrf.ospf.area.interface.authentication", "ospf_auth_profile", local=_LR_OSPF_AUTH),
+        _Ref("vrf.ospf.area.virtual_link.authentication", "ospf_auth_profile", local=_LR_OSPF_AUTH),
+        *(_Ref(f"vrf.{p}interface", "interface") for p in _STATIC_ROUTES),
+        *(_Ref(f"vrf.{p}nexthop.next_lr", "logical_router") for p in _STATIC_ROUTES),
+    ),
+    # Legacy virtual routers define their auth profiles inline
+    "virtual_routers": (
+        _Ref("interface", "interface"),
+        _Ref("protocol.bgp.peer_group.peer.local_address.interface", "interface"),
+        *(_Ref(f"{p}interface", "interface") for p in _STATIC_ROUTES),
+        *(_Ref(f"{p}nexthop.next_vr", "virtual_router") for p in _STATIC_ROUTES),
+    ),
+    "gre_tunnels": (
+        _Ref("tunnel_interface", "interface"),
+        _Ref("local_address.interface", "interface"),
+    ),
+    "pbf_rules": (
+        _Ref("from.zone", "zone"),
+        _Ref("from.interface", "interface"),
+        *_fixed(_ADDRESSES),
+        _Ref("service", "service"),
+        _Ref("application", "application"),
+        _Ref("action.forward.egress_interface", "interface"),
+        _TAG,
+    ),
+}
+REFERENCE_FIELDS.update(NETWORK_REFERENCE_FIELDS)
+
 _SECURITY_RULE_KEYS = frozenset({"security_rules_pre", "security_rules_post"})
 _RULE_KEYS = _SECURITY_RULE_KEYS | {
     "nat_rules_pre",
@@ -371,23 +656,48 @@ def is_ip_literal(value: str) -> bool:
     return True
 
 
+def holders(obj: Any, parents: Iterable[str]) -> list[dict[str, Any]]:
+    """The dicts reached from *obj* along *parents*, stepping into lists.
+
+    A list on the way fans out to each of its dict items, so the network
+    config's nested lists (a router's ``vrf[].bgp.peer_group[]``, a route
+    map's ``route_map[].match``) are reached by a plain dotted path.
+    """
+    level: list[Any] = [obj]
+    for part in parents:
+        nxt: list[Any] = []
+        for item in level:
+            value = item.get(part) if isinstance(item, dict) else None
+            nxt.extend(value if isinstance(value, list) else [value])
+        level = nxt
+    out: list[dict[str, Any]] = []
+    for item in level:
+        if isinstance(item, list):
+            out.extend(i for i in item if isinstance(i, dict))
+        elif isinstance(item, dict):
+            out.append(item)
+    return out
+
+
 def _values(obj: dict[str, Any], path: str) -> list[str]:
-    value: Any = obj
-    for part in path.split("."):
-        if not isinstance(value, dict):
-            return []
-        value = value.get(part)
-    if isinstance(value, list):
-        return [str(v) for v in value if v not in (None, "")]
-    if isinstance(value, str) and value:
-        return [value]
-    return []
+    *parents, leaf = path.split(".")
+    out: list[str] = []
+    for holder in holders(obj, parents):
+        value = holder.get(leaf)
+        if isinstance(value, list):
+            out.extend(str(v) for v in value if v not in (None, "") and not isinstance(v, dict))
+        elif isinstance(value, str) and value:
+            out.append(value)
+    return out
 
 
 def _ref_values(obj: dict[str, Any], ref: _Ref) -> list[str]:
     values = _values(obj, ref.field)
     if ref.expression:
-        return [n for v in values for n in _expression_names(v)]
+        values = [n for v in values for n in _expression_names(v)]
+    if ref.local:
+        own = set(_values(obj, ref.local))
+        values = [v for v in values if v not in own]
     return values
 
 
@@ -404,19 +714,22 @@ def rewrite_references(
         names = renames.get(ref.kind)
         if not names:
             continue
+        if ref.local:
+            # A name the object defines itself (a router's inline auth
+            # profile) is not a reference to the cloned object.
+            own = set(_values(obj, ref.local))
+            names = {k: v for k, v in names.items() if k not in own}
         *parents, leaf = ref.field.split(".")
-        holder: Any = obj
-        for part in parents:
-            holder = holder.get(part) if isinstance(holder, dict) else None
-        if not isinstance(holder, dict) or leaf not in holder:
-            continue
-        value = holder[leaf]
-        if ref.expression and isinstance(value, str):
-            holder[leaf] = _rewrite_expression(value, names)
-        elif isinstance(value, list):
-            holder[leaf] = [names.get(v, v) if isinstance(v, str) else v for v in value]
-        elif isinstance(value, str):
-            holder[leaf] = names.get(value, value)
+        for holder in holders(obj, parents):
+            if leaf not in holder:
+                continue
+            value = holder[leaf]
+            if ref.expression and isinstance(value, str):
+                holder[leaf] = _rewrite_expression(value, names)
+            elif isinstance(value, list):
+                holder[leaf] = [names.get(v, v) if isinstance(v, str) else v for v in value]
+            elif isinstance(value, str):
+                holder[leaf] = names.get(value, value)
     return obj
 
 
@@ -530,14 +843,18 @@ def _list_rows(session: Any, url: str, folder: str) -> tuple[list[dict[str, Any]
     return rows, f"stopped after {_MAX_PAGES} pages"
 
 
-def fetch_target_inventory(session: Any, target_folder: str) -> TargetInventory:
+def fetch_target_inventory(
+    session: Any, target_folder: str, *, network: bool = False
+) -> TargetInventory:
     """Read every reference catalogue visible from *target_folder*.
 
     List calls on a folder return its own objects plus everything inherited,
     predefined snippets included.  A folder that does not exist yet (a clone
     into a new folder) falls back to "All", which holds the predefined and
-    tenant-wide content every folder inherits.
+    tenant-wide content every folder inherits.  The NGFW network catalogues
+    are read only with *network* (a clone that pushes network config).
     """
+    kinds = {k: spec for k, spec in KINDS.items() if network or not spec.network}
     folder = _API_FOLDER_ALIASES.get(target_folder, target_folder)
     inv = TargetInventory(folder=folder)
     cache: dict[str, tuple[list[dict[str, Any]], str]] = {}
@@ -556,17 +873,17 @@ def fetch_target_inventory(session: Any, target_folder: str) -> TargetInventory:
         inv.folder = "All"
         cache.clear()
 
-    urls = sorted({url for spec in KINDS.values() for url, _ in spec.sources} - set(cache))
+    urls = sorted({url for spec in kinds.values() for url, _ in spec.sources} - set(cache))
     with ThreadPoolExecutor(max_workers=_SOURCE_WORKERS) as pool:
         for url, fetched in zip(
             urls, pool.map(lambda u: _list_rows(session, u, inv.folder), urls), strict=True
         ):
             cache[url] = fetched
 
-    for kind, spec in KINDS.items():
+    for kind, spec in kinds.items():
         found: set[str] = set()
         if not spec.sources:
-            inv.unreadable[kind] = "no list API for this profile type"
+            inv.unreadable[kind] = spec.no_api
         for url, extract in spec.sources:
             items, err = rows(url)
             if err:
@@ -706,16 +1023,29 @@ def check_references(
     )
 
     def objects(key: str) -> list[dict[str, Any]]:
+        # Device-scoped rows are never pushed (see device_row)
         value = resources.get(key) or []
-        return [o for o in value if isinstance(o, dict) and not pan_snippet(o, snippet_types)]
+        return [
+            o
+            for o in value
+            if isinstance(o, dict) and not pan_snippet(o, snippet_types) and not device_row(o)
+        ]
 
-    # Names the clone creates, by kind (as named in the target)
+    # Names the clone creates, by kind (as named in the target).  Interfaces
+    # keep their names under a prefix.
     created: dict[str, dict[str, tuple[str, str]]] = {}
     for key in planned_keys:
+        prefix = "" if key in UNRENAMED_KEYS else name_prefix
         for kind in PROVIDES.get(key, ()):
             for obj in objects(key):
                 name = str(obj.get("name", ""))
-                created.setdefault(kind, {})[f"{name_prefix}{name}"] = (key, name)
+                created.setdefault(kind, {})[f"{prefix}{name}"] = (key, name)
+    # Interfaces the source set only on a firewall, which the clone skips
+    device_only: dict[str, str] = {}
+    for key in INTERFACE_KEYS & set(planned_keys):
+        for obj in resources.get(key) or []:
+            if isinstance(obj, dict) and obj.get("name") and device_row(obj):
+                device_only.setdefault(str(obj["name"]), device_row(obj))
     # PAN predefined content is in every tenant.  Applications are excluded:
     # the backup's catalogue is the source tenant's content version.
     # Other PAN snippets reach only the folders they are associated with, so
@@ -740,7 +1070,8 @@ def check_references(
             return "", ""
         # The cloner rewrites a reference to the copy it creates, so that copy
         # wins over a same-named object already in the target.
-        owner = created.get(kind, {}).get(f"{name_prefix}{name}")
+        target_name = name if kind == "interface" else f"{name_prefix}{name}"
+        owner = created.get(kind, {}).get(target_name)
         if owner and owner not in result.skip:
             return "", ""
         if name in inventory.names.get(kind, set()):
@@ -760,8 +1091,16 @@ def check_references(
                 "target (a retired App-ID, or a custom application, which the clone does "
                 "not create)"
             )
+        elif kind == "interface" and name in device_only:
+            hint = (
+                f"set only on firewall `{device_only[name]}` in the source — device-scoped, "
+                "not cloned into a folder"
+            )
         if kind in inventory.unreadable:
             return "unverifiable", inventory.unreadable[kind]
+        reason = KINDS[kind].unverified_reason
+        if reason:
+            return "unverifiable", hint or reason
         return "missing", hint
 
     # Re-run until skips stop cascading: a skipped group turns every
@@ -804,11 +1143,12 @@ def check_references(
                 else:
                     for ref, i in missing:
                         if not _can_strip(key, obj, ref):
-                            why = (
-                                f"stripping would narrow a `{obj.get('action')}` rule"
-                                if ref.strippable
-                                else "dropping it would loosen policy"
-                            )
+                            if ref.strippable:
+                                why = f"stripping would narrow a `{obj.get('action')}` rule"
+                            elif key in NETWORK_REFERENCE_FIELDS:
+                                why = "dropping it would change routing or forwarding"
+                            else:
+                                why = "dropping it would loosen policy"
                             skip_reason = f"`{i.name}` in {ref.field}: {why}"
                             break
                         strips.setdefault(ref.field, set()).add(i.name)

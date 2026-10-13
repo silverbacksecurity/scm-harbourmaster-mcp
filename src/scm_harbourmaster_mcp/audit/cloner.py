@@ -14,7 +14,8 @@ name_prefix renames every cloned object and rewrites the references to it in
 the fields the preflight checks (clone_preflight.REFERENCE_FIELDS): rules,
 groups, profile groups, URL access profiles, tags and dynamic address group
 filters.  Other references (log forwarding to syslog/HTTP server profiles,
-HIP profile match expressions, zone protection on zones) keep the old name.
+HIP profile match expressions, zone protection on zones, and address objects
+named in interface, GRE or static-route IP fields) keep the old name.
 
 PSK handling: pre-shared keys in IKE gateways are ALWAYS replaced with
   CHANGEME_<gateway-name>  — they must be set manually before committing.
@@ -26,9 +27,19 @@ Tier 0  tags, services, EDLs, URL categories, server/crypto/sec profiles,
 Tier 1  addresses, service groups, log-forwarding profiles, zone-protection,
         profile groups
 Tier 2  address groups, app filters, app groups, HIP objects
-Tier 3  HIP profiles, security zones
-Rules   security (pre), security (post), NAT, decryption, app-override
+Tier 3  HIP profiles, (network: interface management profiles, interfaces)
+        security zones
+Network route lists, BGP auth/route maps/profiles, OSPF auth, logical and
+        virtual routers, GRE tunnels                    (include_network only)
+Rules   security (pre), security (post), NAT, decryption, app-override,
+        (network: PBF rules)
 Deploy  IKE gateways, IPSec tunnels, remote networks, service connections
+
+NGFW network config (include_network): interfaces keep their names under a
+name_prefix (ethernet1/1, ae1, tunnel.1 and $variables are not names to
+rename); rows set on one firewall are reported, never pushed into a folder;
+BGP/OSPF auth secrets, router inline auth keys and PPPoE passwords become
+CHANGEME.
 
 GlobalProtect coverage: auth settings, tunnel profiles, agent profiles,
 forwarding profiles and the portal/gateway infrastructure settings all live
@@ -55,14 +66,17 @@ from .clone_preflight import (
     MISSING_REFERENCE_MODES,
     MISSING_TRUST_CERT_MODES,
     PROVIDES,
+    UNRENAMED_KEYS,
     PreflightResult,
     TargetInventory,
     _is_predefined,
     check_references,
+    device_row,
     fetch_target_inventory,
     pan_snippet,
     rewrite_references,
 )
+from .extractor import _NETWORK_V1, NETWORK_CONFIG_RESOURCES
 
 logger = get_logger(__name__)
 
@@ -179,6 +193,90 @@ _DEPLOY_ORDER: list[tuple[str, str, str]] = [
     ("bandwidth_allocations", "bandwidth_allocation", _FOLDER_REMOTE_NETWORKS),
 ]
 
+# ── NGFW network config (opt-in: include_network) ───────────────────────────
+# Restored from the backup's NETWORK_CONFIG_RESOURCES keys over raw REST
+# (/config/network/v1), which pan-scm-sdk does not wrap.  Interfaces and
+# their management profiles go before zones, which list interfaces.
+_NETWORK_INTERFACE_ORDER: tuple[str, ...] = (
+    "interface_management_profiles",
+    # An ethernet port joins an aggregate group by name
+    "aggregate_interfaces",
+    "ethernet_interfaces",
+    # Subinterfaces name their parent port
+    "layer3_subinterfaces",
+    "layer2_subinterfaces",
+    "loopback_interfaces",
+    "tunnel_interfaces",
+    "vlan_interfaces",
+    "dhcp_interfaces",
+)
+# Lists → route maps → BGP profiles → OSPF auth → routers (which name
+# interfaces and profiles) → GRE tunnels (tunnel and local interfaces).
+_NETWORK_ROUTING_ORDER: tuple[str, ...] = (
+    "route_community_lists",
+    "route_path_access_lists",
+    "bgp_auth_profiles",
+    "bgp_route_maps",
+    "bgp_route_map_redistributions",
+    "bgp_address_family_profiles",
+    "bgp_filtering_profiles",
+    "bgp_redistribution_profiles",
+    "ospf_auth_profiles",
+    "logical_routers",
+    "virtual_routers",
+    "gre_tunnels",
+)
+# Policy-based forwarding rules match zones and addresses; skip_rules drops them
+_NETWORK_RULE_ORDER: tuple[str, ...] = ("pbf_rules",)
+NETWORK_KEYS = frozenset(NETWORK_CONFIG_RESOURCES)
+
+
+def _network_attr(key: str) -> str:
+    return f"network:{NETWORK_CONFIG_RESOURCES[key]}"
+
+
+# Secrets: auth profiles carry them whole; elsewhere only inside a router's
+# inline auth profiles and an interface's PPPoE client.  Backups hold them as
+# encrypted blobs ("-AQ==...") that do not import, so they are replaced with a
+# placeholder that fits the shortest limit (OSPF simple password, 8 chars).
+# The R3 GRE tunnel schema has no key field.
+SECRET_PLACEHOLDER = "CHANGEME"
+_SECRET_FIELDS = frozenset({"secret", "password", "key"})
+_SECRET_SCOPES = frozenset({"auth_profile", "pppoe"})
+_SECRET_KEYS = frozenset({"bgp_auth_profiles", "ospf_auth_profiles"})
+
+
+def _scrub_network_secrets(obj: dict[str, Any], key: str) -> list[str]:
+    """Replace secrets in *obj* in place; returns the scrubbed field paths."""
+    scrubbed: list[str] = []
+
+    def walk(value: Any, path: str, in_scope: bool) -> None:
+        if isinstance(value, dict):
+            for k, v in value.items():
+                p = f"{path}.{k}" if path else k
+                if in_scope and k in _SECRET_FIELDS and isinstance(v, str) and v:
+                    value[k] = SECRET_PLACEHOLDER
+                    scrubbed.append(p)
+                else:
+                    walk(v, p, in_scope or k in _SECRET_SCOPES)
+        elif isinstance(value, list):
+            for item in value:
+                walk(item, f"{path}[]", in_scope)
+
+    walk(obj, "", key in _SECRET_KEYS)
+    return sorted(set(scrubbed))
+
+
+# Fields that make a row no more than a name in a container
+_CONTAINER_FIELDS = frozenset({"name", "folder", "snippet", "device"})
+
+
+def _is_placeholder(key: str, obj: dict[str, Any]) -> bool:
+    """A PBF rule with nothing but a name: SCM lists one per snippet attached
+    to the folder, named after the snippet.  It is not restorable."""
+    return key == "pbf_rules" and not set(obj) - _SYSTEM_FIELDS - _CONTAINER_FIELDS
+
+
 # PAN-supplied content lives in PAN's snippets (clone_preflight.pan_snippet).
 # It is already present in every tenant and cannot be created inside a
 # folder, so it is never cloned.
@@ -194,7 +292,7 @@ class PushResult:
     resource_type: str
     name: str
     # "created" | "skipped" | "overwritten" | "dry_run" | "failed" | "predefined"
-    # | "ref_skipped"
+    # | "ref_skipped" | "device_row" | "not_cloned"
     status: str
     detail: str = ""
 
@@ -207,6 +305,9 @@ class CloneReport:
     dry_run: bool
     results: list[PushResult] = field(default_factory=list)
     psk_warnings: list[str] = field(default_factory=list)
+    # "<backup key> `<name>`: <field paths>" per network object whose secrets
+    # were set to SECRET_PLACEHOLDER
+    secret_warnings: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     preflight: PreflightResult | None = None
 
@@ -235,6 +336,14 @@ class CloneReport:
     def ref_skipped(self) -> int:
         return sum(1 for r in self.results if r.status == "ref_skipped")
 
+    @property
+    def device_rows(self) -> int:
+        return sum(1 for r in self.results if r.status == "device_row")
+
+    @property
+    def not_cloned(self) -> int:
+        return sum(1 for r in self.results if r.status == "not_cloned")
+
     def to_markdown(self) -> str:
         lines: list[str] = []
         if self.preflight and self.preflight.blocked and not self.dry_run:
@@ -258,6 +367,10 @@ class CloneReport:
             lines.append(f"| Skipped (PAN predefined) | {self.predefined} |")
         if self.ref_skipped:
             lines.append(f"| Skipped (preflight) | {self.ref_skipped} |")
+        if self.device_rows:
+            lines.append(f"| Skipped (set on a firewall, not a folder) | {self.device_rows} |")
+        if self.not_cloned:
+            lines.append(f"| Skipped (placeholder or duplicate name) | {self.not_cloned} |")
         if not self.dry_run:
             lines.append(f"| Overwritten | {self.overwritten} |")
         lines.append(f"| Failed | {self.failed} |")
@@ -276,6 +389,15 @@ class CloneReport:
             lines.append(
                 "\nSet the real PSK via SCM UI or `scm_ike_gateway_update` before pushing commit."
             )
+
+        if self.secret_warnings:
+            lines.append("\n## ⚠️ Network Secret Placeholders — Set Before Committing\n")
+            lines.append(
+                f"These network objects had their secrets replaced with `{SECRET_PLACEHOLDER}` "
+                "(backups hold them encrypted, which does not import):"
+            )
+            lines += [f"- {w}" for w in self.secret_warnings]
+            lines.append("\nSet the real keys in the SCM UI before pushing the commit.")
 
         # Group results by type
         by_type: dict[str, list[PushResult]] = {}
@@ -512,6 +634,11 @@ class _RestResource:
 _REST_ONLY_RESOURCES: dict[str, str] = {
     "profile_group": "https://api.sase.paloaltonetworks.com/sse/config/v1/profile-groups",
     "application_filter": "https://api.sase.paloaltonetworks.com/config/objects/v1/application-filters",
+    # NGFW network config (include_network)
+    **{
+        _network_attr(key): f"{_NETWORK_V1}/{path}"
+        for key, path in NETWORK_CONFIG_RESOURCES.items()
+    },
 }
 
 
@@ -674,11 +801,28 @@ def _planned_batches(
     include_deployment: bool,
     skip_rules: bool,
     resource_filter: set[str] | None,
+    include_network: bool = False,
 ) -> list[tuple[str, str, str, dict[str, Any]]]:
-    """(backup key, sdk attr, folder, _process_batch options) in push order."""
+    """(backup key, sdk attr, folder, _process_batch options) in push order.
+
+    Network config keys are planned only with *include_network* or when
+    *resource_filter* names them.
+    """
+
+    def network(keys: tuple[str, ...]) -> list[tuple[str, str, str, dict[str, Any]]]:
+        return [
+            (key, _network_attr(key), "customer", {"network": True})
+            for key in keys
+            if include_network or (resource_filter and key in resource_filter)
+        ]
+
     batches: list[tuple[str, str, str, dict[str, Any]]] = []
     for snap_key, sdk_attr, folder in _PUSH_ORDER:
+        if snap_key == "zones":
+            # Zones list interfaces
+            batches += network(_NETWORK_INTERFACE_ORDER)
         batches.append((snap_key, sdk_attr, folder, {}))
+    batches += network(_NETWORK_ROUTING_ORDER)
     for snap_key, sdk_attr, folder in _FOLDER_KWARG_ORDER:
         batches.append((snap_key, sdk_attr, folder, {"folder_kwarg": True}))
     if not skip_rules:
@@ -687,6 +831,7 @@ def _planned_batches(
             rule_order.append(_LEGACY_NAT_ORDER)
         for snap_key, sdk_attr, rule_kwargs in rule_order:
             batches.append((snap_key, sdk_attr, "customer", {"create_kwargs": rule_kwargs}))
+        batches += network(_NETWORK_RULE_ORDER)
     if include_deployment:
         for snap_key, sdk_attr, folder in _DEPLOY_ORDER:
             batches.append(
@@ -725,7 +870,9 @@ def _run_preflight(
 
         session = _bearer_session_for(client)
     if inventory is None:
-        inventory = fetch_target_inventory(session, target_folder)
+        inventory = fetch_target_inventory(
+            session, target_folder, network=bool(NETWORK_KEYS & set(planned_keys))
+        )
 
     def trust_state() -> str:
         from ..tools.tenant_copy import _forward_trust_state
@@ -763,6 +910,7 @@ def clone_config(
     on_missing_reference: str | None = None,
     on_missing_trust_cert: str = "fail",
     inventory: TargetInventory | None = None,
+    include_network: bool = False,
 ) -> CloneReport:
     """
     Load *source_backup_file*, sanitise every object, and push to
@@ -788,6 +936,14 @@ def clone_config(
                          forward-trust certificate: 'fail', 'disable_rule'
                          or 'skip_object'.  Only used with the preflight.
     inventory       : Pre-fetched target inventory (tests); read live if None.
+    include_network : Also restore the NGFW network config (NETWORK_KEYS):
+                         interface management profiles, interfaces, route
+                         lists, BGP/OSPF profiles, logical/virtual routers,
+                         GRE tunnels and PBF rules.  Off by default because
+                         interfaces are hardware-specific; naming a network
+                         key in resource_filter also plans it.  Rows set on a
+                         single firewall (device, no folder) are reported, not
+                         pushed.  Interface names never take name_prefix.
 
     GlobalProtect and identity coverage: auth settings, tunnel profiles,
     agent profiles, forwarding profiles, portal/gateway infrastructure
@@ -813,6 +969,7 @@ def clone_config(
         include_deployment=include_deployment,
         skip_rules=skip_rules,
         resource_filter=resource_filter,
+        include_network=include_network,
     )
 
     preflight: PreflightResult | None = None
@@ -837,16 +994,20 @@ def clone_config(
     if name_prefix:
         planned = {b[0] for b in batches}
         for key, kinds in PROVIDES.items():
-            if key not in planned:
+            # Interfaces keep their hardware/variable names
+            if key not in planned or key in UNRENAMED_KEYS:
                 continue
             for obj in resources.get(key) or []:
                 name = str(obj.get("name") or "") if isinstance(obj, dict) else ""
-                if not name or pan_snippet(obj, snippet_types):
+                if not name or pan_snippet(obj, snippet_types) or device_row(obj):
                     continue
                 if preflight is not None and (key, name) in preflight.skip:
                     continue
                 for kind in kinds:
                     renames.setdefault(kind, {})[name] = f"{name_prefix}{name}"
+
+    # Network backup keys holding a name already seen from another folder
+    duplicates: list[str] = []
 
     def _process_batch(
         snap_key: str,
@@ -856,7 +1017,11 @@ def clone_config(
         is_ike_gateway: bool = False,
         create_kwargs: dict[str, str] | None = None,
         folder_kwarg: bool = False,
+        network: bool = False,
     ) -> None:
+        # Network rows of one name from several source folders (an "All"
+        # backup walks every firewall folder): name → first source folder
+        first_folder: dict[str, str] = {}
         for obj in resources.get(snap_key, []):
             # Checked before sanitising, which drops the source snippet.
             snippet = pan_snippet(obj, snippet_types)
@@ -870,6 +1035,43 @@ def clone_config(
                     PushResult(snap_key, obj.get("name", "<unknown>"), "predefined", detail)
                 )
                 continue
+            if network and device_row(obj):
+                report.results.append(
+                    PushResult(
+                        snap_key,
+                        obj.get("name", "<unknown>"),
+                        "device_row",
+                        f"set on firewall `{device_row(obj)}` — device-scoped, never pushed "
+                        "into a folder",
+                    )
+                )
+                continue
+            if network and _is_placeholder(snap_key, obj):
+                report.results.append(
+                    PushResult(
+                        snap_key,
+                        obj.get("name", "<unknown>"),
+                        "not_cloned",
+                        "snippet placeholder (name only) — not restorable",
+                    )
+                )
+                continue
+            if network:
+                name = str(obj.get("name", ""))
+                src = str(obj.get("folder") or "")
+                if name in first_folder:
+                    duplicates.append(snap_key)
+                    report.results.append(
+                        PushResult(
+                            snap_key,
+                            name,
+                            "not_cloned",
+                            f"same name as the copy from folder `{first_folder[name]}`; "
+                            f"this one is from `{src}`",
+                        )
+                    )
+                    continue
+                first_folder[name] = src
             oid = (snap_key, str(obj.get("name", "")))
             notes: list[str] = []
             if obj.get("snippet"):
@@ -900,7 +1102,7 @@ def clone_config(
             o, psk_w = _sanitise(
                 obj,
                 target_folder=obj_folder,
-                name_prefix=name_prefix,
+                name_prefix="" if snap_key in UNRENAMED_KEYS else name_prefix,
                 anonymise_ips=anonymise_ips,
                 ip_map=ip_map,
                 is_ike_gateway=is_ike_gateway,
@@ -909,6 +1111,12 @@ def clone_config(
             )
             if psk_w:
                 report.psk_warnings.append(psk_w)
+            if network:
+                scrubbed = _scrub_network_secrets(o, snap_key)
+                if scrubbed:
+                    report.secret_warnings.append(
+                        f"{snap_key} `{o.get('name', '<unknown>')}`: {', '.join(scrubbed)}"
+                    )
             if snap_key in _THREAT_RULE_PROFILES:
                 _drop_empty_actions(o)
             if preflight is not None and oid in preflight.disable:
@@ -927,4 +1135,11 @@ def clone_config(
     for snap_key, sdk_attr, folder, opts in batches:
         _process_batch(snap_key, sdk_attr, folder, **opts)
 
+    if duplicates:
+        report.warnings.append(
+            f"{len(duplicates)} network object(s) share a name with one from another source "
+            f"folder ({', '.join(sorted(set(duplicates)))}); only the first of each name is "
+            "pushed. The backup spans several firewall folders — back up the one firewall "
+            "folder you want to restore instead."
+        )
     return report

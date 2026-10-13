@@ -16,6 +16,7 @@ import pytest
 
 from scm_harbourmaster_mcp.audit import cloner
 from scm_harbourmaster_mcp.audit.clone_preflight import (
+    NETWORK_REFERENCE_FIELDS,
     REFERENCE_FIELDS,
     TargetInventory,
     _expression_names,
@@ -94,7 +95,9 @@ def test_reference_paths_exist_on_the_sdk_model(key: str) -> None:
 
 
 def test_every_referencing_key_has_a_model_or_is_rest_only() -> None:
-    assert set(REFERENCE_FIELDS) - set(_MODELS) == {"profile_groups"}
+    # NGFW network config is REST-only (see test_clone_network_config.py)
+    rest_only = {"profile_groups"} | set(NETWORK_REFERENCE_FIELDS)
+    assert set(REFERENCE_FIELDS) - set(_MODELS) == rest_only
 
 
 # ── Literals and expressions ─────────────────────────────────────────────────
