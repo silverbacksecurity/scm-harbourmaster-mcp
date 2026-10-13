@@ -185,7 +185,9 @@ def register_application_tag_tools(mcp: FastMCP, get_client: Any) -> None:
             if not name or not scope:
                 return "Error: create needs name and one of folder, snippet or device"
             method, path = "POST", _BASE
-            body = {"name": name, "location": next(iter(scope.values())), "tags": list(tags or [])}
+            # The live API rejects the spec's "location" field (400 API_I00013)
+            # and takes the container as folder/snippet/device, as bulk does.
+            body = {"name": name, **scope, "tags": list(tags or [])}
         elif action in ("update", "delete"):
             entry_id, err = _resolve_id(client, tag_id.strip(), name, scope)
             if err:
@@ -198,10 +200,8 @@ def register_application_tag_tools(mcp: FastMCP, get_client: Any) -> None:
                 if tags is None:
                     return "Error: update needs tags (the full new list)"
                 method = "PUT"
+                # The container is fixed at create time, so it isn't sent
                 body = {"name": current.get("name") or name, "tags": list(tags)}
-                location = next(iter(scope.values()), "") or current.get("folder")
-                if location:
-                    body["location"] = location
         else:  # bulk_create / bulk_update
             if not scope:
                 return f"Error: {action} needs one of folder, snippet or device"

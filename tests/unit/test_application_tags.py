@@ -95,7 +95,7 @@ class TestWrites:
         assert out["request"] == {
             "method": "POST",
             "path": BASE,
-            "body": {"name": "app-synthetic", "location": "fw-a", "tags": ["sanctioned"]},
+            "body": {"name": "app-synthetic", "folder": "fw-a", "tags": ["sanctioned"]},
         }
         client.post.assert_not_called()
 
@@ -114,7 +114,7 @@ class TestWrites:
             )
         )
         client.post.assert_called_once_with(
-            BASE, json={"name": "app-synthetic", "location": "000000000000001", "tags": ["t"]}
+            BASE, json={"name": "app-synthetic", "device": "000000000000001", "tags": ["t"]}
         )
         assert TICKET not in json.dumps(client.post.call_args.kwargs)
         assert out["applied"] is True and out["result"] == {"id": "at-9"}
@@ -144,7 +144,7 @@ class TestWrites:
         fn(tenant_id=TENANT, action="update", tag_id="at-1", tags=["new"], dry_run=False,
            ticket_ref=TICKET)  # fmt: skip
         client.put.assert_called_once_with(
-            f"{BASE}/at-1", json={"name": "app-synthetic", "tags": ["new"], "location": "fw-a"}
+            f"{BASE}/at-1", json={"name": "app-synthetic", "tags": ["new"]}
         )
 
     def test_update_needs_tags(self) -> None:

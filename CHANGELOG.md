@@ -21,7 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     become `CHANGEME` and are listed in the report.
   - `name_prefix` never renames interfaces, and the reference preflight
     checks the new profile and list references.
-  - No create request has been sent live yet.
+  - Live-tested on a lab tenant with no firewalls: management profile,
+    loopback template, community list, BGP auth profile (with `CHANGEME`)
+    and logical router. Real firewall interfaces haven't been sent live.
 - **R3 config resources.**
   - **`scm_application_tags`** lists, gets, creates, updates and deletes
     application tags (`config/objects/v1/application-tags`), with bulk
@@ -482,6 +484,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     stub's `file:` override. npm is still left out of the runtime image.
 
 ### Fixed
+- **`scm_application_tags` create now works against the live API.** It
+  sent the container as `location`, as the spec documents, and the API
+  rejected every create with 400 `API_I00013`. Create now sends `folder`,
+  `snippet` or `device`, as bulk create already did, and update sends no
+  container. Checked live on a lab tenant: create, update and delete.
 - **`scm_config_rollback` and the auto-rollback in `scm_config_push_track`
   now call the documented load endpoint.** They sent
   `POST config-versions/{version}:load`, a route no spec documents. They now
