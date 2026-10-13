@@ -1503,7 +1503,21 @@ pushed: it already exists in every tenant and cannot be created inside
 a folder.  The target folder sees a non-global PAN snippet only when the
 snippet is associated with it; the preflight flags references to one it
 cannot see.  Objects from the customer's own snippets are cloned into
-the target folder.
+the target folder, or with snippet_mode='preserve' into a snippet of
+the same name associated with it (see below).
+
+Customer snippets (snippet_mode='preserve')
+-------------------------------------------
+Each of the customer's own snippets in the backup becomes a snippet in
+the target (name_prefix applies to its name too), created when
+missing, and is associated with target_folder.  Its objects are
+created in the snippet, not the folder.  If the target snippet
+already exists and other folders use it, its objects are not written
+unless allow_shared_snippet=True (which changes those folders too);
+the existing snippet is associated as it is.  Objects in the fixed
+Prisma Access folders and PAN's own snippets are never moved.
+Snippet labels are not copied.  The dry run lists every snippet, its
+target state and the folders that use it.
 
 Reference preflight
 -------------------
@@ -1584,6 +1598,11 @@ Args:
                  'disable_rule' or 'skip_object'.
     include_network: Also restore the NGFW network config (see
                  above).  Default False.
+    snippet_mode: 'flatten' (default: customer snippet objects go
+                 into target_folder) or 'preserve' (see above).
+    allow_shared_snippet: With 'preserve', write into a target
+                 snippet that other folders already use.  Default
+                 False.
 
 **Write safety (SSR pattern):** ``dry_run=True`` by default;
 ``ticket_ref`` is mandatory.
@@ -1608,6 +1627,8 @@ Returns:
 | `on_missing_reference` | `str` | `'fail'` |
 | `on_missing_trust_cert` | `str` | `'fail'` |
 | `include_network` | `bool` | `False` |
+| `snippet_mode` | `str` | `'flatten'` |
+| `allow_shared_snippet` | `bool` | `False` |
 
 ---
 

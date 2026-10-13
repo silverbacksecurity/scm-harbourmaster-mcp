@@ -134,7 +134,8 @@ def test_dry_run_detail_names_the_rulebase(tmp_path):
     src = _backup(tmp_path, {"security_rules_post": [{"name": "post-1", "folder": "src"}]})
     report = cloner.clone_config(client, src, "dst", dry_run=True)
 
-    assert not client.resources
+    # Nothing written (the snippet list may be read to spot placeholder rows)
+    assert not any(r.created or r.updated for r in client.resources.values())
     assert "rulebase=post" in report.results[0].detail
 
 

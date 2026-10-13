@@ -63,8 +63,10 @@ from pydantic import BaseModel
 
 from ..utils.logging import get_logger
 from .clone_preflight import (
+    _API_FOLDER_ALIASES,
     MISSING_REFERENCE_MODES,
     MISSING_TRUST_CERT_MODES,
+    PAN_SNIPPET_TYPES,
     PROVIDES,
     UNRENAMED_KEYS,
     PreflightResult,
@@ -310,6 +312,7 @@ class CloneReport:
     secret_warnings: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     preflight: PreflightResult | None = None
+    snippets: list[SnippetPlan] = field(default_factory=list)
 
     # ── Counts ──────────────────────────────────────────────────────────
     @property
@@ -380,6 +383,9 @@ class CloneReport:
 
         if self.preflight:
             lines += self.preflight.to_markdown(self.dry_run)
+
+        if self.snippets:
+            lines += _snippet_markdown(self.snippets, self.target_folder)
 
         if self.psk_warnings:
             lines.append("\n## ⚠️ PSK Placeholders — Set Before Committing\n")
@@ -456,10 +462,337 @@ def _snippet_types(data: dict[str, Any], client: Any) -> dict[str, str] | None:
         return None
 
 
+# Rulebase keys where SCM lists each snippet associated with the folder as a
+# row named after the snippet, with no snippet of its own.  The SDK fills the
+# missing fields with allow/any defaults, so replayed it would be an allow-any
+# rule.
+_RULE_KEYS = frozenset({k for k, _, _ in _RULE_ORDER} | {_LEGACY_NAT_ORDER[0]} | {"pbf_rules"})
+
+
+def _snippet_names(data: dict[str, Any], client: Any, snippet_types: dict[str, str]) -> set[str]:
+    """Every snippet name the source tenant may have associated with a folder.
+
+    From the backup's snippet_types and snippets records; older backups fall
+    back to the target's snippet list (PAN snippets have the same names in
+    every tenant).
+    """
+    names = set(snippet_types)
+    names |= {
+        str(s.get("name"))
+        for s in data.get("snippets") or []
+        if isinstance(s, dict) and s.get("name")
+    }
+    names |= {
+        str(o["snippet"])
+        for objs in (data.get("resources") or {}).values()
+        if isinstance(objs, list)
+        for o in objs
+        if isinstance(o, dict) and o.get("snippet")
+    }
+    if names - {"predefined", "predefined-snippet"}:
+        return names
+    try:
+        return {str(r.name) for r in client.snippet.list()}
+    except Exception as exc:
+        logger.warning("clone_snippet_names_unavailable", error=str(exc)[:200])
+        return set()
+
+
+def _is_snippet_row(key: str, obj: dict[str, Any], snippet_names: set[str]) -> bool:
+    """A rulebase row standing for an associated snippet, not a rule."""
+    return (
+        key in _RULE_KEYS
+        and not obj.get("snippet")
+        and (str(obj.get("name") or "") in snippet_names or _is_placeholder(key, obj))
+    )
+
+
 _SNIPPET_TYPES_UNKNOWN = (
     "Snippet types are not in the backup and the target's snippet list could not be read: "
     "objects from PAN snippets other than predefined-snippet are cloned like the customer's own."
 )
+
+# ── Snippet preservation (snippet_mode="preserve") ──────────────────────────
+# pan-scm-sdk 0.15.1 stubs snippet.associate_folder (NotImplementedError), but
+# the folder resource's `snippets` list (snippet names) is writable: GET the
+# folder, PUT the same body back with the name added.  Live-checked 2026-10-13.
+_SETUP_V1 = "https://api.sase.paloaltonetworks.com/config/setup/v1"
+SNIPPET_MODES = ("flatten", "preserve")
+
+
+@dataclass
+class SnippetPlan:
+    """What the clone does with one of the customer's source snippets."""
+
+    source: str
+    target: str
+    # "create": new snippet in the target; "reuse": the target already has it
+    # and no other folder uses it; "shared": it exists and other folders use
+    # it, so its objects are written only with allow_shared_snippet; "pan":
+    # the name is one of PAN's snippets, which is never written to.
+    action: str
+    objects: int = 0
+    source_folders: list[str] = field(default_factory=list)
+    target_folders: list[str] = field(default_factory=list)
+    description: str = ""
+    enable_prefix: bool = False
+    dropped_labels: list[str] = field(default_factory=list)
+    write_objects: bool = True
+    failed: str = ""
+    # Filled when the clone runs: "created", "associated", "already associated", or an error
+    outcome: list[str] = field(default_factory=list)
+
+
+_SNIPPET_ACTIONS = {
+    "create": "new snippet",
+    "reuse": "exists, no other folder uses it",
+    "shared": "exists and other folders use it",
+    "pan": "PAN snippet, never written to",
+}
+
+
+def _snippet_markdown(plans: list[SnippetPlan], target_folder: str) -> list[str]:
+    lines = [
+        "\n## Snippets\n",
+        f"Objects from the customer's own snippets go into a snippet of the same name, "
+        f"associated with `{target_folder}`.\n",
+        "| Source snippet | Target snippet | Objects | Target state | Source folders | Outcome |",
+        "|---|---|---|---|---|---|",
+    ]
+    for p in plans:
+        state = _SNIPPET_ACTIONS.get(p.action, p.action)
+        if p.action == "shared":
+            state += f" ({', '.join(f'`{f}`' for f in p.target_folders)})"
+        outcome = "; ".join(p.outcome) or "—"
+        lines.append(
+            f"| `{p.source}` | `{p.target}` | {p.objects} | {state} | "
+            f"{', '.join(f'`{f}`' for f in p.source_folders) or '—'} | {outcome} |"
+        )
+    for p in plans:
+        if p.action == "shared" and not p.write_objects:
+            lines.append(
+                f"\n⚠️ `{p.target}` is already used by "
+                f"{', '.join(f'`{f}`' for f in p.target_folders)}: its objects were not written, "
+                "and the existing snippet is associated as it is. Pass "
+                "allow_shared_snippet=True to write into it, which changes those folders too."
+            )
+        elif p.action == "shared":
+            lines.append(
+                f"\n⚠️ Writing into `{p.target}` also changes "
+                f"{', '.join(f'`{f}`' for f in p.target_folders)}."
+            )
+        if p.dropped_labels:
+            lines.append(
+                f"\n- `{p.target}`: labels not copied ({', '.join(p.dropped_labels)}); "
+                "labels must exist in the target tenant."
+            )
+    return lines
+
+
+def _setup_rows(session: Any, kind: str) -> list[dict[str, Any]]:
+    resp = session.get(f"{_SETUP_V1}/{kind}", params={"limit": "1000"}, timeout=60)
+    if not resp.ok:
+        raise RuntimeError(f"{kind}: HTTP {resp.status_code}: {resp.text[:200]}")
+    body = resp.json() if resp.content else {}
+    rows = body.get("data", []) if isinstance(body, dict) else body
+    return [r for r in rows or [] if isinstance(r, dict)]
+
+
+def _plan_snippets(
+    session: Any,
+    data: dict[str, Any],
+    objects_by_snippet: dict[str, int],
+    target_folder: str,
+    name_prefix: str,
+    allow_shared_snippet: bool,
+) -> list[SnippetPlan]:
+    """One SnippetPlan per customer snippet whose objects this clone pushes."""
+    recorded = {
+        str(s.get("name")): s
+        for s in data.get("snippets") or []
+        if isinstance(s, dict) and s.get("name")
+    }
+    types = {str(s.get("name")): s.get("type") for s in _setup_rows(session, "snippets")}
+    used_by: dict[str, list[str]] = {}
+    for f in _setup_rows(session, "folders"):
+        for sn in f.get("snippets") or []:
+            used_by.setdefault(str(sn), []).append(str(f.get("name")))
+    folder = _API_FOLDER_ALIASES.get(target_folder, target_folder)
+
+    plans: list[SnippetPlan] = []
+    for source in sorted(objects_by_snippet):
+        rec = recorded.get(source, {})
+        target = f"{name_prefix}{source}"
+        others = sorted(set(used_by.get(target, [])) - {folder})
+        if target not in types:
+            action = "create"
+        elif types[target] in PAN_SNIPPET_TYPES or target.startswith("predefined"):
+            # PAN's own snippet: never written to (backups without snippet_types)
+            action = "pan"
+        elif others:
+            action = "shared"
+        else:
+            action = "reuse"
+        plans.append(
+            SnippetPlan(
+                source=source,
+                target=target,
+                action=action,
+                objects=objects_by_snippet[source],
+                source_folders=list(rec.get("folders") or []),
+                target_folders=sorted(used_by.get(target, [])),
+                description=str(rec.get("description") or ""),
+                enable_prefix=bool(rec.get("enable_prefix")),
+                # Labels must already exist in the target tenant; never sent
+                dropped_labels=list(rec.get("labels") or []),
+                write_objects=action in ("create", "reuse")
+                or (action == "shared" and allow_shared_snippet),
+            )
+        )
+    return plans
+
+
+def _snippet_capable(sdk_attr: str, folder: str, opts: dict[str, Any]) -> bool:
+    """Objects of this batch can live in a snippet: not the fixed Prisma
+    Access folders, the Mobile-Users folder-kwarg APIs or folderless ones."""
+    return (
+        folder == "customer"
+        and not opts.get("folder_kwarg")
+        and sdk_attr not in _FOLDERLESS_RESOURCES
+    )
+
+
+def _apply_snippet_plans(
+    session: Any, plans: list[SnippetPlan], target_folder: str, dry_run: bool
+) -> list[str]:
+    """Create the missing snippets, then associate them with the folder.
+
+    Returns warnings for the report.
+    """
+    for p in plans:
+        if p.action == "pan":
+            p.outcome.append("not written")
+            continue
+        if p.action == "create":
+            if dry_run:
+                p.outcome.append("would create")
+                continue
+            try:
+                _create_snippet(session, p)
+                p.outcome.append("created")
+            except Exception as exc:
+                p.failed = str(exc)[:200]
+                p.outcome.append(f"create failed: {p.failed}")
+    warnings = [
+        f"Snippet `{p.target}` could not be created ({p.failed}); its objects were not pushed."
+        for p in plans
+        if p.failed
+    ]
+    names = [p.target for p in plans if p.action != "pan" and not p.failed]
+    if not names:
+        return warnings
+    if dry_run:
+        for p in plans:
+            if p.target in names:
+                p.outcome.append(f"would associate with `{target_folder}`")
+        return warnings
+    try:
+        added = _associate_snippets(session, target_folder, names)
+    except Exception as exc:
+        for p in plans:
+            if p.target in names:
+                p.outcome.append(f"association failed: {str(exc)[:200]}")
+        warnings.append(
+            f"Snippets {', '.join(f'`{n}`' for n in names)} could not be associated with "
+            f"`{target_folder}` ({str(exc)[:200]}): their objects are in the snippets but the "
+            "folder does not see them. Associate them in the SCM UI before pushing."
+        )
+        return warnings
+    for p in plans:
+        if p.target in names:
+            p.outcome.append(
+                f"associated with `{target_folder}`" if p.target in added else "already associated"
+            )
+    return warnings
+
+
+def _rule_order_warnings(
+    resources: dict[str, Any],
+    batches: list[tuple[str, str, str, dict[str, Any]]],
+    plans: list[SnippetPlan],
+    target_folder: str,
+    snippet_names: set[str],
+) -> list[str]:
+    """One warning per preserved snippet that receives rules.
+
+    A snippet's rules are evaluated where its row sits in the folder's
+    rulebase.  The source position is the source folder's placeholder row.
+    """
+    by_source = {p.source: p for p in plans if p.write_objects and not p.failed}
+    warnings: list[str] = []
+    for source, plan in sorted(by_source.items()):
+        keys = [
+            b[0]
+            for b in batches
+            if b[0] in _RULE_KEYS
+            and any(
+                isinstance(o, dict) and o.get("snippet") == source
+                for o in resources.get(b[0]) or []
+            )
+        ]
+        if not keys:
+            continue
+        where: list[str] = []
+        for key in keys:
+            rows = [o for o in resources.get(key) or [] if isinstance(o, dict)]
+            folder_rows = [o for o in rows if not o.get("snippet")]
+            for i, o in enumerate(folder_rows):
+                if o.get("name") == source and _is_snippet_row(key, o, snippet_names):
+                    where.append(f"{key}: row {i + 1} of {len(folder_rows)}")
+        src = f" (source: {'; '.join(where)})" if where else ""
+        # Live 2026-10-13: a newly associated snippet's row lands after the
+        # inherited snippet rows and above every rule of the folder's own.
+        warnings.append(
+            f"Rules in snippet `{plan.target}` ({', '.join(keys)}) are evaluated where the "
+            f"snippet sits in `{target_folder}`'s rulebase. SCM adds a newly associated snippet "
+            f"above the folder's own rules, so they run before them{src}. Check the rule order "
+            "in the SCM UI before pushing."
+        )
+    return warnings
+
+
+def _create_snippet(session: Any, plan: SnippetPlan) -> None:
+    body: dict[str, Any] = {"name": plan.target}
+    if plan.description:
+        body["description"] = plan.description
+    if plan.enable_prefix:
+        body["enable_prefix"] = True
+    resp = session.post(f"{_SETUP_V1}/snippets", json=body, timeout=60)
+    if not resp.ok:
+        raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:200]}")
+
+
+def _associate_snippets(session: Any, target_folder: str, names: list[str]) -> list[str]:
+    """Add *names* to the folder's snippet list; returns the names added."""
+    folder = _API_FOLDER_ALIASES.get(target_folder, target_folder)
+    row = next((f for f in _setup_rows(session, "folders") if f.get("name") == folder), None)
+    if row is None or not row.get("id"):
+        raise RuntimeError(f"target folder `{target_folder}` not found")
+    resp = session.get(f"{_SETUP_V1}/folders/{row['id']}", timeout=60)
+    if not resp.ok:
+        raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:200]}")
+    current = resp.json()
+    have = [str(s) for s in current.get("snippets") or []]
+    added = [n for n in names if n not in have]
+    if not added:
+        return []
+    # The PUT takes the whole folder; anything left out would be cleared
+    body = {k: v for k, v in current.items() if k != "id"}
+    body["snippets"] = have + added
+    put = session.put(f"{_SETUP_V1}/folders/{row['id']}", json=body, timeout=60)
+    if not put.ok:
+        raise RuntimeError(f"HTTP {put.status_code}: {put.text[:200]}")
+    return added
 
 
 def _drop_nulls(value: Any) -> Any:
@@ -537,10 +870,12 @@ def _sanitise(
     is_ike_gateway: bool = False,
     set_folder: bool = True,
     rewrite: Callable[[dict[str, Any]], Any] | None = None,
+    snippet: str = "",
 ) -> tuple[dict[str, Any], str | None]:
     """
     Returns (sanitised_obj, psk_warning_or_None).
 
+    *snippet* puts the object in that snippet instead of *target_folder*.
     *rewrite* points references at renamed objects.  It runs before IP
     anonymisation, which would otherwise change an IP-bearing name such as
     ``H-192.0.2.1`` before the rename map could match it.
@@ -552,7 +887,10 @@ def _sanitise(
     o.pop("device", None)
     # Resources whose folder travels as a create() kwarg (GP Mobile-Users API)
     # must not carry a folder key in the payload at all.
-    if set_folder:
+    if snippet:
+        o.pop("folder", None)
+        o["snippet"] = snippet
+    elif set_folder:
         o["folder"] = target_folder
     else:
         o.pop("folder", None)
@@ -613,13 +951,14 @@ class _RestResource:
     def create(self, data: dict[str, Any]) -> Any:
         return self._check(self._session.post(self._url, json=data, timeout=30))
 
-    def fetch(self, name: str, folder: str) -> Any:
+    def fetch(self, name: str, folder: str = "", snippet: str = "") -> Any:
+        container = {"snippet": snippet} if snippet else {"folder": folder}
         body = self._check(
-            self._session.get(self._url, params={"name": name, "folder": folder}, timeout=30)
+            self._session.get(self._url, params={"name": name, **container}, timeout=30)
         )
         items = body.get("data", [body]) if isinstance(body, dict) else body
         if not items:
-            raise RuntimeError(f"{name!r} not found in folder {folder!r}")
+            raise RuntimeError(f"{name!r} not found in {container}")
         return type("Existing", (), {"id": items[0].get("id")})()
 
     def update(self, data: dict[str, Any]) -> Any:
@@ -736,8 +1075,11 @@ def _push_one(
     name = payload.get("name", "<unknown>")
     create_kwargs = create_kwargs or {}
     if dry_run:
-        shown_folder = str(create_kwargs.get("folder") or payload.get("folder", ""))
-        detail = f"would create in folder '{shown_folder}'"
+        if payload.get("snippet"):
+            detail = f"would create in snippet '{payload['snippet']}'"
+        else:
+            shown_folder = str(create_kwargs.get("folder") or payload.get("folder", ""))
+            detail = f"would create in folder '{shown_folder}'"
         if create_kwargs:
             detail += " (" + ", ".join(f"{k}={v}" for k, v in create_kwargs.items()) + ")"
         return PushResult(resource_type, name, "dry_run", detail)
@@ -778,6 +1120,8 @@ def _push_one(
                 fetch_kwargs: dict[str, str] = {"name": name}
                 if "folder" in create_kwargs:
                     fetch_kwargs["folder"] = str(create_kwargs["folder"])
+                elif payload.get("snippet"):
+                    fetch_kwargs["snippet"] = str(payload["snippet"])
                 else:
                     fetch_kwargs["folder"] = payload.get("folder", "")
                 for k, v in create_kwargs.items():
@@ -911,6 +1255,8 @@ def clone_config(
     on_missing_trust_cert: str = "fail",
     inventory: TargetInventory | None = None,
     include_network: bool = False,
+    snippet_mode: str = "flatten",
+    allow_shared_snippet: bool = False,
 ) -> CloneReport:
     """
     Load *source_backup_file*, sanitise every object, and push to
@@ -944,12 +1290,25 @@ def clone_config(
                          key in resource_filter also plans it.  Rows set on a
                          single firewall (device, no folder) are reported, not
                          pushed.  Interface names never take name_prefix.
+    snippet_mode    : 'flatten' (default) clones objects from the customer's
+                         own snippets into *target_folder*.  'preserve' puts
+                         them in a snippet of the same name (plus
+                         name_prefix), creating it when the target lacks it,
+                         and associates it with *target_folder*.  Objects in
+                         fixed folders (Mobile Users, Remote Networks, Service
+                         Connections) stay there.  PAN snippets are never
+                         written to.
+    allow_shared_snippet : With 'preserve', also write into a target snippet
+                         that other folders already use (which changes them
+                         too).  Otherwise that snippet is only associated.
 
     GlobalProtect and identity coverage: auth settings, tunnel profiles,
     agent profiles, forwarding profiles, portal/gateway infrastructure
     settings (fixed 'Mobile Users' folder) and SAML/Radius/LDAP auth
     profiles (customer folder) are cloned from the backup when present.
     """
+    if snippet_mode not in SNIPPET_MODES:
+        raise ValueError(f"snippet_mode must be one of {', '.join(SNIPPET_MODES)}")
     data = json.loads(Path(source_backup_file).read_text())
     resources: dict[str, list[dict[str, Any]]] = data.get("resources", {})
 
@@ -964,6 +1323,7 @@ def clone_config(
     if snippet_types is None:
         report.warnings.append(_SNIPPET_TYPES_UNKNOWN)
         snippet_types = {}
+    snippet_names = _snippet_names(data, client, snippet_types)
     batches = _planned_batches(
         resources,
         include_deployment=include_deployment,
@@ -1006,6 +1366,41 @@ def clone_config(
                 for kind in kinds:
                     renames.setdefault(kind, {})[name] = f"{name_prefix}{name}"
 
+    # Customer snippets kept as snippets (snippet_mode="preserve")
+    snippet_plans: dict[str, SnippetPlan] = {}
+    if snippet_mode == "preserve":
+        in_snippets: dict[str, int] = {}
+        for snap_key, sdk_attr, folder, opts in batches:
+            if not _snippet_capable(sdk_attr, folder, opts):
+                continue
+            for obj in resources.get(snap_key) or []:
+                if (
+                    isinstance(obj, dict)
+                    and obj.get("snippet")
+                    and not pan_snippet(obj, snippet_types)
+                    and not device_row(obj)
+                ):
+                    sn = str(obj["snippet"])
+                    in_snippets[sn] = in_snippets.get(sn, 0) + 1
+        if in_snippets:
+            session = client.session
+            try:
+                plans = _plan_snippets(
+                    session, data, in_snippets, target_folder, name_prefix, allow_shared_snippet
+                )
+            except Exception as exc:
+                report.warnings.append(
+                    "snippet_mode=preserve: the target's snippets and folders could not be "
+                    f"read ({str(exc)[:200]}), so nothing was pushed."
+                )
+                return report
+            report.snippets = plans
+            snippet_plans = {p.source: p for p in plans}
+            report.warnings += _apply_snippet_plans(session, plans, target_folder, dry_run)
+            report.warnings += _rule_order_warnings(
+                resources, batches, plans, target_folder, snippet_names
+            )
+
     # Network backup keys holding a name already seen from another folder
     duplicates: list[str] = []
 
@@ -1018,6 +1413,7 @@ def clone_config(
         create_kwargs: dict[str, str] | None = None,
         folder_kwarg: bool = False,
         network: bool = False,
+        into_snippet: bool = False,
     ) -> None:
         # Network rows of one name from several source folders (an "All"
         # backup walks every firewall folder): name → first source folder
@@ -1046,13 +1442,14 @@ def clone_config(
                     )
                 )
                 continue
-            if network and _is_placeholder(snap_key, obj):
+            if _is_snippet_row(snap_key, obj, snippet_names):
                 report.results.append(
                     PushResult(
                         snap_key,
                         obj.get("name", "<unknown>"),
                         "not_cloned",
-                        "snippet placeholder (name only) — not restorable",
+                        "snippet placeholder: stands for a snippet associated with the source "
+                        "folder, not a rule",
                     )
                 )
                 continue
@@ -1074,7 +1471,25 @@ def clone_config(
                 first_folder[name] = src
             oid = (snap_key, str(obj.get("name", "")))
             notes: list[str] = []
-            if obj.get("snippet"):
+            plan = snippet_plans.get(str(obj.get("snippet") or "")) if into_snippet else None
+            if plan is not None and (plan.failed or not plan.write_objects):
+                report.results.append(
+                    PushResult(
+                        snap_key,
+                        obj.get("name", "<unknown>"),
+                        "failed" if plan.failed else "not_cloned",
+                        f"snippet `{plan.target}` not created: {plan.failed}"
+                        if plan.failed
+                        else f"in snippet `{plan.target}`, which "
+                        + (
+                            "is a PAN snippet"
+                            if plan.action == "pan"
+                            else "other folders use (allow_shared_snippet=False)"
+                        ),
+                    )
+                )
+                continue
+            if obj.get("snippet") and plan is None:
                 notes.append(f"from custom snippet `{obj['snippet']}`, cloned into the folder")
             if preflight is not None:
                 if oid in preflight.skip:
@@ -1108,6 +1523,7 @@ def clone_config(
                 is_ike_gateway=is_ike_gateway,
                 set_folder=not folder_kwarg and sdk_attr not in _FOLDERLESS_RESOURCES,
                 rewrite=(lambda x: rewrite_references(snap_key, x, renames)) if renames else None,
+                snippet=plan.target if plan is not None else "",
             )
             if psk_w:
                 report.psk_warnings.append(psk_w)
@@ -1133,7 +1549,8 @@ def clone_config(
             report.results.append(result)
 
     for snap_key, sdk_attr, folder, opts in batches:
-        _process_batch(snap_key, sdk_attr, folder, **opts)
+        into = bool(snippet_plans) and _snippet_capable(sdk_attr, folder, opts)
+        _process_batch(snap_key, sdk_attr, folder, **opts, into_snippet=into)
 
     if duplicates:
         report.warnings.append(

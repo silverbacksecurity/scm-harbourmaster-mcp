@@ -410,7 +410,8 @@ def test_blocked_real_run_pushes_nothing(tmp_path):
         on_missing_reference="fail",
         inventory=_inv(**_base()),
     )
-    assert report.results == [] and client.resources == {}
+    # Nothing written (the snippet list may be read to spot placeholder rows)
+    assert report.results == [] and not any(r.created for r in client.resources.values())
     md = report.to_markdown()
     assert "BLOCKED BY PREFLIGHT" in md and "`gone`" in md
 

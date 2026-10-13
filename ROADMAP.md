@@ -495,9 +495,38 @@ code. New candidates are listed below._
   - ✅ Objects from PAN's other snippets (`Web-Security-Default`,
     `hip-default`, `Auto-VPN-Default-Snippet`, ...; SCM snippet type
     `predefined` or `readonly`) are no longer cloned. Done 2026-10-12;
-    backups record `snippet_types`. Objects from the customer's own snippets
-    are still flattened into the target folder: there is no snippet clone
-    yet.
+    backups record `snippet_types`.
+  - ✅ Snippet clone, built 2026-10-13: `scm_config_clone(snippet_mode=
+    "preserve")` puts objects from the customer's own snippets into a
+    snippet of the same name (plus `name_prefix`). It creates the snippet
+    when the target lacks it and associates it with the target folder.
+    `flatten` stays the default.
+    - Association goes through `PUT /config/setup/v1/folders/{id}` with the
+      folder's `snippets` list. pan-scm-sdk stubs `associate_folder` as
+      unsupported, but the live API accepts it.
+    - A target snippet that other folders use is only associated, not
+      written to, unless `allow_shared_snippet=True`. PAN snippets are
+      never written to. Objects in the fixed Prisma Access folders stay
+      there. Snippet labels aren't copied.
+    - Backups now record a `snippets` list: each customer snippet's
+      description, labels and associated folders. Custom snippets have no
+      SCM type, so `snippet_types` never listed them.
+    - Live-tested 2026-10-13 on a lab tenant: snippet create, an object in
+      a snippet, association and disassociation, and a clone dry run.
+    - Snippet placeholder rows (a rulebase row named after each associated
+      snippet, filled with allow/any defaults by the SDK) are no longer
+      replayed as rules in any rulebase. Before this, only PBF skipped them.
+    - Live-tested 2026-10-13 end to end on a lab tenant: a tag and an
+      address in a new snippet, an address group and a disabled rule in the
+      folder, a disabled rule in the snippet. Everything landed in the right
+      container and the snippet was associated. pan-scm-sdk rejected the
+      address with a snippet container, but the clone's raw-REST fallback
+      created it.
+    - Still open: rule order. SCM adds a newly associated snippet's row
+      above the folder's own rules, so its rules run first even where the
+      source had them below. The report warns and gives the source
+      position. Moving the snippet row (`:move`) is untested. A snippet that is associated only with an ancestor
+      of the backed-up folder is associated with the target folder itself.
   - SCM candidate validation (checked 2026-09-25 against pan.dev `1f192ff`):
     there is no public endpoint. The jobs schema lists a `Validate` job
     type (`type_str`), presumably the UI push dialog's Validate button, but

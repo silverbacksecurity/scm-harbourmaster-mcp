@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`scm_config_clone` can keep the customer's snippets** with
+  `snippet_mode="preserve"`. The default, `flatten`, is unchanged.
+  - Objects from the customer's own snippets go into a snippet of the same
+    name (plus `name_prefix`), which is created when the target lacks it
+    and associated with the target folder.
+  - A target snippet that other folders already use is only associated,
+    unless `allow_shared_snippet=True`. PAN snippets are never written to,
+    and objects in the fixed Prisma Access folders stay there.
+  - The dry run lists each snippet, its state in the target and the folders
+    that use it.
+  - Config backups record a `snippets` list with each customer snippet's
+    description, labels and associated folders.
+  - When rules move into a snippet, the report warns that SCM evaluates
+    them where it places the snippet in the target folder's rulebase, and
+    gives the snippet's position in the source.
 - **`scm_config_clone` restores NGFW network config** when given
   `include_network=True` (off by default).
   - It restores interface management profiles, interfaces, community and
@@ -484,6 +499,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     stub's `file:` override. npm is still left out of the runtime image.
 
 ### Fixed
+- **`scm_config_clone` no longer replays snippet placeholder rows as
+  rules.** SCM lists each snippet associated with a folder as a row named
+  after the snippet (`optional-default`, `office365`, ...). The SDK fills
+  that row with allow/any defaults, and the clone recreated it as a rule.
+  These rows are now skipped in every rulebase, not only PBF.
 - **`scm_application_tags` create now works against the live API.** It
   sent the container as `location`, as the spec documents, and the API
   rejected every create with 400 `API_I00013`. Create now sends `folder`,

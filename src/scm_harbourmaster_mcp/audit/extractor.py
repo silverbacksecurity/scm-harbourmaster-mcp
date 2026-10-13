@@ -839,6 +839,40 @@ def backup_snippet_types(snap: AuditSnapshot) -> dict[str, str]:
     }
 
 
+def backup_snippets(snap: AuditSnapshot) -> list[dict[str, Any]]:
+    """The customer's own snippets, for the ``snippets`` backup field.
+
+    Each entry is the snippet's name, description, labels, enable_prefix and
+    the folders it is associated with (folder rows list their snippets by
+    name; snippet list rows carry no folders).  PAN snippets are left out:
+    they exist in every tenant.  Custom snippets have no SCM type, which is
+    why ``snippet_types`` does not list them.
+    """
+    folders_of: dict[str, list[str]] = {}
+    for f in snap.scm_folders:
+        if not isinstance(f, dict):
+            continue
+        for sn in f.get("snippets") or []:
+            folders_of.setdefault(str(sn), []).append(str(f.get("name")))
+    out: list[dict[str, Any]] = []
+    for s in snap.scm_snippets:
+        if not isinstance(s, dict) or not s.get("name"):
+            continue
+        name = str(s["name"])
+        if s.get("type") in ("predefined", "readonly") or name.startswith("predefined"):
+            continue
+        out.append(
+            {
+                "name": name,
+                "description": s.get("description") or "",
+                "labels": list(s.get("labels") or []),
+                "enable_prefix": bool(s.get("enable_prefix")),
+                "folders": sorted(folders_of.get(name, [])),
+            }
+        )
+    return out
+
+
 def backup_resource_payload(snap: AuditSnapshot) -> dict[str, Any]:
     """Build the ``resources`` section of a config backup JSON from *snap*.
 

@@ -63,6 +63,7 @@ def run_backup(tenant: TenantConfig, on_progress: OnProgress = None) -> BackupRe
         backup_resource_payload,
         backup_snapshot,
         backup_snippet_types,
+        backup_snippets,
         extract_sdwan_snapshot,
         extract_snapshot,
     )
@@ -126,6 +127,7 @@ def run_backup(tenant: TenantConfig, on_progress: OnProgress = None) -> BackupRe
         "folder": "All",
         "resources": resources,
         "snippet_types": backup_snippet_types(snap),
+        "snippets": backup_snippets(snap),
         "extraction_errors": snap.extraction_errors,
     }
     out.write_text(json.dumps(payload, indent=2, default=str))

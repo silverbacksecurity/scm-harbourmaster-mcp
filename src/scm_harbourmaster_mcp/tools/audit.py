@@ -30,7 +30,7 @@ from ..audit.asbuilt_report import AsBuiltReportBuilder
 from ..audit.asbuilt_verify import VERIFIED_SECTIONS
 from ..audit.bpa_checks import run_all_checks
 from ..audit.clone_preflight import MISSING_REFERENCE_MODES, MISSING_TRUST_CERT_MODES
-from ..audit.cloner import clone_config
+from ..audit.cloner import SNIPPET_MODES, clone_config
 from ..audit.commit_preview import (
     bpa_delta,
     build_address_index,
@@ -54,6 +54,7 @@ from ..audit.extractor import (
     backup_resource_payload,
     backup_snapshot,
     backup_snippet_types,
+    backup_snippets,
     extract_adem,
     extract_airs,
     extract_allocated_ips,
@@ -401,6 +402,7 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
             "tenant_id": snap.tenant_id,
             "resources": backup_resource_payload(snap),
             "snippet_types": backup_snippet_types(snap),
+            "snippets": backup_snippets(snap),
             "extraction_errors": snap.extraction_errors,
         }
 
@@ -2546,6 +2548,8 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
         on_missing_reference: str = "fail",
         on_missing_trust_cert: str = "fail",
         include_network: bool = False,
+        snippet_mode: str = "flatten",
+        allow_shared_snippet: bool = False,
     ) -> str:
         """Clone a SCM config backup into a new folder or tenant.
 
@@ -2579,7 +2583,21 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
         a folder.  The target folder sees a non-global PAN snippet only when the
         snippet is associated with it; the preflight flags references to one it
         cannot see.  Objects from the customer's own snippets are cloned into
-        the target folder.
+        the target folder, or with snippet_mode='preserve' into a snippet of
+        the same name associated with it (see below).
+
+        Customer snippets (snippet_mode='preserve')
+        -------------------------------------------
+        Each of the customer's own snippets in the backup becomes a snippet in
+        the target (name_prefix applies to its name too), created when
+        missing, and is associated with target_folder.  Its objects are
+        created in the snippet, not the folder.  If the target snippet
+        already exists and other folders use it, its objects are not written
+        unless allow_shared_snippet=True (which changes those folders too);
+        the existing snippet is associated as it is.  Objects in the fixed
+        Prisma Access folders and PAN's own snippets are never moved.
+        Snippet labels are not copied.  The dry run lists every snippet, its
+        target state and the folders that use it.
 
         Reference preflight
         -------------------
@@ -2660,6 +2678,11 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
                          'disable_rule' or 'skip_object'.
             include_network: Also restore the NGFW network config (see
                          above).  Default False.
+            snippet_mode: 'flatten' (default: customer snippet objects go
+                         into target_folder) or 'preserve' (see above).
+            allow_shared_snippet: With 'preserve', write into a target
+                         snippet that other folders already use.  Default
+                         False.
 
         **Write safety (SSR pattern):** ``dry_run=True`` by default;
         ``ticket_ref`` is mandatory.
@@ -2679,6 +2702,8 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
             return (
                 f"Error: on_missing_trust_cert must be one of {', '.join(MISSING_TRUST_CERT_MODES)}"
             )
+        if snippet_mode not in SNIPPET_MODES:
+            return f"Error: snippet_mode must be one of {', '.join(SNIPPET_MODES)}"
 
         try:
             client = get_client(target_tenant_id)
@@ -2703,6 +2728,8 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
                 on_missing_reference=on_missing_reference,
                 on_missing_trust_cert=on_missing_trust_cert,
                 include_network=include_network,
+                snippet_mode=snippet_mode,
+                allow_shared_snippet=allow_shared_snippet,
             )
             report.target_tenant_id = target_tenant_id
 
