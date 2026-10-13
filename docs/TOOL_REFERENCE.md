@@ -4,7 +4,7 @@
 
 All tools authenticate via Bearer-token OAuth (SASE client credentials) configured in `settings.toml` / `.secrets.toml`.
 
-**<!-- tool-count -->175<!-- /tool-count --> tools** across <!-- module-count -->42<!-- /module-count --> modules.
+**<!-- tool-count -->177<!-- /tool-count --> tools** across <!-- module-count -->43<!-- /module-count --> modules.
 
 ## Table of Contents
 
@@ -27,6 +27,7 @@ All tools authenticate via Bearer-token OAuth (SASE client credentials) configur
 - [Prisma Access Browser for MSP](#prisma-access-browser-for-msp)
 - [Utility](#utility)
 - [Adem](#adem)
+- [Application Tags](#application-tags)
 - [Capabilities](#capabilities)
 - [Cdl Logforwarding](#cdl-logforwarding)
 - [Cert Transfer](#cert-transfer)
@@ -645,7 +646,9 @@ List SCM configuration versions with timestamps, descriptions, and running state
 ```
 Shows the full version history of committed configs for this tenant.
 The running version is the currently active config on Prisma Access.
-Use version numbers with scm_config_rollback to revert to a prior state.
+Also lists the named snapshots saved in SCM (name, time, who saved it).
+Use version numbers or snapshot names with scm_config_rollback to
+revert to a prior state.
 
 Args:
     tenant_id: SCM tenant ID. Defaults to the configured default tenant.
@@ -694,23 +697,36 @@ Args:
 
 ### `scm_config_rollback`
 
-Load a previous SCM config version back to candidate for recommit.
+Restore an earlier SCM config: a config version or a named snapshot.
 
 ```
-This is a two-phase safety operation:
-  1. Load — copies the specified version into the candidate config
-  2. Commit — optional; if commit_immediately=True, commits the candidate right away
+Three ways to restore, picked by the arguments:
+  * ``version=N`` — load version N into the candidate config, then
+    commit it (``commit_immediately=True``) or leave the commit to
+    ``scm_commit``.
+  * ``snapshot=NAME`` — load a named snapshot (saved in the SCM UI)
+    into the candidate config, then commit as above.
+  * ``version=N`` with ``push_folders`` and/or ``push_devices`` — push
+    version N straight to those folders/firewalls without touching the
+    candidate config (``config-versions:push``).  The push runs as a
+    job; check it and its child push jobs with ``scm_list_jobs``.
 
-Run `scm_config_versions` first to see the version history.
+Run `scm_config_versions` first: it lists the versions and the named
+snapshots.
 
 Args:
-    version: The config version number to roll back to.
-    commit_immediately: If True, commit the loaded version immediately after loading.
+    version: The config version number to restore.
+    snapshot: Name of a named snapshot to load instead of a version.
+    push_folders: With ``version``, folders to push the version to.
+    push_devices: With ``version``, firewall serial numbers to push the
+        version to.
+    commit_immediately: If True, commit the loaded version or snapshot
+        immediately after loading (not used with a push).
     description: Commit description when commit_immediately=True.
-    dry_run: If True (default), show the version that would be loaded
-        without loading or committing anything.
+    dry_run: If True (default), show what would be loaded or pushed
+        without changing anything.
     ticket_ref: Mandatory change-ticket reference (logged and echoed,
-        never added to the commit description).
+        never added to the commit description or request body).
     tenant_id: SCM tenant ID. Defaults to the configured default tenant.
 
 **Write safety (SSR pattern):** ``dry_run=True`` by default;
@@ -720,11 +736,14 @@ Args:
 | Parameter | Type | Default |
 |-----------|------|---------|
 | `tenant_id` | `str` | `''` |
-| `version` | `int` | `—` |
+| `version` | `int` | `0` |
 | `commit_immediately` | `bool` | `False` |
 | `description` | `str` | `''` |
 | `dry_run` | `bool` | `True` |
 | `ticket_ref` | `str` | `''` |
+| `snapshot` | `str` | `''` |
+| `push_folders` | `list[str] \| None` | `None` |
+| `push_devices` | `list[str] \| None` | `None` |
 
 ---
 
@@ -835,7 +854,8 @@ profiles, zones, VPN and deployment objects, network infrastructure
 GlobalProtect mobile-agent stack (auth settings, tunnel and forwarding
 profiles, portals/gateways, SAML/Radius/LDAP auth profiles) and NGFW
 network config (logical routers, BGP/OSPF profiles, interfaces, GRE
-tunnels, PBF rules) — and writes a timestamped JSON file.
+tunnels, PBF rules) and application tags — and writes a timestamped
+JSON file.
 
 Objects are those the folder holds or inherits.  For "All" and
 "ngfw-shared" the NGFW network config of every firewall's device
@@ -3719,6 +3739,30 @@ Args:
 | `serial` | `str` | `''` |
 | `enrich` | `bool` | `False` |
 
+### `scm_device_models`
+
+List the NGFW device models SCM knows, with their interface names.
+
+```
+Reads SCM's device-model catalogue (``GET /config/device/v1/models``):
+each model's name, description and the ethernet and cellular
+interfaces it has (with PoE / fail-open flags where set).  Use it to
+check which interface names exist on a model before writing interface
+config or onboarding rules for it.  The catalogue is the same for
+every tenant.
+
+Args:
+    model: Optional case-insensitive filter on the model name
+        (e.g. "440" or "PA-1410").  With a filter the full interface
+        lists are returned; without one, one summary row per model.
+    tenant_id: SCM tenant ID. Defaults to active tenant.
+```
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `tenant_id` | `str` | `''` |
+| `model` | `str` | `''` |
+
 ---
 
 ## AIOps
@@ -4054,6 +4098,67 @@ Returns:
 | `timerange` | `str` | `'last_3_day'` |
 | `filter` | `str` | `''` |
 | `group` | `str` | `''` |
+
+---
+
+## Application Tags
+
+_MCP tool for SCM application tags (``config/objects/v1/application-tags``)._
+
+### `scm_application_tags`
+
+List and manage application tags (tags attached to applications).
+
+```
+Each entry attaches ``tags`` to one application ``name`` in a folder,
+snippet or device.
+
+Actions:
+  * ``list`` — entries in the given folder/snippet/device (optional
+    ``name`` filter).
+  * ``get`` — one entry by ``tag_id``.
+  * ``create`` — tag application ``name`` with ``tags`` in the given
+    folder/snippet/device.
+  * ``update`` — replace an entry's ``tags`` (entry by ``tag_id``, or
+    by ``name`` + folder/snippet/device).
+  * ``delete`` — remove an entry (``tag_id``, or ``name`` + scope).
+  * ``bulk_create`` / ``bulk_update`` — up to 50 applications in one
+    folder/snippet/device from ``applications_json``, a JSON list of
+    ``{"name": "<app>", "tags": ["<tag>", ...]}``.
+
+**Write safety (SSR pattern):** ``dry_run=True`` by default — a dry
+run reads only and returns the planned request (and, for update and
+delete, the current entry).  ``ticket_ref`` is mandatory for writes and
+is never sent to SCM.  Commit is a separate ``scm_commit`` step.
+
+Args:
+    action: list (default), get, create, update, delete, bulk_create
+        or bulk_update.
+    folder: Folder scope (pass only one of folder, snippet, device).
+    snippet: Snippet scope.
+    device: Device scope (firewall serial).
+    name: Application name (list filter; create/update/delete target).
+    tag_id: Entry UUID (get/update/delete).
+    tags: Tags to attach (create/update).
+    applications_json: Bulk list for bulk_create/bulk_update.
+    dry_run: If True (default), preview a write without applying it.
+    ticket_ref: Mandatory change-ticket reference for writes.
+    tenant_id: SCM tenant ID.
+```
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `tenant_id` | `str` | `''` |
+| `action` | `str` | `'list'` |
+| `folder` | `str` | `''` |
+| `snippet` | `str` | `''` |
+| `device` | `str` | `''` |
+| `name` | `str` | `''` |
+| `tag_id` | `str` | `''` |
+| `tags` | `list[str] \| None` | `None` |
+| `applications_json` | `str` | `''` |
+| `dry_run` | `bool` | `True` |
+| `ticket_ref` | `str` | `''` |
 
 ---
 

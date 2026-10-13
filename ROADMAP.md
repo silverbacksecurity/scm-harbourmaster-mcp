@@ -315,9 +315,25 @@ code. New candidates are listed below._
     - Replacing secrets is tested only with fake data.
     - Preflight doesn't check BFD, timer, dampening, monitor or netflow
       profile references.
-  - Still open, other R3 resources: GP tunnel settings, device models,
-    named snapshots (`:load`), application tags (`bulk`),
-    `config-versions:push`, and `sites:query` / `remote-networks:query`.
+  - ✅ Other R3 resources, built 2026-10-13:
+    - Application tags: `scm_application_tags`, with bulk writes on the SSR
+      pattern. They are also in config backups.
+    - Device models: `scm_device_models`.
+    - Named snapshots: listed by `scm_config_versions` and loaded with
+      `scm_config_rollback(snapshot=)`.
+    - Version push: `config-versions:push` via
+      `scm_config_rollback(version=, push_folders/push_devices)`.
+    - GP tunnel settings return the same objects as the existing
+      `mobile_agent_tunnel_profiles` backup key, so they get no key of their
+      own.
+    - The new writes were only dry-run checked live. None was sent.
+  - Still open, other R3 resources:
+    - `sites:query` and `remote-networks:query` answer 403 on every lab
+      tenant, the same as an unknown path, so they don't appear to be routed.
+    - Deleting a named snapshot isn't built.
+    - Check the `config-versions/{version}:load` path that rollback uses.
+      Every spec documents `config-versions:load` with `{"version": N}` in
+      the body instead.
 
 - ✅ **Site Management (NGFW device onboarding)** — shipped 2026-07-31 as
   `scm_site_management` (`tools/site_management.py`), covering the new

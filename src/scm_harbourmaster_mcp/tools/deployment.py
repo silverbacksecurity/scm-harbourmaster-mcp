@@ -8,6 +8,7 @@ Covers: remote networks, service connections, bandwidth allocations,
 from __future__ import annotations
 
 import json
+import re
 from contextlib import suppress
 from datetime import UTC, datetime
 from typing import Any
@@ -28,6 +29,10 @@ from ..utils.write_safety import (
 logger = get_logger(__name__)
 
 _CV_BASE = "/config/operations/v1/config-versions"
+# R3 device-settings spec: list, :load and DELETE /{name}.  There is no create
+# endpoint; snapshots are saved in the SCM UI.
+_SNAPSHOT_BASE = "/config/device/v1/named-snapshots"
+_SNAPSHOT_NAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 
 def _cv_get(client: Any, path: str) -> dict[str, Any]:
@@ -50,6 +55,36 @@ def _running_versions(client: Any, folders: list[str]) -> dict[str, Any]:
         if device in folders:
             versions[device] = entry.get("version")
     return versions
+
+
+def _named_snapshots(client: Any) -> list[dict[str, Any]]:
+    """Named snapshots ({name, timestamp, savedby}); [] when unavailable."""
+    rows = _cv_get(client, _SNAPSHOT_BASE).get("data")
+    return [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
+
+
+def _snapshot_lines(snapshots: list[dict[str, Any]]) -> list[str]:
+    """Markdown section listing named snapshots for scm_config_versions."""
+    if not snapshots:
+        return ["", "Named snapshots: none saved."]
+    lines = [
+        "",
+        f"### Named snapshots ({len(snapshots)})",
+        "",
+        "| Name | Saved | By |",
+        "|---|---|---|",
+    ]
+    for snap in snapshots:
+        ts = snap.get("timestamp")
+        lines.append(
+            f"| {snap.get('name', '?')} | {_age(ts)} ({ts or '—'}) | {snap.get('savedby') or '—'} |"
+        )
+    lines += [
+        "",
+        "Use `scm_config_rollback(snapshot=NAME, ticket_ref=...)` to preview loading a "
+        "named snapshot into the candidate config.",
+    ]
+    return lines
 
 
 def _age(ts: str | None) -> str:
@@ -321,7 +356,9 @@ def register_deployment_tools(mcp: FastMCP, get_client: Any) -> None:
 
         Shows the full version history of committed configs for this tenant.
         The running version is the currently active config on Prisma Access.
-        Use version numbers with scm_config_rollback to revert to a prior state.
+        Also lists the named snapshots saved in SCM (name, time, who saved it).
+        Use version numbers or snapshot names with scm_config_rollback to
+        revert to a prior state.
 
         Args:
             tenant_id: SCM tenant ID. Defaults to the configured default tenant.
@@ -340,13 +377,19 @@ def register_deployment_tools(mcp: FastMCP, get_client: Any) -> None:
         except Exception:
             pass
 
+        snapshot_lines = _snapshot_lines(_named_snapshots(client))
+
         if not versions:
             running_summary = (
                 ", ".join(f"{k}={v}" for k, v in running_by_scope.items()) or "unknown"
             )
-            return (
-                "No config versions found. Config versions are saved after each commit.\n\n"
-                f"Running versions: {running_summary}"
+            return "\n".join(
+                [
+                    "No config versions found. Config versions are saved after each commit.",
+                    "",
+                    f"Running versions: {running_summary}",
+                    *snapshot_lines,
+                ]
             )
 
         _DESC_W = 40
@@ -401,6 +444,7 @@ def register_deployment_tools(mcp: FastMCP, get_client: Any) -> None:
             "```",
             "",
             "Use `scm_config_rollback(version=N, ticket_ref=...)` to preview loading a version back to candidate.",
+            *snapshot_lines,
         ]
         return "\n".join(lines)
 
@@ -583,28 +627,44 @@ def register_deployment_tools(mcp: FastMCP, get_client: Any) -> None:
     def scm_config_rollback(
         client: Any,
         tenant_id: str,
-        version: int,
+        version: int = 0,
         commit_immediately: bool = False,
         description: str = "",
         dry_run: bool = True,
         ticket_ref: str = "",
+        snapshot: str = "",
+        push_folders: list[str] | None = None,
+        push_devices: list[str] | None = None,
     ) -> str:
-        """Load a previous SCM config version back to candidate for recommit.
+        """Restore an earlier SCM config: a config version or a named snapshot.
 
-        This is a two-phase safety operation:
-          1. Load — copies the specified version into the candidate config
-          2. Commit — optional; if commit_immediately=True, commits the candidate right away
+        Three ways to restore, picked by the arguments:
+          * ``version=N`` — load version N into the candidate config, then
+            commit it (``commit_immediately=True``) or leave the commit to
+            ``scm_commit``.
+          * ``snapshot=NAME`` — load a named snapshot (saved in the SCM UI)
+            into the candidate config, then commit as above.
+          * ``version=N`` with ``push_folders`` and/or ``push_devices`` — push
+            version N straight to those folders/firewalls without touching the
+            candidate config (``config-versions:push``).  The push runs as a
+            job; check it and its child push jobs with ``scm_list_jobs``.
 
-        Run `scm_config_versions` first to see the version history.
+        Run `scm_config_versions` first: it lists the versions and the named
+        snapshots.
 
         Args:
-            version: The config version number to roll back to.
-            commit_immediately: If True, commit the loaded version immediately after loading.
+            version: The config version number to restore.
+            snapshot: Name of a named snapshot to load instead of a version.
+            push_folders: With ``version``, folders to push the version to.
+            push_devices: With ``version``, firewall serial numbers to push the
+                version to.
+            commit_immediately: If True, commit the loaded version or snapshot
+                immediately after loading (not used with a push).
             description: Commit description when commit_immediately=True.
-            dry_run: If True (default), show the version that would be loaded
-                without loading or committing anything.
+            dry_run: If True (default), show what would be loaded or pushed
+                without changing anything.
             ticket_ref: Mandatory change-ticket reference (logged and echoed,
-                never added to the commit description).
+                never added to the commit description or request body).
             tenant_id: SCM tenant ID. Defaults to the configured default tenant.
 
         **Write safety (SSR pattern):** ``dry_run=True`` by default;
@@ -614,6 +674,28 @@ def register_deployment_tools(mcp: FastMCP, get_client: Any) -> None:
         if err:
             return f"Error: {err}"
         ticket_ref = normalize_ticket_ref(ticket_ref)
+        snapshot = (snapshot or "").strip()
+        folders = [f for f in (push_folders or []) if f]
+        devices = [d for d in (push_devices or []) if d]
+        if bool(snapshot) == bool(version):
+            return "Error: pass exactly one of version or snapshot."
+        if snapshot and not _SNAPSHOT_NAME_RE.match(snapshot):
+            return (
+                "Error: snapshot names are 1-64 letters, digits, '-' or '_' "
+                "(see scm_config_versions)."
+            )
+        if (folders or devices) and snapshot:
+            return (
+                "Error: push_folders/push_devices push a config version; "
+                "a named snapshot can only be loaded."
+            )
+        if (folders or devices) and commit_immediately:
+            return "Error: a version push needs no commit — drop commit_immediately."
+
+        if snapshot:
+            return _restore_snapshot(
+                client, tenant_id, snapshot, commit_immediately, description, dry_run, ticket_ref
+            )
 
         ver_info: dict[str, Any] = {}
         with suppress(Exception):
@@ -631,31 +713,42 @@ def register_deployment_tools(mcp: FastMCP, get_client: Any) -> None:
         )
         ver_desc = ver_info.get("description") or "—"
         ver_admin = ver_info.get("created_by") or ver_info.get("admin") or "—"
+        version_rows = [
+            f"| Version | {version} |",
+            f"| Originally committed | {_age(str(ver_date))} ({ver_date}) |",
+            f"| Original description | {ver_desc} |",
+            f"| Original admin | {ver_admin} |",
+        ]
+
+        if folders or devices:
+            return _push_version(
+                client,
+                tenant_id,
+                version,
+                (folders, devices),
+                ver_info,
+                version_rows,
+                dry_run,
+                ticket_ref,
+            )
 
         if dry_run:
             found = "yes" if ver_info else "no — version details could not be read"
-            commit_step = (
-                "2. Commit all folders immediately (commit_immediately=True)"
-                if commit_immediately
-                else "2. Stop — nothing is committed; run `scm_commit` separately"
-            )
             return "\n".join(
                 [
                     f"## Config Rollback — DRY-RUN — Version {version}",
                     "",
                     "| Field | Value |",
                     "|---|---|",
-                    f"| Version | {version} |",
+                    version_rows[0],
                     f"| Version details found | {found} |",
-                    f"| Originally committed | {_age(str(ver_date))} ({ver_date}) |",
-                    f"| Original description | {ver_desc} |",
-                    f"| Original admin | {ver_admin} |",
+                    *version_rows[1:],
                     f"| Ticket ref | {ticket_ref} |",
                     "",
                     "Would:",
                     f"1. Load version {version} into the candidate config "
                     "(replacing any pending candidate changes)",
-                    commit_step,
+                    _commit_step(commit_immediately),
                     "",
                     DRY_RUN_HINT,
                 ]
@@ -684,41 +777,183 @@ def register_deployment_tools(mcp: FastMCP, get_client: Any) -> None:
             "",
             "| Field | Value |",
             "|---|---|",
-            f"| Version | {version} |",
-            f"| Originally committed | {_age(str(ver_date))} ({ver_date}) |",
-            f"| Original description | {ver_desc} |",
-            f"| Original admin | {ver_admin} |",
+            *version_rows,
         ]
+        desc = description or f"Rollback to version {version} via scm-harbourmaster-mcp"
+        return "\n".join(
+            lines + _after_load(client, tenant_id, commit_immediately, desc, version=version)
+        )
 
-        if commit_immediately:
-            desc = description or f"Rollback to version {version} via scm-harbourmaster-mcp"
-            commit_result = client.commit(
-                folders=["all"],
-                description=desc,
-                sync=True,
-                timeout=300,
-            )
-            job_id = getattr(commit_result, "job_id", "—")
-            logger.info(
-                "config_rollback_committed",
-                version=version,
-                job_id=job_id,
-                tenant_id=tenant_id,
-            )
-            lines += [
-                "",
-                f"✅ **Committed immediately** — Job ID: `{job_id}`",
-                f"Description: _{desc}_",
-            ]
-        else:
-            lines += [
-                "",
-                "✅ Version loaded to candidate. **No changes have been pushed yet.**",
-                "",
-                "Next steps:",
-                "1. Review the candidate config in the SCM UI if desired",
-                "2. Run `scm_commit(folders=[...], ticket_ref=..., dry_run=False)` to push the rollback",
-                "   or `scm_config_push_track(folders=[...], ticket_ref=..., dry_run=False)` for a tracked push",
-            ]
 
-        return "\n".join(lines)
+def _commit_step(commit_immediately: bool) -> str:
+    """Dry-run line describing what happens after a load."""
+    return (
+        "2. Commit all folders immediately (commit_immediately=True)"
+        if commit_immediately
+        else "2. Stop — nothing is committed; run `scm_commit` separately"
+    )
+
+
+def _after_load(
+    client: Any, tenant_id: str, commit_immediately: bool, desc: str, **log: Any
+) -> list[str]:
+    """Commit the freshly loaded candidate, or describe the next steps."""
+    if not commit_immediately:
+        return [
+            "",
+            "✅ Loaded to candidate. **No changes have been pushed yet.**",
+            "",
+            "Next steps:",
+            "1. Review the candidate config in the SCM UI if desired",
+            "2. Run `scm_commit(folders=[...], ticket_ref=..., dry_run=False)` to push the rollback",
+            "   or `scm_config_push_track(folders=[...], ticket_ref=..., dry_run=False)` for a tracked push",
+        ]
+    commit_result = client.commit(folders=["all"], description=desc, sync=True, timeout=300)
+    job_id = getattr(commit_result, "job_id", "—")
+    logger.info("config_rollback_committed", job_id=job_id, tenant_id=tenant_id, **log)
+    return ["", f"✅ **Committed immediately** — Job ID: `{job_id}`", f"Description: _{desc}_"]
+
+
+def _restore_snapshot(
+    client: Any,
+    tenant_id: str,
+    snapshot: str,
+    commit_immediately: bool,
+    description: str,
+    dry_run: bool,
+    ticket_ref: str,
+) -> str:
+    """scm_config_rollback(snapshot=...): load a named snapshot into candidate."""
+    match = next((s for s in _named_snapshots(client) if s.get("name") == snapshot), None)
+    ts = (match or {}).get("timestamp")
+    rows = [
+        "| Field | Value |",
+        "|---|---|",
+        f"| Named snapshot | {snapshot} |",
+        f"| Saved | {_age(ts)} ({ts or '—'}) |",
+        f"| Saved by | {(match or {}).get('savedby') or '—'} |",
+    ]
+    if dry_run:
+        found = "yes" if match else "no — not in the tenant's named snapshots"
+        return "\n".join(
+            [
+                f"## Config Rollback — DRY-RUN — Named Snapshot {snapshot}",
+                "",
+                *rows[:3],
+                f"| Snapshot found | {found} |",
+                *rows[3:],
+                f"| Ticket ref | {ticket_ref} |",
+                "",
+                "Would:",
+                f"1. Load named snapshot {snapshot} into the candidate config "
+                "(replacing any pending candidate changes)",
+                _commit_step(commit_immediately),
+                "",
+                DRY_RUN_HINT,
+            ]
+        )
+    if match is None:
+        return (
+            f"Error: named snapshot {snapshot!r} not found — "
+            "run scm_config_versions to list the saved snapshots."
+        )
+
+    audit_write(
+        "scm_config_rollback",
+        ticket_ref,
+        tenant_id,
+        snapshot=snapshot,
+        commit_immediately=commit_immediately,
+    )
+    raw = client.post(f"{_SNAPSHOT_BASE}:load", json={"name": snapshot})
+    result: dict[str, Any] = raw if isinstance(raw, dict) else {}
+    status = str(result.get("status") or "")
+    logger.info("config_snapshot_loaded", snapshot=snapshot, status=status, tenant_id=tenant_id)
+    lines = [f"## Config Rollback — Named Snapshot {snapshot} Loaded to Candidate", "", *rows]
+    if result.get("message"):
+        lines.append(f"| API message | {result['message']} |")
+    if status and status != "success":
+        return "\n".join(
+            [*lines, "", f"⚠️ Load returned status `{status}` — nothing was committed."]
+        )
+    desc = description or f"Rollback to named snapshot {snapshot} via scm-harbourmaster-mcp"
+    return "\n".join(
+        lines + _after_load(client, tenant_id, commit_immediately, desc, snapshot=snapshot)
+    )
+
+
+def _push_version(
+    client: Any,
+    tenant_id: str,
+    version: int,
+    targets: tuple[list[str], list[str]],
+    ver_info: dict[str, Any],
+    version_rows: list[str],
+    dry_run: bool,
+    ticket_ref: str,
+) -> str:
+    """scm_config_rollback(version, push_folders/push_devices): config-versions:push."""
+    folders, devices = targets
+    target_rows = [
+        f"| Push to folders | {', '.join(folders) or '—'} |",
+        f"| Push to devices | {', '.join(devices) or '—'} |",
+    ]
+    if dry_run:
+        found = "yes" if ver_info else "no — version details could not be read"
+        running = _running_versions(client, folders) if folders else {}
+        running_now = ", ".join(f"{k}={v}" for k, v in running.items()) or "unknown"
+        return "\n".join(
+            [
+                f"## Config Push — DRY-RUN — Version {version}",
+                "",
+                "| Field | Value |",
+                "|---|---|",
+                version_rows[0],
+                f"| Version details found | {found} |",
+                *version_rows[1:],
+                *target_rows,
+                f"| Running now | {running_now} |",
+                f"| Ticket ref | {ticket_ref} |",
+                "",
+                f"Would push version {version} straight to the targets above. The "
+                "candidate config is not changed.",
+                "",
+                DRY_RUN_HINT,
+            ]
+        )
+
+    body: dict[str, Any] = {"version": version}
+    if folders:
+        body["containers"] = folders
+    if devices:
+        body["devices"] = devices
+    audit_write(
+        "scm_config_rollback",
+        ticket_ref,
+        tenant_id,
+        version=version,
+        push_folders=folders,
+        push_devices=devices,
+    )
+    raw = client.post(f"{_CV_BASE}:push", json=body)
+    result: dict[str, Any] = raw if isinstance(raw, dict) else {}
+    job_id = result.get("job_id") or "—"
+    logger.info("config_version_pushed", version=version, job_id=job_id, tenant_id=tenant_id)
+    lines = [
+        f"## Config Push — Version {version}",
+        "",
+        "| Field | Value |",
+        "|---|---|",
+        *version_rows,
+        *target_rows,
+        f"| Job ID | `{job_id}` |",
+    ]
+    if result.get("message"):
+        lines.append(f"| API message | {result['message']} |")
+    lines += [
+        "",
+        "The push runs as a job. Check it with `scm_job_status(job_id=...)` and its "
+        "child push jobs with `scm_list_jobs` — a child push can fail after the "
+        "parent job reports OK.",
+    ]
+    return "\n".join(lines)

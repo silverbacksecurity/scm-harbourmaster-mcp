@@ -146,6 +146,16 @@ scm_anti_spyware_profile_list:
   idempotent: true
   retry_policy: retry
   scope: tenant
+scm_application_tags:
+  access: write
+  domain: config_change
+  idempotent: false
+  known_failure_modes: R3 objects API (config/objects/v1/application-tags).  Writes
+    (create/update/delete/bulk) use SSR pattern - dry_run default, mandatory ticket_ref.
+    Empty on every lab tenant so far; GET by an all-zero UUID answers a bogus entry
+    instead of 404.
+  retry_policy: fail_fast
+  scope: tenant
 scm_apply_ncsc_baseline:
   access: write
   domain: posture_compliance
@@ -351,8 +361,10 @@ scm_config_rollback:
   access: write
   domain: config_change
   idempotent: false
-  known_failure_modes: Loads a prior version into candidate; with commit_immediately=true
-    it pushes straight to the running config.
+  known_failure_modes: Loads a prior version or a named snapshot into candidate; with
+    commit_immediately=true it pushes straight to the running config.  version plus
+    push_folders/push_devices pushes the version directly (config-versions:push) - check
+    child push jobs with scm_list_jobs.
   retry_policy: fail_fast
   scope: tenant
 scm_config_versions:
@@ -402,6 +414,15 @@ scm_device_list:
   access: read
   domain: deployment
   idempotent: true
+  retry_policy: retry
+  scope: tenant
+scm_device_models:
+  access: read
+  domain: deployment
+  idempotent: true
+  known_failure_modes: Static device-model catalogue (config/device/v1/models), the same
+    on every tenant.  Bare list without limit; the name filter is ignored, so the tool
+    filters locally.
   retry_policy: retry
   scope: tenant
 scm_device_summary:

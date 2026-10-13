@@ -22,6 +22,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `name_prefix` never renames interfaces, and the reference preflight
     checks the new profile and list references.
   - No create request has been sent live yet.
+- **R3 config resources.**
+  - **`scm_application_tags`** lists, gets, creates, updates and deletes
+    application tags (`config/objects/v1/application-tags`), with bulk
+    create and update. Writes follow the SSR pattern: dry run by default,
+    and `ticket_ref` is required.
+  - **`scm_device_models`** lists SCM's NGFW device models with each
+    model's ethernet and cellular interface names. It's read-only.
+  - **`scm_config_rollback`** can load a named snapshot (`snapshot=`). It
+    can also push a stored config version straight to folders or firewalls
+    (`push_folders` / `push_devices`, `config-versions:push`) without
+    changing the candidate config. Neither path has been sent live yet.
+  - **`scm_config_versions`** lists the tenant's named snapshots.
+  - **Config backups** save application tags (`application_tags`).
 - **Config backups include NGFW network config.** `scm_config_backup` and
   the CLI backup now save logical and virtual routers, BGP profiles, route
   maps, OSPF auth profiles, community and path access lists, ethernet,

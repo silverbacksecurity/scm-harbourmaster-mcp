@@ -7,6 +7,8 @@ Tools:
     scm_adnsr_internal_domains — list/manage internal domain bypass configurations
     scm_ngfw_local_config_list — list local config versions pushed to an NGFW device
     scm_ngfw_local_config_get  — fetch the XML configuration file for a specific version
+    scm_ngfw_wan_ip_summary    — NGFW WAN interface addressing
+    scm_device_models          — NGFW device-model catalogue with interface names
 
 Both APIs require feature licences; 403 responses are surfaced with actionable
 guidance rather than generic errors.
@@ -473,6 +475,78 @@ def register_adnsr_tools(mcp: FastMCP, get_client: Any) -> None:
             return json.dumps(result, indent=2, default=str)
         except Exception as exc:
             return f"Error: {handle_scm_exception(exc, tool='scm_ngfw_wan_ip_summary', tenant_id=tenant_id)}"
+
+    @mcp.tool()
+    @tool
+    def scm_device_models(client: Any, model: str = "") -> str:
+        """List the NGFW device models SCM knows, with their interface names.
+
+        Reads SCM's device-model catalogue (``GET /config/device/v1/models``):
+        each model's name, description and the ethernet and cellular
+        interfaces it has (with PoE / fail-open flags where set).  Use it to
+        check which interface names exist on a model before writing interface
+        config or onboarding rules for it.  The catalogue is the same for
+        every tenant.
+
+        Args:
+            model: Optional case-insensitive filter on the model name
+                (e.g. "440" or "PA-1410").  With a filter the full interface
+                lists are returned; without one, one summary row per model.
+            tenant_id: SCM tenant ID. Defaults to active tenant.
+        """
+        models = _list_device_models(client)
+        needle = model.strip().lower()
+        if needle:
+            matches = [m for m in models if needle in str(m.get("name", "")).lower()]
+            return json.dumps(
+                {"filter": model, "total": len(matches), "models": matches}, indent=2, default=str
+            )
+        rows = []
+        for m in models:
+            interfaces = m.get("interfaces") or {}
+            rows.append(
+                {
+                    "name": m.get("name"),
+                    "description": m.get("help"),
+                    "ethernet": len(interfaces.get("ethernet") or []),
+                    "cellular": len(interfaces.get("cellular") or []),
+                }
+            )
+        return json.dumps(
+            {
+                "total": len(rows),
+                "models": rows,
+                "hint": "Pass model=<name> for a model's interface names.",
+            },
+            indent=2,
+            default=str,
+        )
+
+
+_MODELS_PAGE = 200
+
+
+def _list_device_models(client: Any) -> list[dict[str, Any]]:
+    """Every device model from /config/device/v1/models.
+
+    With ``limit`` the API answers the usual {data, total} envelope; without
+    it a bare list of every model.  It ignores ``name``, so callers filter
+    locally.
+    """
+    models: list[dict[str, Any]] = []
+    while True:
+        body = client.get(
+            "/config/device/v1/models",
+            params={"limit": str(_MODELS_PAGE), "offset": str(len(models))},
+        )
+        if isinstance(body, list):
+            return [m for m in body if isinstance(m, dict)]
+        page = body.get("data") if isinstance(body, dict) else None
+        page = [m for m in page if isinstance(m, dict)] if isinstance(page, list) else []
+        models.extend(page)
+        total = body.get("total") if isinstance(body, dict) else None
+        if len(page) < _MODELS_PAGE or (isinstance(total, int) and len(models) >= total):
+            return models
 
 
 def _fmt_local_ts(ts: str) -> str:

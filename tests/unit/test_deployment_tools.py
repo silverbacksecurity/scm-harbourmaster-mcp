@@ -373,3 +373,125 @@ class TestRollback:
         client.post.side_effect = RuntimeError("version not found")
         out = _tools(client)["scm_config_rollback"](tenant_id=TENANT, version=999)
         assert out == "Error: [RuntimeError] version not found"
+
+
+# ── named snapshots (R3 device-settings) ───────────────────────────────────
+
+_SNAP = "/config/device/v1/named-snapshots"
+
+
+def _snapshot_client(snapshots: list[dict[str, Any]] | None = None) -> MagicMock:
+    rows = (
+        [{"name": "pre-change-a", "timestamp": _ago(days=3), "savedby": "admin@example.com"}]
+        if snapshots is None
+        else snapshots
+    )
+    client = MagicMock()
+    client.get.side_effect = lambda path: (
+        {"data": rows}
+        if path == _SNAP
+        else {"data": [{"device": "Mobile Users", "version": 8}]}
+        if path.endswith("/running")
+        else {"description": "known good", "admin": "ops"}
+    )
+    return client
+
+
+class TestNamedSnapshots:
+    def test_versions_lists_named_snapshots(self) -> None:
+        out = _tools(_snapshot_client())["scm_config_versions"](tenant_id=TENANT)
+        assert "### Named snapshots (1)" in out
+        assert "| pre-change-a | 3d" in out
+        assert "admin@example.com" in out
+        assert "scm_config_rollback(snapshot=NAME" in out
+
+    def test_versions_with_no_snapshots(self) -> None:
+        client = _snapshot_client([])
+        out = _tools(client)["scm_config_versions"](tenant_id=TENANT)
+        assert "Named snapshots: none saved." in out
+
+    def test_snapshot_dry_run_reads_only(self) -> None:
+        client = _snapshot_client()
+        fn = _tools(client)["scm_config_rollback"]
+        out = fn(tenant_id=TENANT, snapshot="pre-change-a", dry_run=True)
+        assert "DRY-RUN — Named Snapshot pre-change-a" in out
+        assert "| Snapshot found | yes |" in out
+        client.post.assert_not_called()
+        client.commit.assert_not_called()
+
+    def test_snapshot_load_then_commit(self) -> None:
+        client = _snapshot_client()
+        client.post.return_value = {"status": "success", "message": "Config loaded"}
+        client.commit.return_value = SimpleNamespace(job_id="job-5")
+        out = _tools(client)["scm_config_rollback"](
+            tenant_id=TENANT, snapshot="pre-change-a", commit_immediately=True
+        )
+        client.post.assert_called_once_with(f"{_SNAP}:load", json={"name": "pre-change-a"})
+        assert "CHG-TEST" not in json.dumps(client.post.call_args.kwargs)
+        assert "| API message | Config loaded |" in out
+        assert "Committed immediately** — Job ID: `job-5`" in out
+        assert "named snapshot pre-change-a" in client.commit.call_args.kwargs["description"]
+
+    def test_snapshot_enqueued_status_skips_commit(self) -> None:
+        client = _snapshot_client()
+        client.post.return_value = {"status": "enqueued", "message": "queued", "job_id": "7"}
+        out = _tools(client)["scm_config_rollback"](
+            tenant_id=TENANT, snapshot="pre-change-a", commit_immediately=True
+        )
+        assert "status `enqueued` — nothing was committed" in out
+        client.commit.assert_not_called()
+
+    def test_unknown_snapshot_is_refused(self) -> None:
+        client = _snapshot_client()
+        out = _tools(client)["scm_config_rollback"](tenant_id=TENANT, snapshot="missing")
+        assert out.startswith("Error: named snapshot 'missing' not found")
+        client.post.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("kwargs", "message"),
+        [
+            ({}, "exactly one of version or snapshot"),
+            ({"version": 3, "snapshot": "a"}, "exactly one of version or snapshot"),
+            ({"snapshot": "bad name!"}, "snapshot names are"),
+            ({"snapshot": "a", "push_folders": ["f"]}, "can only be loaded"),
+            (
+                {"version": 3, "push_devices": ["1"], "commit_immediately": True},
+                "needs no commit",
+            ),
+        ],
+    )
+    def test_argument_validation(self, kwargs: dict[str, Any], message: str) -> None:
+        client = _snapshot_client()
+        out = _tools(client)["scm_config_rollback"](tenant_id=TENANT, **kwargs)
+        assert out.startswith("Error:") and message in out
+        client.post.assert_not_called()
+
+
+class TestVersionPush:
+    def test_dry_run_shows_targets_and_running_versions(self) -> None:
+        client = _snapshot_client()
+        out = _tools(client)["scm_config_rollback"](
+            tenant_id=TENANT,
+            version=8,
+            push_folders=["Mobile Users"],
+            push_devices=["000000000000001"],
+            dry_run=True,
+        )
+        assert "Config Push — DRY-RUN — Version 8" in out
+        assert "| Push to folders | Mobile Users |" in out
+        assert "| Push to devices | 000000000000001 |" in out
+        assert "| Running now | Mobile Users=8 |" in out
+        client.post.assert_not_called()
+
+    def test_push_posts_version_and_targets(self) -> None:
+        client = _snapshot_client()
+        client.post.return_value = {"success": True, "job_id": "321", "message": "started"}
+        out = _tools(client)["scm_config_rollback"](
+            tenant_id=TENANT, version=8, push_devices=["000000000000001"]
+        )
+        client.post.assert_called_once_with(
+            f"{_CV}:push", json={"version": 8, "devices": ["000000000000001"]}
+        )
+        client.commit.assert_not_called()
+        assert "| Job ID | `321` |" in out
+        assert "scm_list_jobs" in out

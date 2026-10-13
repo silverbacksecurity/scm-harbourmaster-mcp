@@ -12,6 +12,7 @@ from mcp.server.fastmcp import FastMCP
 from scm_harbourmaster_mcp.audit import extractor as extractor_mod
 from scm_harbourmaster_mcp.audit.extractor import (
     NETWORK_CONFIG_RESOURCES,
+    OBJECT_CONFIG_RESOURCES,
     backup_resource_payload,
     backup_snapshot,
     extract_network_config,
@@ -20,6 +21,7 @@ from scm_harbourmaster_mcp.audit.models import AuditSnapshot
 from scm_harbourmaster_mcp.tools import audit as audit_mod
 
 NET = "https://api.sase.paloaltonetworks.com/config/network/v1"
+OBJ = "https://api.sase.paloaltonetworks.com/config/objects/v1"
 DEVICES = "https://api.sase.paloaltonetworks.com/config/setup/v1/devices"
 
 
@@ -59,7 +61,7 @@ class Session:
         self.calls.append((url, params))
         if url == DEVICES:
             return Resp(200, {"data": self.devices})
-        path = url.removeprefix(f"{NET}/")
+        path = url.removeprefix(f"{NET}/").removeprefix(f"{OBJ}/")
         if path in self.status:
             return Resp(self.status[path])
         rows = self.rows.get((path, params.get("folder") or params["device"]), [])
@@ -78,7 +80,7 @@ def _snap(folder: str = "All") -> AuditSnapshot:
 
 def test_every_key_is_set_and_empty_by_default() -> None:
     snap = extract_network_config(Client(Session({})), _snap("Remote Networks"), "Remote Networks")
-    assert set(snap.network_config) == set(NETWORK_CONFIG_RESOURCES)
+    assert set(snap.network_config) == {*NETWORK_CONFIG_RESOURCES, *OBJECT_CONFIG_RESOURCES}
     assert all(v == [] for v in snap.network_config.values())
     assert snap.extraction_errors == []
 
@@ -238,3 +240,14 @@ def test_diff_and_clone_tolerate_network_keys(tmp_path: Path) -> None:
 
     cloner.clone_config(CloneClient(), str(backup), "dst", dry_run=False)
     assert created == []
+
+
+def test_application_tags_are_read_from_the_objects_api() -> None:
+    tag = {"id": "at-1", "name": "app-synthetic", "folder": "fw-a", "tags": ["sanctioned"]}
+    session = Session({("application-tags", "fw-a"): [tag]})
+    snap = extract_network_config(Client(session), _snap("fw-a"), "fw-a")
+    assert snap.network_config["application_tags"] == [tag]
+    urls = {url for url, _ in session.calls}
+    assert f"{OBJ}/application-tags" in urls
+    assert f"{NET}/application-tags" not in urls
+    assert backup_resource_payload(snap)["application_tags"] == [tag]

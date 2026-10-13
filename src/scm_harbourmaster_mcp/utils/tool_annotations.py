@@ -50,6 +50,7 @@ DESTRUCTIVE_TOOLS: frozenset[str] = frozenset(
         "scm_config_orch_bandwidth",  # action=delete
         "scm_config_orch_profiles",  # action=delete
         "scm_site_management",  # action=delete (force deletes claimed sites)
+        "scm_application_tags",  # action=delete; update replaces an entry's tags
         "scm_ssr_execute",  # action=remove drops entries from managed objects
         "scm_planner_run",  # may execute approved write tools, including deletes
         "mssp_evict_tenant",  # drops a cached tenant client

@@ -28,6 +28,7 @@ EXPECTED_WRITE_TOOLS = {
     "scm_security_rule_delete",
     "scm_address_create",
     "scm_address_delete",
+    "scm_application_tags",
     "dlp_restore",
     "scm_config_rollback",
     "scm_config_push_track",

@@ -25,6 +25,7 @@ from .tools.adem import register_adem_tools
 from .tools.adnsr import register_adnsr_tools
 from .tools.ai_advisor import register_ai_advisor_tools
 from .tools.aiops import register_aiops_tools
+from .tools.application_tags import register_application_tag_tools
 from .tools.audit import register_audit_tools
 from .tools.capabilities import register_capability_tools
 from .tools.cdl_logforwarding import register_cdl_logforwarding_tools
@@ -180,6 +181,7 @@ def _registrars(
     """
     return {
         "register_object_tools": lambda m: register_object_tools(m, get_client),
+        "register_application_tag_tools": lambda m: register_application_tag_tools(m, get_client),
         "register_security_tools": lambda m: register_security_tools(m, get_client),
         "register_ssr_tools": lambda m: register_ssr_tools(m, get_client),
         "register_network_tools": lambda m: register_network_tools(m, get_client),

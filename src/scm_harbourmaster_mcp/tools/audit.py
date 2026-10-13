@@ -367,7 +367,8 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
         GlobalProtect mobile-agent stack (auth settings, tunnel and forwarding
         profiles, portals/gateways, SAML/Radius/LDAP auth profiles) and NGFW
         network config (logical routers, BGP/OSPF profiles, interfaces, GRE
-        tunnels, PBF rules) — and writes a timestamped JSON file.
+        tunnels, PBF rules) and application tags — and writes a timestamped
+        JSON file.
 
         Objects are those the folder holds or inherits.  For "All" and
         "ngfw-shared" the NGFW network config of every firewall's device

@@ -91,6 +91,7 @@ _RELOAD_ORDER = [
     "scm_harbourmaster_mcp.tools.planner_tools",
     "scm_harbourmaster_mcp.audit.drift_baseline",
     "scm_harbourmaster_mcp.tools.objects",
+    "scm_harbourmaster_mcp.tools.application_tags",
     "scm_harbourmaster_mcp.tools.security",
     "scm_harbourmaster_mcp.tools.network",
     "scm_harbourmaster_mcp.tools.deployment",

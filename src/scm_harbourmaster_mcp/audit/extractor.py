@@ -921,7 +921,10 @@ def backup_resource_payload(snap: AuditSnapshot) -> dict[str, Any]:
         "ldap_server_profiles": snap.ldap_server_profiles,
         # NGFW network config (extract_network_config): every key is written,
         # empty when not extracted, so readers see a stable shape.
-        **{key: snap.network_config.get(key, []) for key in NETWORK_CONFIG_RESOURCES},
+        **{
+            key: snap.network_config.get(key, [])
+            for key in (*NETWORK_CONFIG_RESOURCES, *OBJECT_CONFIG_RESOURCES)
+        },
     }
 
 
@@ -2055,7 +2058,21 @@ NETWORK_CONFIG_RESOURCES: dict[str, str] = {
     "pbf_rules": "pbf-rules",
 }
 
+# Backup key → /config/objects/v1 path, read with the same folder walk.
+# Application tags are tags added to applications (predefined or custom).
+# gp-tunnel-settings is not listed anywhere: it returns the same objects as
+# mobile_agent_tunnel_profiles.
+OBJECT_CONFIG_RESOURCES: dict[str, str] = {
+    "application_tags": "application-tags",
+}
+
 _NETWORK_V1 = f"{_SCM_API_HOST}/config/network/v1"
+_OBJECTS_V1 = f"{_SCM_API_HOST}/config/objects/v1"
+# Every key extract_network_config reads, with its full URL.
+_BACKUP_REST_URLS: dict[str, str] = {
+    **{k: f"{_NETWORK_V1}/{p}" for k, p in NETWORK_CONFIG_RESOURCES.items()},
+    **{k: f"{_OBJECTS_V1}/{p}" for k, p in OBJECT_CONFIG_RESOURCES.items()},
+}
 # Folders whose backup also walks each NGFW device folder: a folder query
 # returns the folder's own and inherited objects, never its children's, and
 # interfaces and routers live in the device folders under "ngfw-shared".
@@ -2118,7 +2135,7 @@ def backup_snapshot(client: Any, snap: AuditSnapshot, folder: str) -> AuditSnaps
 def extract_network_config(client: Any, snap: Any, folder: str) -> Any:
     """Fetch NGFW network config for the config backup into snap.network_config.
 
-    Covers NETWORK_CONFIG_RESOURCES for *folder*: its own objects plus those
+    Covers NETWORK_CONFIG_RESOURCES and OBJECT_CONFIG_RESOURCES for *folder*: its own objects plus those
     it inherits.  For "All" and "ngfw-shared" each NGFW device folder is
     queried as well.  Interfaces are also read for each firewall in the
     walked folders, which adds the interfaces set on that firewall and its
@@ -2151,7 +2168,7 @@ def extract_network_config(client: Any, snap: Any, folder: str) -> Any:
         combined: list[dict[str, Any]] = []
         errors: list[str] = []
         for scope in scopes:
-            url = f"{_NETWORK_V1}/{NETWORK_CONFIG_RESOURCES[key]}"
+            url = _BACKUP_REST_URLS[key]
             try:
                 rows = _rest_list_paged(session, url, scope)
             except Exception as exc:
@@ -2170,7 +2187,7 @@ def extract_network_config(client: Any, snap: Any, folder: str) -> Any:
     config: dict[str, list[dict[str, Any]]] = {}
     all_errors: list[str] = []
     with ThreadPoolExecutor(max_workers=4) as pool:
-        for key, rows, errors in pool.map(_fetch, NETWORK_CONFIG_RESOURCES):
+        for key, rows, errors in pool.map(_fetch, _BACKUP_REST_URLS):
             config[key] = rows
             all_errors.extend(errors)
     # Rebind rather than mutate: *snap* may share its lists with the cached

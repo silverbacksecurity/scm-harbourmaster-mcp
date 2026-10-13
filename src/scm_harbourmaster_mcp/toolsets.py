@@ -38,7 +38,11 @@ ALWAYS_ON_TOOLS: frozenset[str] = frozenset({"scm_reload", "scm_restart"})
 # Every registrar belongs to exactly one toolset (enforced by unit test).
 TOOLSETS: dict[str, tuple[str, ...]] = {
     CORE_TOOLSET: ("register_setup_tools",),
-    "objects": ("register_object_tools", "register_config_index_tools"),
+    "objects": (
+        "register_object_tools",
+        "register_application_tag_tools",
+        "register_config_index_tools",
+    ),
     "security": (
         "register_security_tools",
         "register_ssr_tools",
