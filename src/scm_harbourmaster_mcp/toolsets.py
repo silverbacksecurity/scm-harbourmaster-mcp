@@ -57,7 +57,7 @@ TOOLSETS: dict[str, tuple[str, ...]] = {
         "register_software_upgrade_tools",
     ),
     "deployment": ("register_deployment_tools",),
-    "audit": ("register_audit_tools",),
+    "audit": ("register_audit_tools", "register_panorama_migrate_tools"),
     "compliance": (
         "register_compliance_tools",
         "register_ai_advisor_tools",

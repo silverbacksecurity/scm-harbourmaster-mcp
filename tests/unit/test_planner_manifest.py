@@ -34,6 +34,7 @@ EXPECTED_WRITE_TOOLS = {
     "scm_config_snapshot_delete",
     "scm_config_push_track",
     "scm_config_clone",
+    "scm_panorama_migrate",
     "mssp_evict_tenant",
     "scm_cert_import",
     "scm_cert_copy",

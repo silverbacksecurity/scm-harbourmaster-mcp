@@ -8,6 +8,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`scm_panorama_migrate` migrates a Panorama device group or a firewall
+  vsys into an SCM folder** from an offline config export. It needs no
+  Panorama or firewall API access. `scm_panorama_migrate_result` returns the
+  apply job's report.
+  - One device group plus its parent device groups and `shared` goes into one
+    folder. Names resolve nearest first, and rules keep PAN-OS evaluation
+    order across the scopes.
+  - It migrates tags, addresses, address groups, services, service groups,
+    EDLs, custom URL categories, application groups and filters, security
+    profiles (anti-spyware, vulnerability, URL filtering, file blocking,
+    WildFire, decryption), profile groups, and security, NAT, decryption and
+    application-override rules.
+  - The export is translated into a config backup and pushed with the clone,
+    so the reference preflight, `on_conflict`, `name_prefix` and the push
+    order all apply. The translated backup is kept under `backups/migrations/`.
+  - Every gap is a row in the plan, never dropped silently:
+    - Rules with individual profiles get a generated profile group, and
+      identical sets share one.
+    - Antivirus profiles, EDL credentials and default-rule overrides are
+      marked for manual work.
+    - Schedules, service source ports, URL `override` categories and
+      non-universal rule types are flagged for review.
+    - Custom applications, HIP objects, log forwarding profiles and other
+      rulebases are listed as not migrated.
+    - An object that fails pan-scm-sdk validation is listed with the error.
+  - The dry run returns at once. The apply backs up the target folder, then
+    pushes in a background job. Nothing is committed.
+  - The export is parsed with defusedxml, which refuses DTDs and entity
+    expansion, and the file size is capped. The REST gateway refuses the
+    `xml_path` parameter, as it does other file paths.
 - **`scm_config_snapshot_delete`** deletes a named config snapshot
   (`DELETE /config/device/v1/named-snapshots/{name}`, R3 device-settings
   spec). It follows the SSR pattern: dry run by default and a mandatory

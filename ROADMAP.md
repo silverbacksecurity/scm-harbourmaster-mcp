@@ -432,8 +432,8 @@ code. New candidates are listed below._
   office_location_tag`) unrelated to request params — a PAN-side issue, not
   ours. 23 tests.
 
-- **Panorama → SCM migration tool (`scm_panorama_migrate`)** — proposed
-  2026-09-16. Modelled on
+- ✅ **Panorama → SCM migration tool (`scm_panorama_migrate`)** — built
+  2026-10-14 (proposed 2026-09-16). Modelled on
   [PaloAltoNetworks/panos-to-scm](https://github.com/PaloAltoNetworks/panos-to-scm),
   which PAN archived on 2024-08-31 (it's read-only now, and the maintained
   version is internal-only). Goal: an MSSP-safe, multi-tenant replacement
@@ -461,9 +461,34 @@ code. New candidates are listed below._
     unmapped PAN-OS feature is listed in the plan, never dropped silently.
   - **Out of scope for v1:** Cisco ASA/Firepower input (upstream WIP),
     device/network/template-stack config, Panorama API live pull.
-  - **Open questions:** a single async job with `scm_job_status` progress
-    (likely, for large rulebases) vs a synchronous call; and whether this
-    joins the Planner epic as a multi-step plan.
+  - **Decided and built (2026-10-14):**
+    - The dry run is synchronous. The apply is a background job, read with
+      `scm_panorama_migrate_result`, and backs up the target folder first.
+    - It's a standalone write tool, with no Planner template.
+    - One device group plus what it inherits goes into one folder, and
+      standalone firewall (vsys) exports are accepted too.
+    - The export is translated into a config backup
+      (`audit/panos_import.py`, parsed with defusedxml) and pushed with
+      `clone_config`. Every object is validated against its pan-scm-sdk
+      model, and every gap is a row in the plan.
+    - No code comes from panos-to-scm: its licence is PAN's proprietary
+      Script Software Agreement.
+  - **Prior art checked 2026-10-14:**
+    - SCM now has a built-in Panorama migration (Configuration → Onboarding,
+      enabled on request). It maps device groups to folders and templates to
+      snippets.
+    - The built-in tool has no API and handles Panorama only. Device-group
+      overrides of the default rules block it. A community repo reports that
+      it drops interfaces that clash with SCM's default ports.
+    - This tool covers what the built-in one doesn't: per-tenant scripting,
+      firewall exports, migrating into a folder that already has config, and
+      a reference preflight before any write.
+  - **Still open:**
+    - Not yet run against a live tenant.
+    - Mirroring the device-group hierarchy into folders and snippets.
+    - Templates and network config (interfaces, zones, routing).
+    - Custom applications, HIP objects and log forwarding profiles.
+    - A Planner multi-step template.
 - ✅ **Reference preflight for `scm_config_clone`** — shipped 2026-09-25
   (`audit/clone_preflight.py`). Found in a 2026-09 tenant-to-tenant restore
   where every create succeeded but each push (~40 min) failed on one dangling

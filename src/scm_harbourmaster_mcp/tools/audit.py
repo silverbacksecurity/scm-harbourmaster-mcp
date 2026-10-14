@@ -350,6 +350,39 @@ def _md_to_docx(md: str, out_path: Path) -> str:
         return str(out_path)
 
 
+def write_config_backup(
+    client: Any, tenant_id: str, folder: str, output_dir: str = ""
+) -> tuple[Path, dict[str, Any]]:
+    """Back up *folder* to a timestamped JSON file; returns (path, data).
+
+    The file format scm_config_diff and scm_config_clone read.
+    """
+    snap = extract_snapshot(client, folder=folder, tenant_id=tenant_id or "default")
+    snap = backup_snapshot(client, snap, folder)
+
+    backup_dir = Path(output_dir) if output_dir else _DEFAULT_BACKUP_DIR
+    backup_dir.mkdir(parents=True, exist_ok=True)
+
+    now = datetime.now(UTC)
+    safe_folder = folder.replace("/", "_").replace(" ", "-")
+    filename = backup_dir / f"scm_backup_{safe_folder}_{now:%Y%m%dT%H%M%SZ}.json"
+
+    data: dict[str, Any] = {
+        "backup_version": "1",
+        "generated_at": now.isoformat(),
+        "folder": folder,
+        "tenant_id": snap.tenant_id,
+        "resources": backup_resource_payload(snap),
+        "snippet_types": backup_snippet_types(snap),
+        "snippets": backup_snippets(snap),
+        "extraction_errors": snap.extraction_errors,
+    }
+
+    filename.write_text(json.dumps(data, indent=2, default=str))
+    logger.info("config_backup_written", path=str(filename), folder=folder)
+    return filename, data
+
+
 def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
     """Register all audit, BPA, and NCSC compliance tools."""
     tool = scm_tool(get_client)
@@ -385,36 +418,14 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
         Returns:
             Path to the written backup file and a resource count summary.
         """
-        snap = extract_snapshot(client, folder=folder, tenant_id=tenant_id or "default")
-        snap = backup_snapshot(client, snap, folder)
-
-        backup_dir = Path(output_dir) if output_dir else _DEFAULT_BACKUP_DIR
-        backup_dir.mkdir(parents=True, exist_ok=True)
-
-        ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-        safe_folder = folder.replace("/", "_").replace(" ", "-")
-        filename = backup_dir / f"scm_backup_{safe_folder}_{ts}.json"
-
-        data: dict[str, Any] = {
-            "backup_version": "1",
-            "generated_at": datetime.now(UTC).isoformat(),
-            "folder": folder,
-            "tenant_id": snap.tenant_id,
-            "resources": backup_resource_payload(snap),
-            "snippet_types": backup_snippet_types(snap),
-            "snippets": backup_snippets(snap),
-            "extraction_errors": snap.extraction_errors,
-        }
-
-        filename.write_text(json.dumps(data, indent=2, default=str))
-        logger.info("config_backup_written", path=str(filename), folder=folder)
+        filename, data = write_config_backup(client, tenant_id, folder, output_dir)
 
         counts = {k: len(v) for k, v in data["resources"].items() if v}
         summary = "\n".join(f"  {k}: {v}" for k, v in sorted(counts.items()))
+        errors = data["extraction_errors"]
         error_note = (
-            f"\n\nExtraction errors ({len(snap.extraction_errors)}):\n"
-            + "\n".join(f"  - {e}" for e in snap.extraction_errors)
-            if snap.extraction_errors
+            f"\n\nExtraction errors ({len(errors)}):\n" + "\n".join(f"  - {e}" for e in errors)
+            if errors
             else ""
         )
 

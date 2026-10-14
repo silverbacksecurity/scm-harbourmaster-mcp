@@ -4,7 +4,7 @@
 
 All tools authenticate via Bearer-token OAuth (SASE client credentials) configured in `settings.toml` / `.secrets.toml`.
 
-**<!-- tool-count -->184<!-- /tool-count --> tools** across <!-- module-count -->43<!-- /module-count --> modules.
+**<!-- tool-count -->186<!-- /tool-count --> tools** across <!-- module-count -->44<!-- /module-count --> modules.
 
 ## Table of Contents
 
@@ -43,6 +43,7 @@ All tools authenticate via Bearer-token OAuth (SASE client credentials) configur
 - [Mt Monitor](#mt-monitor)
 - [Pab](#pab)
 - [Pab Transfer](#pab-transfer)
+- [Panorama Migrate](#panorama-migrate)
 - [Planner Tools](#planner-tools)
 - [Policy Optimizer](#policy-optimizer)
 - [Region Detect](#region-detect)
@@ -5552,6 +5553,110 @@ Args:
 | `publish` | `bool` | `False` |
 | `dry_run` | `bool` | `True` |
 | `ticket_ref` | `str` | `''` |
+
+---
+
+## Panorama Migrate
+
+_MCP tools for migrating a Panorama device group or a firewall vsys into SCM._
+
+### `scm_panorama_migrate`
+
+Migrate a Panorama device group or a firewall vsys into an SCM folder.
+
+```
+Reads an offline config export (Panorama: Panorama > Setup > Operations >
+Export named Panorama configuration snapshot; firewall: Device > Setup >
+Operations > Export named configuration snapshot).
+No Panorama or firewall API access is needed.
+
+One device group plus everything it inherits (parent device groups and
+Panorama `shared`) goes into one SCM folder.  A name defined at several
+levels resolves to the nearest, as PAN-OS does.  Rules keep PAN-OS
+evaluation order: shared pre → parent pre → device-group pre, then
+device-group post → parent post → shared post.
+
+Migrated: tags, addresses, address groups, services, service groups,
+EDLs, custom URL categories, application groups and filters,
+anti-spyware, vulnerability, URL filtering, file blocking, WildFire and
+decryption profiles, profile groups, and security (pre/post), NAT
+(pre/post), decryption and application-override rules.
+
+Handled explicitly, never silently (each is a row in the plan):
+  * Rules with individual profiles get a generated profile group
+    (SCM rules take groups only); identical sets share one group.
+  * Antivirus profiles can't be created over the SCM API — manual.
+  * Schedules, device targeting, legacy HIP profiles and rule types
+    other than universal are dropped and flagged for review.
+  * Service source ports, URL `override` categories and EDL
+    credentials are dropped and flagged.
+  * Custom applications, HIP objects, log forwarding profiles, PBF and
+    other rulebases are listed as not migrated.
+  * Any object that fails pan-scm-sdk validation is listed with the error.
+
+dry_run=True (default) translates the export, writes the translated
+backup to backups/migrations/, and runs scm_config_clone's dry run with
+the reference preflight against the target — returns at once.
+dry_run=False runs the same check, refuses at once if the preflight
+would block, otherwise backs up the target folder and pushes in a
+background job: poll scm_panorama_migrate_result(job_id).  Nothing is
+committed or pushed to devices.
+
+Args:
+    xml_path: Path to the exported config XML on the server.
+    target_folder: Existing SCM folder to migrate into.
+    device_group: Panorama device group (Panorama exports).
+    vsys: Firewall vsys (firewall exports; default vsys1).
+    tenant_id: Target tenant (default: the default tenant).
+    name_prefix: Optional prefix for every migrated object name;
+        references are rewritten to match.
+    on_conflict: 'skip' (default) or 'overwrite' an object of the same
+        name in the target.
+    on_missing_reference: 'fail' (default), 'skip_object' or
+        'strip_member' — the clone preflight's handling of references
+        the target can't resolve.
+    include_rules: False migrates objects and profiles only.
+    resource_filter: Optional comma-separated backup keys to migrate
+        (e.g. "addresses,address_groups").
+    dry_run: If True (default) preview; False applies in the background.
+    ticket_ref: Mandatory change-ticket reference (never sent to SCM).
+
+**Write safety (SSR pattern):** ``dry_run=True`` by default;
+``ticket_ref`` is mandatory.
+```
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `xml_path` | `str` | `—` |
+| `target_folder` | `str` | `—` |
+| `device_group` | `str` | `''` |
+| `vsys` | `str` | `''` |
+| `tenant_id` | `str` | `''` |
+| `name_prefix` | `str` | `''` |
+| `on_conflict` | `str` | `'skip'` |
+| `on_missing_reference` | `str` | `'fail'` |
+| `include_rules` | `bool` | `True` |
+| `resource_filter` | `str` | `''` |
+| `dry_run` | `bool` | `True` |
+| `ticket_ref` | `str` | `''` |
+
+### `scm_panorama_migrate_result`
+
+Retrieve the report of a scm_panorama_migrate apply job.
+
+```
+Args:
+    job_id: Job ID returned by scm_panorama_migrate(dry_run=False)
+            (jobs are kept for 1 hour).
+
+Returns:
+    The migration plan and push report, or the job's status if it is
+    still running.
+```
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `job_id` | `str` | `—` |
 
 ---
 

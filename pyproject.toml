@@ -24,6 +24,7 @@ dependencies = [
     "pypandoc-binary>=1.17",
     "jsonschema>=4.20",
     "pyyaml>=6.0",
+    "defusedxml>=0.7.1",
 ]
 
 [project.scripts]
@@ -43,6 +44,7 @@ dev = [
     "pytest-cov>=7.1.0",
     "responses>=0.26.3",
     "ruff>=0.15.17",
+    "types-defusedxml>=0.7.0",
     "types-jsonschema>=4.20",
     "types-pyyaml>=6.0",
 ]

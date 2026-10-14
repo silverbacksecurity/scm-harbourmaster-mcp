@@ -491,6 +491,10 @@ def _snippet_names(data: dict[str, Any], client: Any, snippet_types: dict[str, s
     }
     if names - {"predefined", "predefined-snippet"}:
         return names
+    # A PAN-OS export (scm_panorama_migrate) has no snippet rows: falling back
+    # to the target's snippets would skip a rule that shares a snippet's name.
+    if data.get("migrated_from"):
+        return set()
     try:
         return {str(r.name) for r in client.snippet.list()}
     except Exception as exc:
@@ -518,6 +522,8 @@ _SNIPPET_TYPES_UNKNOWN = (
 # folder, PUT the same body back with the name added.  Live-checked 2026-10-13.
 _SETUP_V1 = "https://api.sase.paloaltonetworks.com/config/setup/v1"
 SNIPPET_MODES = ("flatten", "preserve")
+# What clone_config does with an object of the same name in the target
+ON_CONFLICT_MODES = ("skip", "overwrite")
 
 
 @dataclass

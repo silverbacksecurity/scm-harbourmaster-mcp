@@ -7,7 +7,7 @@
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 
-MCP (Model Context Protocol) server for **Palo Alto Networks Strata Cloud Manager (SCM)**, built for Managed Security Service Providers. Exposes <!-- tool-count -->184<!-- /tool-count --> SCM operations as MCP tools consumable by Claude Desktop, Cursor, Copilot Studio, or any MCP-compatible AI assistant.
+MCP (Model Context Protocol) server for **Palo Alto Networks Strata Cloud Manager (SCM)**, built for Managed Security Service Providers. Exposes <!-- tool-count -->186<!-- /tool-count --> SCM operations as MCP tools consumable by Claude Desktop, Cursor, Copilot Studio, or any MCP-compatible AI assistant.
 
 ---
 
@@ -178,7 +178,7 @@ Add to `~/.config/Claude/claude_desktop_config.json`:
 }
 ```
 
-Restart Claude Desktop. The server registers as <!-- tool-count -->184<!-- /tool-count --> tools in Cowork mode.
+Restart Claude Desktop. The server registers as <!-- tool-count -->186<!-- /tool-count --> tools in Cowork mode.
 
 ### Cursor / VS Code
 
@@ -536,6 +536,8 @@ List all tenants, their auth status, and which licences are expiring soonest.
 |------|-------------|
 | `scm_config_backup` | Export full config snapshot to timestamped JSON |
 | `scm_config_clone` | Clone config from one folder to another |
+| `scm_panorama_migrate` | Migrate a Panorama device group or firewall vsys export into an SCM folder; dry run by default, apply in the background after a backup |
+| `scm_panorama_migrate_result` | Report of a `scm_panorama_migrate` apply job |
 | `scm_config_diff` | Diff two backup JSON snapshots by resource type |
 | `scm_bpa_assess` | Run 39 PAN BPA checks; filterable by severity / category |
 | `scm_aiops_bpa` | Submit PAN-OS XML to AIOps BPA API; parse scores + findings |

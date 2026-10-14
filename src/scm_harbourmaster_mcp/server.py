@@ -51,6 +51,7 @@ from .tools.ops import register_ops_tools
 from .tools.pab import register_pab_tools
 from .tools.pab_msp import register_pab_msp_tools
 from .tools.pab_transfer import register_pab_transfer_tools
+from .tools.panorama_migrate import register_panorama_migrate_tools
 from .tools.planner_tools import register_planner_tools
 from .tools.policy_optimizer import register_policy_optimizer_tools
 from .tools.posture import register_posture_tools
@@ -188,6 +189,7 @@ def _registrars(
         "register_deployment_tools": lambda m: register_deployment_tools(m, get_client),
         "register_setup_tools": lambda m: register_setup_tools(m, get_client),
         "register_audit_tools": lambda m: register_audit_tools(m, get_client),
+        "register_panorama_migrate_tools": lambda m: register_panorama_migrate_tools(m, get_client),
         "register_cdl_logforwarding_tools": lambda m: register_cdl_logforwarding_tools(
             m, get_client
         ),

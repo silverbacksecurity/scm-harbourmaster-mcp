@@ -1,0 +1,166 @@
+<?xml version="1.0"?>
+<!-- Synthetic Panorama export for the migration tests: neutral names and documentation-range IPs only. -->
+<config version="11.1.0">
+  <shared>
+    <tag>
+      <entry name="tag-shared"><color>color1</color><comments>from shared</comments></entry>
+    </tag>
+    <address>
+      <entry name="dns-a"><ip-netmask>192.0.2.53/32</ip-netmask></entry>
+      <entry name="web-1"><ip-netmask>192.0.2.80/32</ip-netmask><description>shared copy</description></entry>
+    </address>
+    <service>
+      <entry name="svc-web-alt"><protocol><tcp><port>8080,8443</port><override><no/></override></tcp></protocol></entry>
+    </service>
+    <profiles>
+      <virus>
+        <entry name="av-default"><decoder><entry name="http"><action>reset-both</action></entry></decoder></entry>
+      </virus>
+      <spyware>
+        <entry name="as-strict">
+          <rules>
+            <entry name="block-crit-high"><threat-name>any</threat-name><category>any</category><severity><member>critical</member><member>high</member></severity><packet-capture>disable</packet-capture><action><reset-both/></action></entry>
+          </rules>
+          <botnet-domains><lists><entry name="default-paloalto-dns"><action><sinkhole/></action></entry></lists></botnet-domains>
+        </entry>
+      </spyware>
+    </profiles>
+    <profile-group>
+      <entry name="pg-standard"><spyware><member>as-strict</member></spyware><virus><member>av-default</member></virus></entry>
+    </profile-group>
+    <pre-rulebase>
+      <security>
+        <rules>
+          <entry name="shared-block-bad"><from><member>any</member></from><to><member>any</member></to><source><member>any</member></source><destination><member>any</member></destination><source-user><member>any</member></source-user><category><member>any</member></category><application><member>any</member></application><service><member>any</member></service><action>deny</action><tag><member>tag-shared</member></tag></entry>
+        </rules>
+      </security>
+    </pre-rulebase>
+    <post-rulebase>
+      <security>
+        <rules>
+          <entry name="shared-cleanup"><from><member>any</member></from><to><member>any</member></to><source><member>any</member></source><destination><member>any</member></destination><source-user><member>any</member></source-user><category><member>any</member></category><application><member>any</member></application><service><member>any</member></service><action>deny</action><log-end>yes</log-end></entry>
+        </rules>
+      </security>
+    </post-rulebase>
+  </shared>
+  <devices>
+    <entry name="localhost.localdomain">
+      <device-group>
+        <entry name="dg-parent">
+          <address>
+            <entry name="net-parent"><ip-netmask>198.51.100.0/24</ip-netmask></entry>
+          </address>
+          <pre-rulebase>
+            <security>
+              <rules>
+                <entry name="parent-allow-dns"><from><member>trust</member></from><to><member>untrust</member></to><source><member>net-parent</member></source><destination><member>dns-a</member></destination><source-user><member>any</member></source-user><category><member>any</member></category><application><member>dns</member></application><service><member>application-default</member></service><action>allow</action><profile-setting><group><member>pg-standard</member></group></profile-setting></entry>
+              </rules>
+            </security>
+          </pre-rulebase>
+        </entry>
+        <entry name="dg-branch">
+          <tag>
+            <entry name="tag-branch"><color>color99</color></entry>
+          </tag>
+          <address>
+            <entry name="web-1"><ip-netmask>192.0.2.81/32</ip-netmask><description>branch copy</description></entry>
+            <entry name="range-1"><ip-range>192.0.2.100-192.0.2.110</ip-range><tag><member>tag-branch</member></tag></entry>
+            <entry name="fqdn-1"><fqdn>www.example.com</fqdn></entry>
+          </address>
+          <address-group>
+            <entry name="grp-web"><static><member>web-1</member><member>range-1</member></static></entry>
+            <entry name="grp-dyn"><dynamic><filter>'tag-branch'</filter></dynamic></entry>
+          </address-group>
+          <service>
+            <entry name="svc-src"><protocol><tcp><port>22</port><source-port>1024-65535</source-port></tcp></protocol></entry>
+            <entry name="svc-timeout"><protocol><udp><port>5000</port><override><yes><timeout>120</timeout></yes></override></udp></protocol></entry>
+          </service>
+          <service-group>
+            <entry name="sg-web"><members><member>svc-web-alt</member><member>svc-timeout</member></members></entry>
+          </service-group>
+          <application-filter>
+            <entry name="af-risky"><category><member>networking</member></category><subcategory><member>proxy</member></subcategory><risk><member>4</member><member>5</member></risk><evasive>yes</evasive><tagging><tag><member>tag-branch</member></tag></tagging></entry>
+          </application-filter>
+          <external-list>
+            <entry name="edl-ips"><type><ip><url>https://feeds.example.com/ips.txt</url><recurring><hourly/></recurring><auth><username>feed</username><password>-AQ==encrypted</password></auth></ip></type></entry>
+          </external-list>
+          <application>
+            <entry name="custom-app"><category>business-systems</category></entry>
+          </application>
+          <schedule>
+            <entry name="office-hours"><schedule-type><recurring><daily><member>08:00-18:00</member></daily></recurring></schedule-type></entry>
+          </schedule>
+          <profiles>
+            <custom-url-category>
+              <entry name="url-allow"><list><member>www.example.com</member><member>*.example.org</member></list><type>URL List</type></entry>
+            </custom-url-category>
+            <url-filtering>
+              <entry name="url-basic"><block><member>malware</member><member>phishing</member></block><continue><member>gambling</member></continue><override><member>games</member></override><safe-search-enforcement>yes</safe-search-enforcement></entry>
+            </url-filtering>
+            <file-blocking>
+              <entry name="fb-basic"><rules><entry name="block-exe"><application><member>any</member></application><file-type><member>exe</member></file-type><direction>both</direction><action>block</action></entry></rules></entry>
+            </file-blocking>
+            <wildfire-analysis>
+              <entry name="wf-basic"><rules><entry name="all"><application><member>any</member></application><file-type><member>any</member></file-type><direction>both</direction><analysis>public-cloud</analysis></entry></rules></entry>
+            </wildfire-analysis>
+            <decryption>
+              <entry name="dec-basic"><ssl-forward-proxy><block-expired-certificate>yes</block-expired-certificate><block-untrusted-issuer>yes</block-untrusted-issuer></ssl-forward-proxy><ssl-protocol-settings><min-version>tls1-2</min-version><max-version>max</max-version></ssl-protocol-settings></entry>
+            </decryption>
+          </profiles>
+          <pre-rulebase>
+            <security>
+              <rules>
+                <entry name="branch-web"><from><member>trust</member></from><to><member>untrust</member></to><source><member>any</member></source><destination><member>grp-web</member></destination><source-user><member>any</member></source-user><category><member>url-allow</member></category><application><member>web-browsing</member><member>ssl</member></application><service><member>application-default</member></service><action>allow</action><profile-setting><profiles><url-filtering><member>url-basic</member></url-filtering><file-blocking><member>fb-basic</member></file-blocking><wildfire-analysis><member>wf-basic</member></wildfire-analysis><virus><member>av-default</member></virus></profiles></profile-setting><log-start>no</log-start><log-end>yes</log-end><schedule>office-hours</schedule><target><devices><entry name="0001"/></devices></target></entry>
+                <entry name="branch-web-2"><from><member>trust</member></from><to><member>untrust</member></to><source><member>range-1</member></source><destination><member>any</member></destination><source-user><member>any</member></source-user><category><member>any</member></category><application><member>web-browsing</member></application><service><member>application-default</member></service><action>allow</action><profile-setting><profiles><url-filtering><member>url-basic</member></url-filtering><file-blocking><member>fb-basic</member></file-blocking><wildfire-analysis><member>wf-basic</member></wildfire-analysis></profiles></profile-setting><negate-source>yes</negate-source><disabled>yes</disabled></entry>
+                <entry name="branch-intra"><from><member>trust</member></from><to><member>trust</member></to><source><member>any</member></source><destination><member>any</member></destination><source-user><member>any</member></source-user><category><member>any</member></category><application><member>any</member></application><service><member>any</member></service><action>allow</action><rule-type>intrazone</rule-type></entry>
+              </rules>
+            </security>
+            <nat>
+              <rules>
+                <entry name="nat-out"><from><member>trust</member></from><to><member>untrust</member></to><source><member>any</member></source><destination><member>any</member></destination><service>any</service><to-interface>any</to-interface><source-translation><dynamic-ip-and-port><interface-address><interface>ethernet1/1</interface></interface-address></dynamic-ip-and-port></source-translation></entry>
+                <entry name="nat-web"><from><member>untrust</member></from><to><member>untrust</member></to><source><member>any</member></source><destination><member>web-1</member></destination><service>svc-web-alt</service><destination-translation><translated-address>192.0.2.10</translated-address><translated-port>8080</translated-port></destination-translation></entry>
+              </rules>
+            </nat>
+            <decryption>
+              <rules>
+                <entry name="dec-out"><from><member>trust</member></from><to><member>untrust</member></to><source><member>any</member></source><destination><member>any</member></destination><source-user><member>any</member></source-user><category><member>any</member></category><service><member>any</member></service><action>decrypt</action><type><ssl-forward-proxy/></type><profile>dec-basic</profile><log-successful-tls-handshakes>yes</log-successful-tls-handshakes></entry>
+              </rules>
+            </decryption>
+            <application-override>
+              <rules>
+                <entry name="ao-app"><from><member>trust</member></from><to><member>untrust</member></to><source><member>any</member></source><destination><member>web-1</member></destination><port>8443</port><protocol>tcp</protocol><application>ssl</application></entry>
+              </rules>
+            </application-override>
+            <pbf>
+              <rules>
+                <entry name="pbf-1"><from><zone><member>trust</member></zone></from></entry>
+              </rules>
+            </pbf>
+          </pre-rulebase>
+          <post-rulebase>
+            <security>
+              <rules>
+                <entry name="branch-post"><from><member>any</member></from><to><member>any</member></to><source><member>any</member></source><destination><member>any</member></destination><source-user><member>any</member></source-user><category><member>any</member></category><application><member>any</member></application><service><member>any</member></service><action>drop</action></entry>
+              </rules>
+            </security>
+            <default-security-rules>
+              <rules>
+                <entry name="intrazone-default"><action>deny</action></entry>
+              </rules>
+            </default-security-rules>
+          </post-rulebase>
+        </entry>
+      </device-group>
+    </entry>
+  </devices>
+  <readonly>
+    <devices>
+      <entry name="localhost.localdomain">
+        <device-group>
+          <entry name="dg-parent"/>
+          <entry name="dg-branch"><parent-dg>dg-parent</parent-dg></entry>
+        </device-group>
+      </entry>
+    </devices>
+  </readonly>
+</config>

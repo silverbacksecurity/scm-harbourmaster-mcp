@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<!-- Synthetic standalone-firewall export for the migration tests. -->
+<config version="11.1.0">
+  <shared>
+    <address>
+      <entry name="ntp-a"><ip-netmask>203.0.113.123/32</ip-netmask></entry>
+    </address>
+  </shared>
+  <devices>
+    <entry name="localhost.localdomain">
+      <vsys>
+        <entry name="vsys1">
+          <address>
+            <entry name="lan"><ip-netmask>10.0.0.0/24</ip-netmask></entry>
+          </address>
+          <rulebase>
+            <security>
+              <rules>
+                <entry name="lan-ntp"><from><member>trust</member></from><to><member>untrust</member></to><source><member>lan</member></source><destination><member>ntp-a</member></destination><source-user><member>any</member></source-user><category><member>any</member></category><application><member>ntp</member></application><service><member>application-default</member></service><action>allow</action></entry>
+                <entry name="lan-deny"><from><member>trust</member></from><to><member>untrust</member></to><source><member>lan</member></source><destination><member>any</member></destination><source-user><member>any</member></source-user><category><member>any</member></category><application><member>any</member></application><service><member>any</member></service><action>deny</action></entry>
+              </rules>
+            </security>
+          </rulebase>
+        </entry>
+        <entry name="vsys2"/>
+      </vsys>
+    </entry>
+  </devices>
+</config>

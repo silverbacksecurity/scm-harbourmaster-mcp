@@ -69,7 +69,7 @@ target ≤ ~20 per domain, hard cap 25 enforced in tests):
 | certificates | 3 |
 | licensing | 3 |
 
-## `access: write` tools (28)
+## `access: write` tools (29)
 
 Everything not listed here is `read`.
 
@@ -85,6 +85,7 @@ Everything not listed here is `read`.
 | `scm_config_snapshot_delete` | deletes a named snapshot by exact name — permanent |
 | `scm_config_push_track` | |
 | `scm_config_clone` | |
+| `scm_panorama_migrate` | applies in a background job, after a backup of the target folder |
 | `mssp_onboard_tenant` | |
 | `mssp_evict_tenant` | |
 | `scm_cert_import` | |
