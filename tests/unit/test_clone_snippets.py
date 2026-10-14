@@ -15,6 +15,7 @@ from scm_harbourmaster_mcp.audit.extractor import backup_snippets
 from .test_config_cloner import FakeClient
 
 SETUP = "https://api.sase.paloaltonetworks.com/config/setup/v1"
+SSE = "https://api.sase.paloaltonetworks.com/sse/config/v1"
 
 
 class FakeResponse:
@@ -30,21 +31,33 @@ class FakeResponse:
 
 
 class FakeSession:
-    """The /config/setup/v1 snippets and folders endpoints."""
+    """The /config/setup/v1 snippets and folders endpoints, and rulebase
+    listing and :move under /sse/config/v1 (rulebases keyed by (path, position),
+    holding the target's rows as they stand after the clone's creates)."""
 
     def __init__(
         self,
         snippets: list[dict[str, Any]] | None = None,
         folders: list[dict[str, Any]] | None = None,
+        rulebases: dict[tuple[str, str], list[dict[str, Any]]] | None = None,
+        move_status: int = 200,
+        apply_moves: bool = True,
     ) -> None:
         self.snippets = snippets or []
         self.folders = folders or [
             {"id": "f-dst", "name": "dst", "parent": "ngfw-shared", "description": "keep me"}
         ]
+        self.rulebases = rulebases or {}
+        self.move_status = move_status
+        self.apply_moves = apply_moves
         self.posts: list[tuple[str, dict[str, Any]]] = []
         self.puts: list[tuple[str, dict[str, Any]]] = []
+        self.moves: list[tuple[str, dict[str, Any]]] = []
 
     def get(self, url: str, params: dict[str, Any] | None = None, timeout: int = 0) -> FakeResponse:
+        if url.startswith(SSE):
+            key = (url.removeprefix(f"{SSE}/"), (params or {}).get("position", ""))
+            return FakeResponse(200, {"data": list(self.rulebases.get(key, []))})
         if url == f"{SETUP}/snippets":
             return FakeResponse(200, {"data": self.snippets})
         if url == f"{SETUP}/folders":
@@ -54,6 +67,8 @@ class FakeSession:
         return FakeResponse(200, dict(row)) if row else FakeResponse(404, {"error": "nf"})
 
     def post(self, url: str, json: dict[str, Any], timeout: int = 0) -> FakeResponse:
+        if url.endswith(":move"):
+            return self._move(url, json)
         self.posts.append((url, json))
         self.snippets.append({"name": json["name"], "type": None})
         return FakeResponse(201, {"id": "s-new", **json})
@@ -65,6 +80,22 @@ class FakeSession:
             if f["id"] == fid:
                 f.update(json)
         return FakeResponse(200, json)
+
+    def _move(self, url: str, body: dict[str, Any]) -> FakeResponse:
+        path, rid = url.removeprefix(f"{SSE}/").removesuffix(":move").rsplit("/", 1)
+        self.moves.append((rid, body))
+        if self.move_status >= 400:
+            return FakeResponse(self.move_status, {"error": "nope"})
+        rows = self.rulebases[(path, body["rulebase"])]
+        row = next(r for r in rows if r["id"] == rid)
+        if self.apply_moves:
+            rows.remove(row)
+            if body["destination"] == "bottom":
+                rows.append(row)
+            else:
+                at = next(i for i, r in enumerate(rows) if r["id"] == body["destination_rule"])
+                rows.insert(at, row)
+        return FakeResponse(200, row)
 
 
 def _backup(tmp_path: Path, resources: dict[str, Any], **extra: Any) -> str:
@@ -347,15 +378,163 @@ def test_placeholder_rows_found_from_the_target_list_for_old_backups(tmp_path):
     assert "security_rule" not in client.resources
 
 
-def test_rules_moving_into_a_snippet_warn_about_order(tmp_path):
+def _rule(name: str, **kw: Any) -> dict[str, Any]:
+    return {"name": name, "folder": "src", "action": "deny", **kw}
+
+
+def _row(name: str, folder: str = "dst") -> dict[str, Any]:
+    """A target rulebase row as raw REST lists it (a snippet's has no action)."""
+    return {"id": f"id-{name}", "name": name, "folder": folder}
+
+
+def _rule_row(name: str) -> dict[str, Any]:
+    return {**_row(name), "action": "deny"}
+
+
+def _order(session: FakeSession, key: tuple[str, str] = ("security-rules", "pre")) -> list[str]:
+    return [r["name"] for r in session.rulebases[key] if r["folder"] == "dst"]
+
+
+def _ph(name: str) -> dict[str, Any]:
+    """The source folder's row for an associated snippet."""
+    return {**_ANCHOR, "name": name, "folder": "src"}
+
+
+def test_snippet_row_is_moved_before_the_next_source_rule(tmp_path):
+    session = FakeSession(
+        rulebases={
+            ("security-rules", "pre"): [
+                _row("Web-Security-Default", "All"),
+                _row("branch-std"),
+                _rule_row("first"),
+                _rule_row("second"),
+            ]
+        }
+    )
+    client = _client(session)
+    src = _backup(
+        tmp_path,
+        {
+            "security_rules_pre": [
+                _rule("first"),
+                _ph("branch-std"),
+                _rule("second"),
+                {"name": "in-snip", "snippet": "branch-std", "action": "deny"},
+            ]
+        },
+        **_CUSTOM,
+        **_RECORD,
+    )
+    report = cloner.clone_config(client, src, "dst", dry_run=False, snippet_mode="preserve")
+
+    assert session.moves == [
+        (
+            "id-branch-std",
+            {"destination": "before", "rulebase": "pre", "destination_rule": "id-second"},
+        )
+    ]
+    assert _order(session) == ["first", "branch-std", "second"]
+    assert not [w for w in report.warnings if "rule order" in w]
+    assert "security_rules_pre row moved before `second`" in report.snippets[0].outcome
+
+
+def test_snippet_row_last_in_the_source_goes_to_the_bottom(tmp_path):
+    session = FakeSession(
+        rulebases={("security-rules", "post"): [_row("branch-std"), _rule_row("first")]}
+    )
+    client = _client(session)
+    src = _backup(
+        tmp_path,
+        {
+            "security_rules_post": [
+                _rule("first"),
+                _ph("branch-std"),
+                {"name": "in-snip", "snippet": "branch-std", "action": "deny"},
+            ]
+        },
+        **_CUSTOM,
+        **_RECORD,
+    )
+    report = cloner.clone_config(client, src, "dst", dry_run=False, snippet_mode="preserve")
+
+    assert session.moves == [("id-branch-std", {"destination": "bottom", "rulebase": "post"})]
+    assert _order(session, ("security-rules", "post")) == ["first", "branch-std"]
+    assert not report.warnings
+
+
+def test_several_snippets_with_a_prefix_and_a_skipped_rule(tmp_path):
+    # SCM put both snippet rows above the rules the clone created; "gone" was
+    # not created (a preflight skip, a conflict or a failure)
+    session = FakeSession(
+        rulebases={
+            ("security-rules", "pre"): [
+                _row("c-a"),
+                _row("c-b"),
+                _rule_row("c-r1"),
+                _rule_row("c-r2"),
+            ]
+        }
+    )
+    client = _client(session)
+    src = _backup(
+        tmp_path,
+        {
+            "security_rules_pre": [
+                _ph("a"),
+                _rule("r1"),
+                _ph("b"),
+                _rule("gone"),
+                _rule("r2"),
+                {"name": "in-a", "snippet": "a", "action": "deny"},
+                {"name": "in-b", "snippet": "b", "action": "deny"},
+            ]
+        },
+        snippets=[{"name": "a"}, {"name": "b"}],
+        **_CUSTOM,
+    )
+    report = cloner.clone_config(
+        client, src, "dst", dry_run=False, snippet_mode="preserve", name_prefix="c-"
+    )
+
+    # Bottom-up: b first, then a before the rule below it
+    assert [m[0] for m in session.moves] == ["id-c-b", "id-c-a"]
+    assert session.moves[0][1]["destination_rule"] == "id-c-r2"
+    assert _order(session) == ["c-a", "c-r1", "c-b", "c-r2"]
+    assert not [w for w in report.warnings if "rule order" in w]
+
+
+def test_nat_rules_in_a_snippet_still_warn(tmp_path):
+    session = FakeSession()
+    client = _client(session)
+    src = _backup(
+        tmp_path,
+        {
+            "nat_rules_pre": [
+                _rule("first"),
+                _ph("branch-std"),
+                {"name": "in-snip", "snippet": "branch-std"},
+            ]
+        },
+        **_CUSTOM,
+        **_RECORD,
+    )
+    report = cloner.clone_config(client, src, "dst", dry_run=False, snippet_mode="preserve")
+
+    assert not session.moves
+    [warning] = [w for w in report.warnings if "rule order" in w]
+    assert "no move for this rulebase" in warning and "nat_rules_pre row 2 of 2" in warning
+
+
+def test_dry_run_reports_the_move_and_sends_none(tmp_path):
     session = FakeSession()
     client = _client(session)
     src = _backup(
         tmp_path,
         {
             "security_rules_pre": [
-                {"name": "first", "folder": "src", "action": "allow"},
-                {**_ANCHOR, "name": "branch-std", "folder": "src"},
+                _rule("first"),
+                _ph("branch-std"),
+                _rule("second"),
                 {"name": "in-snip", "snippet": "branch-std", "action": "deny"},
             ]
         },
@@ -364,8 +543,69 @@ def test_rules_moving_into_a_snippet_warn_about_order(tmp_path):
     )
     report = cloner.clone_config(client, src, "dst", dry_run=True, snippet_mode="preserve")
 
+    assert not session.moves and not session.puts
+    assert "would move its security_rules_pre row before `second`" in report.snippets[0].outcome
+    assert not [w for w in report.warnings if "rule order" in w]
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "expected"),
+    [
+        ({"move_status": 400}, "HTTP 400"),
+        ({"apply_moves": False}, "read back in a different order"),
+    ],
+)
+def test_a_move_that_does_not_land_keeps_the_warning(tmp_path, kwargs, expected):
+    session = FakeSession(
+        rulebases={
+            ("security-rules", "pre"): [_row("branch-std"), _rule_row("first"), _rule_row("second")]
+        },
+        **kwargs,
+    )
+    client = _client(session)
+    src = _backup(
+        tmp_path,
+        {
+            "security_rules_pre": [
+                _rule("first"),
+                _ph("branch-std"),
+                _rule("second"),
+                {"name": "in-snip", "snippet": "branch-std", "action": "deny"},
+            ]
+        },
+        **_CUSTOM,
+        **_RECORD,
+    )
+    report = cloner.clone_config(client, src, "dst", dry_run=False, snippet_mode="preserve")
+
     [warning] = [w for w in report.warnings if "rule order" in w]
-    assert "`branch-std`" in warning and "security_rules_pre: row 2 of 2" in warning
+    assert expected in warning and "security_rules_pre row 2 of 3" in warning
+
+
+def test_already_associated_snippet_row_is_left_alone(tmp_path):
+    session = FakeSession(
+        snippets=[{"name": "branch-std", "type": None}],
+        folders=[
+            {"id": "f-dst", "name": "dst", "parent": "ngfw-shared", "snippets": ["branch-std"]}
+        ],
+    )
+    client = _client(session)
+    src = _backup(
+        tmp_path,
+        {
+            "security_rules_pre": [
+                _ph("branch-std"),
+                {"name": "in-snip", "snippet": "branch-std", "action": "deny"},
+            ]
+        },
+        **_CUSTOM,
+        **_RECORD,
+    )
+    report = cloner.clone_config(client, src, "dst", dry_run=False, snippet_mode="preserve")
+
+    assert not session.moves
+    [warning] = [w for w in report.warnings if "rule order" in w]
+    assert "associated before this clone" in warning
 
 
 def test_failed_association_is_a_top_level_warning(tmp_path):

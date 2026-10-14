@@ -522,11 +522,21 @@ code. New candidates are listed below._
       container and the snippet was associated. pan-scm-sdk rejected the
       address with a snippet container, but the clone's raw-REST fallback
       created it.
-    - Still open: rule order. SCM adds a newly associated snippet's row
-      above the folder's own rules, so its rules run first even where the
-      source had them below. The report warns and gives the source
-      position. Moving the snippet row (`:move`) is untested. A snippet that is associated only with an ancestor
-      of the backed-up folder is associated with the target folder itself.
+    - ✅ Rule order, built 2026-10-14. Associating a snippet adds its row
+      below the folder's rules at that moment, so the rules the clone
+      creates afterwards land below it. After the push, the clone moves the
+      row (`POST <rules>/{id}:move`, no folder parameter) before the next
+      source entry that exists in the target, or to the bottom, and reads
+      the rulebase back to confirm. Live-probed 2026-10-14 on the security
+      pre rulebase only: the row has an id, and `before`/`bottom` moves
+      land. Post, decryption and app-override use the same call but
+      haven't been probed; a move that doesn't land there becomes a
+      warning. A live clone the same day put the snippet's row back
+      between two folder rules, as in the source, with no warning.
+    - Still open: NAT and PBF rows can't be moved (no `:move` endpoint), so
+      those keep the warning. A snippet that is associated only with an
+      ancestor of the backed-up folder is associated with the target
+      folder itself.
   - SCM candidate validation (checked 2026-09-25 against pan.dev `1f192ff`):
     there is no public endpoint. The jobs schema lists a `Validate` job
     type (`type_str`), presumably the UI push dialog's Validate button, but

@@ -539,6 +539,9 @@ class SnippetPlan:
     dropped_labels: list[str] = field(default_factory=list)
     write_objects: bool = True
     failed: str = ""
+    # Associated with the target folder by this clone (or would be, in a dry
+    # run): its rulebase rows are new, so the clone places them
+    associated: bool = False
     # Filled when the clone runs: "created", "associated", "already associated", or an error
     outcome: list[str] = field(default_factory=list)
 
@@ -694,7 +697,14 @@ def _apply_snippet_plans(
     if dry_run:
         for p in plans:
             if p.target in names:
-                p.outcome.append(f"would associate with `{target_folder}`")
+                p.associated = (
+                    _API_FOLDER_ALIASES.get(target_folder, target_folder) not in p.target_folders
+                )
+                p.outcome.append(
+                    f"would associate with `{target_folder}`"
+                    if p.associated
+                    else "already associated"
+                )
         return warnings
     try:
         added = _associate_snippets(session, target_folder, names)
@@ -710,54 +720,245 @@ def _apply_snippet_plans(
         return warnings
     for p in plans:
         if p.target in names:
+            p.associated = p.target in added
             p.outcome.append(
-                f"associated with `{target_folder}`" if p.target in added else "already associated"
+                f"associated with `{target_folder}`" if p.associated else "already associated"
             )
     return warnings
 
 
-def _rule_order_warnings(
+# Rulebases whose rows SCM can reorder (POST {path}/{id}:move, no folder
+# parameter); NAT and PBF have no move.  Live 2026-10-13/14: associating a
+# snippet adds its row below the folder's rules at that moment, so rules the
+# clone creates afterwards land below it; a :move on the row's id works.
+_SSE_V1 = "https://api.sase.paloaltonetworks.com/sse/config/v1"
+_MOVABLE_RULES: dict[str, tuple[str, str]] = {
+    "security_rules_pre": ("security-rules", "pre"),
+    "security_rules_post": ("security-rules", "post"),
+    "decryption_rules": ("decryption-rules", "pre"),
+    "app_override_rules": ("app-override-rules", "pre"),
+}
+
+_CHECK_ORDER = "Check the rule order in the SCM UI before pushing."
+
+
+def _rulebase_rows(session: Any, path: str, folder: str, position: str) -> list[dict[str, Any]]:
+    """The folder's own rows of one rulebase, in evaluation order."""
+    folder = _API_FOLDER_ALIASES.get(folder, folder)
+    out: list[dict[str, Any]] = []
+    offset = 0
+    while True:
+        resp = session.get(
+            f"{_SSE_V1}/{path}",
+            params={"folder": folder, "position": position, "limit": "1000", "offset": str(offset)},
+            timeout=60,
+        )
+        if not resp.ok:
+            raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:200]}")
+        body = resp.json() if resp.content else {}
+        page = body.get("data", []) if isinstance(body, dict) else body
+        page = [r for r in page or [] if isinstance(r, dict)]
+        out += page
+        if len(page) < 1000:
+            break
+        offset += len(page)
+    return [r for r in out if r.get("folder") == folder]
+
+
+@dataclass
+class _SourceRulebase:
+    """One rulebase key of the backup, as the source folder ordered it."""
+
+    key: str
+    # The source folder's own rows (rules and snippet rows), in order
+    rows: list[dict[str, Any]]
+    # Snippet name → index of its row in `rows`
+    pos: dict[str, int]
+
+    def where(self, snippet: str) -> str:
+        if snippet not in self.pos:
+            return ""
+        return f" (source: {self.key} row {self.pos[snippet] + 1} of {len(self.rows)})"
+
+    def below(
+        self,
+        snippet: str,
+        by_source: dict[str, SnippetPlan],
+        name_prefix: str,
+        snippet_names: set[str],
+    ) -> list[str]:
+        """Target names of the source entries below the snippet's row: cloned
+        rules, and rows of other snippets this clone associates."""
+        names: list[str] = []
+        for o in self.rows[self.pos[snippet] + 1 :]:
+            name = str(o.get("name") or "")
+            if _is_snippet_row(self.key, o, snippet_names):
+                if name in by_source and by_source[name].associated:
+                    names.append(by_source[name].target)
+            elif name:
+                names.append(f"{name_prefix}{name}")
+        return names
+
+
+def _place_snippet_rows(
+    session: Any,
     resources: dict[str, Any],
     batches: list[tuple[str, str, str, dict[str, Any]]],
     plans: list[SnippetPlan],
     target_folder: str,
+    name_prefix: str,
     snippet_names: set[str],
+    dry_run: bool,
 ) -> list[str]:
-    """One warning per preserved snippet that receives rules.
+    """Move each newly associated snippet's rulebase row to its source position.
 
     A snippet's rules are evaluated where its row sits in the folder's
-    rulebase.  The source position is the source folder's placeholder row.
+    rulebase; the source position is the source folder's row for it.  The row
+    goes before the next source entry that exists in the target (a cloned
+    rule, or the row of another snippet this clone associated), or to the
+    bottom.  Returns warnings for what could not be placed.
     """
     by_source = {p.source: p for p in plans if p.write_objects and not p.failed}
     warnings: list[str] = []
-    for source, plan in sorted(by_source.items()):
-        keys = [
-            b[0]
-            for b in batches
-            if b[0] in _RULE_KEYS
-            and any(
-                isinstance(o, dict) and o.get("snippet") == source
-                for o in resources.get(b[0]) or []
-            )
-        ]
-        if not keys:
+    for key in [b[0] for b in batches if b[0] in _RULE_KEYS]:
+        rows = [o for o in resources.get(key) or [] if isinstance(o, dict)]
+        with_rules = {str(o["snippet"]) for o in rows if o.get("snippet") in by_source}
+        if not with_rules:
             continue
-        where: list[str] = []
-        for key in keys:
-            rows = [o for o in resources.get(key) or [] if isinstance(o, dict)]
-            folder_rows = [o for o in rows if not o.get("snippet")]
-            for i, o in enumerate(folder_rows):
-                if o.get("name") == source and _is_snippet_row(key, o, snippet_names):
-                    where.append(f"{key}: row {i + 1} of {len(folder_rows)}")
-        src = f" (source: {'; '.join(where)})" if where else ""
-        # Live 2026-10-13: a newly associated snippet's row lands after the
-        # inherited snippet rows and above every rule of the folder's own.
-        warnings.append(
-            f"Rules in snippet `{plan.target}` ({', '.join(keys)}) are evaluated where the "
-            f"snippet sits in `{target_folder}`'s rulebase. SCM adds a newly associated snippet "
-            f"above the folder's own rules, so they run before them{src}. Check the rule order "
-            "in the SCM UI before pushing."
+        own = [o for o in rows if not o.get("snippet")]
+        src = _SourceRulebase(
+            key,
+            own,
+            {
+                str(o.get("name")): i
+                for i, o in enumerate(own)
+                if _is_snippet_row(key, o, snippet_names)
+            },
         )
+        todo: list[SnippetPlan] = []
+        for sn in sorted(with_rules, key=lambda x: src.pos.get(x, len(own))):
+            plan = by_source[sn]
+            if not plan.associated:
+                warnings.append(
+                    f"Rules in snippet `{plan.target}` ({key}) are evaluated where the snippet "
+                    f"already sits in `{target_folder}`'s rulebase; it was associated before this "
+                    f"clone, so its row was left where it is{src.where(sn)}. {_CHECK_ORDER}"
+                )
+            elif key not in _MOVABLE_RULES or sn not in src.pos:
+                why = (
+                    "SCM has no move for this rulebase"
+                    if key not in _MOVABLE_RULES
+                    else "the backup has no row for it, so its source position is unknown"
+                )
+                warnings.append(
+                    f"Rules in snippet `{plan.target}` ({key}) are evaluated where the snippet "
+                    f"sits in `{target_folder}`'s rulebase. SCM adds a newly associated snippet "
+                    f"above the rules the clone creates, so they run before them, and {why}"
+                    f"{src.where(sn)}. {_CHECK_ORDER}"
+                )
+            elif dry_run:
+                nxt = src.below(sn, by_source, name_prefix, snippet_names)
+                plan.outcome.append(
+                    f"would move its {key} row before `{nxt[0]}`"
+                    if nxt
+                    else f"would move its {key} row to the bottom"
+                )
+            else:
+                todo.append(plan)
+        if todo:
+            warnings += _move_snippet_rows(
+                session, src, todo, by_source, target_folder, name_prefix, snippet_names
+            )
+    return warnings
+
+
+def _move_snippet_rows(
+    session: Any,
+    src: _SourceRulebase,
+    todo: list[SnippetPlan],
+    by_source: dict[str, SnippetPlan],
+    target_folder: str,
+    name_prefix: str,
+    snippet_names: set[str],
+) -> list[str]:
+    """Move the rows of *todo* (in source order) in one target rulebase, then
+    read it back to confirm."""
+    key = src.key
+    path, position = _MOVABLE_RULES[key]
+    warnings: list[str] = []
+
+    def fail(plan: SnippetPlan, why: str) -> None:
+        plan.outcome.append(f"{key} row not moved: {why}")
+        warnings.append(
+            f"Rules in snippet `{plan.target}` ({key}) may run in the wrong place: its row in "
+            f"`{target_folder}`'s rulebase could not be moved ({why}){src.where(plan.source)}. "
+            f"{_CHECK_ORDER}"
+        )
+
+    try:
+        target = _rulebase_rows(session, path, target_folder, position)
+    except Exception as exc:
+        for plan in todo:
+            fail(plan, f"rulebase unreadable: {str(exc)[:200]}")
+        return warnings
+    # Bottom-up, so each row's anchor is already in place when it moves
+    wanted: dict[str, str | None] = {}
+    for plan in reversed(todo):
+        row = next(
+            (r for r in target if r.get("name") == plan.target and not r.get("action")), None
+        )
+        if row is None or not row.get("id"):
+            fail(plan, "its row is not in the target rulebase")
+            continue
+        names = {str(r.get("name")) for r in target} - {plan.target}
+        anchor = next(
+            (
+                n
+                for n in src.below(plan.source, by_source, name_prefix, snippet_names)
+                if n in names
+            ),
+            None,
+        )
+        anchor_row = next((r for r in target if r.get("name") == anchor), None)
+        body: dict[str, Any] = {"destination": "bottom", "rulebase": position}
+        if anchor_row is not None:
+            body = {
+                "destination": "before",
+                "rulebase": position,
+                "destination_rule": anchor_row["id"],
+            }
+        try:
+            resp = session.post(f"{_SSE_V1}/{path}/{row['id']}:move", json=body, timeout=60)
+            if not resp.ok:
+                raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:200]}")
+        except Exception as exc:
+            fail(plan, str(exc)[:200])
+            continue
+        wanted[plan.source] = anchor if anchor_row is not None else None
+        # Keep the local copy in step for the next row's anchor
+        target.remove(row)
+        target.insert(target.index(anchor_row) if anchor_row is not None else len(target), row)
+    if not wanted:
+        return warnings
+    try:
+        order = [str(r.get("name")) for r in _rulebase_rows(session, path, target_folder, position)]
+    except Exception as exc:
+        for sn in wanted:
+            fail(by_source[sn], f"moved, but the rulebase could not be read back: {str(exc)[:200]}")
+        return warnings
+    for sn, anchor in wanted.items():
+        plan = by_source[sn]
+        at = order.index(plan.target) if plan.target in order else -1
+        if anchor is None:
+            ok = at >= 0 and at == len(order) - 1
+        else:
+            ok = at >= 0 and anchor in order and order.index(anchor) == at + 1
+        if ok:
+            plan.outcome.append(
+                f"{key} row moved before `{anchor}`" if anchor else f"{key} row moved to the bottom"
+            )
+        else:
+            fail(plan, "the rulebase read back in a different order")
     return warnings
 
 
@@ -1397,9 +1598,6 @@ def clone_config(
             report.snippets = plans
             snippet_plans = {p.source: p for p in plans}
             report.warnings += _apply_snippet_plans(session, plans, target_folder, dry_run)
-            report.warnings += _rule_order_warnings(
-                resources, batches, plans, target_folder, snippet_names
-            )
 
     # Network backup keys holding a name already seen from another folder
     duplicates: list[str] = []
@@ -1551,6 +1749,18 @@ def clone_config(
     for snap_key, sdk_attr, folder, opts in batches:
         into = bool(snippet_plans) and _snippet_capable(sdk_attr, folder, opts)
         _process_batch(snap_key, sdk_attr, folder, **opts, into_snippet=into)
+
+    if report.snippets:
+        report.warnings += _place_snippet_rows(
+            client.session,
+            resources,
+            batches,
+            report.snippets,
+            target_folder,
+            name_prefix,
+            snippet_names,
+            dry_run,
+        )
 
     if duplicates:
         report.warnings.append(

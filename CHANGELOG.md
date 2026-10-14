@@ -20,9 +20,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     that use it.
   - Config backups record a `snippets` list with each customer snippet's
     description, labels and associated folders.
-  - When rules move into a snippet, the report warns that SCM evaluates
-    them where it places the snippet in the target folder's rulebase, and
-    gives the snippet's position in the source.
+  - SCM adds a newly associated snippet's rulebase row above the rules
+    the clone creates. After the push, the clone moves the row back to its
+    source position in the security, decryption and app-override
+    rulebases, then reads the rulebase back to confirm. The dry run shows
+    each planned move.
+  - The report warns, with the snippet's source position, when the row
+    can't be placed: NAT and PBF have no move, a snippet associated before
+    the clone is left where it is, and a failed or unconfirmed move keeps
+    its warning.
 - **`scm_config_clone` restores NGFW network config** when given
   `include_network=True` (off by default).
   - It restores interface management profiles, interfaces, community and

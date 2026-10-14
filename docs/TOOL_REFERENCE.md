@@ -1519,6 +1519,14 @@ Prisma Access folders and PAN's own snippets are never moved.
 Snippet labels are not copied.  The dry run lists every snippet, its
 target state and the folders that use it.
 
+A snippet's rules run where its row sits in the folder's rulebase.
+SCM adds a newly associated snippet's row above the rules the clone
+creates, so after the push the clone moves that row back to its
+source position (security, decryption and app-override rulebases)
+and reads the rulebase back to confirm.  NAT and PBF have no move
+endpoint, and a snippet already associated before the clone is left
+where it is; both are reported as rule-order warnings.
+
 Reference preflight
 -------------------
 Before any write (dry run included) the target folder is read and
