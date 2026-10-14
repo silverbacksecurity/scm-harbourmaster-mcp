@@ -2640,7 +2640,9 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
         tunnels and PBF rules and the references to them, but never
         interfaces (ethernet1/1, ae1, tunnel.1, $variables).  The preflight
         checks the profile and list references; interface references it
-        cannot resolve are reported unverifiable.
+        cannot resolve are reported unverifiable, as are BFD, timer, BGP
+        dampening, monitor and NetFlow profile references (never backed up,
+        and no list API reads them).
 
         PSK and secret safety
         ---------------------

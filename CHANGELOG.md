@@ -28,6 +28,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     and objects in the fixed Prisma Access folders stay there.
   - The dry run lists each snippet, its state in the target and the folders
     that use it.
+  - When the source associated a snippet only with another folder than the
+    backed-up one (usually a parent such as `ngfw-shared`), the report says
+    so: the clone associates it with the target folder itself, so it
+    applies to that folder and the ones below it, not the parent's whole
+    subtree.
   - Config backups record a `snippets` list with each customer snippet's
     description, labels and associated folders.
   - SCM adds a newly associated snippet's rulebase row above the rules
@@ -52,6 +57,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     become `CHANGEME` and are listed in the report.
   - `name_prefix` never renames interfaces, and the reference preflight
     checks the new profile and list references.
+  - The preflight also lists the BFD, routing timer, BGP dampening, monitor
+    and NetFlow profiles that routers, interfaces and PBF rules name, as
+    unverifiable. Backups don't hold these profiles and no list API reads
+    them (`vr-bfd-profiles` is in the spec but answers 404), so check them
+    in the target by hand. They never block the clone, and `name_prefix`
+    leaves them alone. A virtual router's own inline dampening profiles
+    resolve.
   - Live-tested on a lab tenant with no firewalls: management profile,
     loopback template, community list, BGP auth profile (with `CHANGEME`)
     and logical router. Real firewall interfaces haven't been sent live.

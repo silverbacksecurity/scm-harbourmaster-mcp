@@ -653,6 +653,143 @@ def test_preflight_lists_without_an_api_are_unverifiable() -> None:
     assert not result.blocked
 
 
+_UNLISTED_PROFILES = {
+    "bfd_profile",
+    "timer_profile",
+    "dampening_profile",
+    "monitor_profile",
+    "netflow_profile",
+}
+
+
+def _profile_estate() -> dict[str, list[dict[str, Any]]]:
+    static = {"name": "sr-1", "bfd": {"profile": "bfd-static"}}
+    return {
+        "ethernet_interfaces": [
+            _row("ethernet1/1", layer3={"netflow_profile": "nf-1"}),
+            _row("ethernet1/2", tap={"netflow_profile": "nf-2"}),
+        ],
+        "aggregate_interfaces": [_row("ae1", layer2={"netflow_profile": "nf-1"})],
+        "tunnel_interfaces": [_row("tunnel.1", netflow_profile="nf-3")],
+        "logical_routers": [
+            _router(
+                bgp={
+                    "global_bfd": {"profile": "default"},
+                    "peer_group": [
+                        {
+                            "name": "pg-1",
+                            "connection_options": {"timers": "bgp-timer", "dampening": "damp-1"},
+                            "peer": [{"name": "p1", "bfd": {"profile": "bfd-peer"}}],
+                        }
+                    ],
+                },
+                ospf={
+                    "spf_timer": "spf-1",
+                    "global_bfd": {"profile": "None"},
+                    "area": [{"interface": [{"name": "ethernet1/1", "timing": "if-timer"}]}],
+                },
+                routing_table={"ip": {"static_route": [static]}},
+            )
+        ],
+        "pbf_rules": [
+            _row(
+                "pbf-1",
+                action={
+                    "forward": {
+                        "egress_interface": "ethernet1/1",
+                        "monitor": {"profile": "mon-1"},
+                    }
+                },
+            )
+        ],
+    }
+
+
+def test_preflight_unlisted_network_profiles_are_unverifiable() -> None:
+    inv = fetch_target_inventory(Session(), "dst", network=True)
+    assert set(inv.unreadable) >= _UNLISTED_PROFILES
+    assert "vr-bfd-profiles" in inv.unreadable["bfd_profile"]
+    resources = _profile_estate()
+    result = check_references(resources, list(resources), inv)
+    found = {(i.referrer, i.field, i.name): (i.kind, i.status) for i in result.issues}
+    assert found == {
+        ("ethernet1/1", "layer3.netflow_profile", "nf-1"): ("netflow_profile", "unverifiable"),
+        ("ethernet1/2", "tap.netflow_profile", "nf-2"): ("netflow_profile", "unverifiable"),
+        ("ae1", "layer2.netflow_profile", "nf-1"): ("netflow_profile", "unverifiable"),
+        ("tunnel.1", "netflow_profile", "nf-3"): ("netflow_profile", "unverifiable"),
+        ("lr-1", "vrf.bgp.peer_group.peer.bfd.profile", "bfd-peer"): (
+            "bfd_profile",
+            "unverifiable",
+        ),
+        ("lr-1", "vrf.routing_table.ip.static_route.bfd.profile", "bfd-static"): (
+            "bfd_profile",
+            "unverifiable",
+        ),
+        ("lr-1", "vrf.bgp.peer_group.connection_options.timers", "bgp-timer"): (
+            "timer_profile",
+            "unverifiable",
+        ),
+        ("lr-1", "vrf.ospf.spf_timer", "spf-1"): ("timer_profile", "unverifiable"),
+        ("lr-1", "vrf.ospf.area.interface.timing", "if-timer"): (
+            "timer_profile",
+            "unverifiable",
+        ),
+        ("lr-1", "vrf.bgp.peer_group.connection_options.dampening", "damp-1"): (
+            "dampening_profile",
+            "unverifiable",
+        ),
+        ("pbf-1", "action.forward.monitor.profile", "mon-1"): (
+            "monitor_profile",
+            "unverifiable",
+        ),
+    }
+    # "default" and "None" are keywords; nothing blocks the clone
+    assert not result.blocked and not result.missing
+    assert set(result.unreadable) == _UNLISTED_PROFILES
+    md = "\n".join(result.to_markdown(dry_run=True))
+    assert "BFD profile `bfd-peer`" in md and "NetFlow profile `nf-1`" in md
+
+
+def test_preflight_virtual_router_inline_dampening_profile_resolves() -> None:
+    rule = {"name": "r", "action": {"allow": {"dampening": "inline-damp"}}}
+    other = {"name": "r2", "action": {"allow": {"dampening": "elsewhere"}}}
+    router = _row(
+        "vr-1",
+        protocol={
+            "bgp": {
+                "dampening_profile": [{"name": "inline-damp"}],
+                "policy": {"import": {"rules": [rule, other]}},
+            }
+        },
+    )
+    inv = fetch_target_inventory(Session(), "dst", network=True)
+    result = check_references({"virtual_routers": [router]}, ["virtual_routers"], inv)
+    assert [(i.name, i.status) for i in result.issues] == [("elsewhere", "unverifiable")]
+
+
+def test_unlisted_network_profiles_are_never_cloned_or_renamed(tmp_path: Path) -> None:
+    provided = {kind for kinds in PROVIDES.values() for kind in kinds}
+    assert not provided & _UNLISTED_PROFILES
+    client = Client()
+    cloner.clone_config(
+        client,
+        _backup(tmp_path, _profile_estate()),
+        "dst",
+        include_network=True,
+        dry_run=False,
+        name_prefix="C_",
+    )
+    posts = dict(client.session.posts())
+    vrf = posts["logical-routers"]["vrf"][0]
+    assert posts["logical-routers"]["name"] == "C_lr-1"
+    assert vrf["bgp"]["peer_group"][0]["connection_options"] == {
+        "timers": "bgp-timer",
+        "dampening": "damp-1",
+    }
+    assert posts["tunnel-interfaces"]["netflow_profile"] == "nf-3"
+    assert posts["pbf-rules"]["action"]["forward"]["monitor"] == {"profile": "mon-1"}
+
+
 def test_network_catalogues_are_read_only_for_network_clones() -> None:
     session = Session()
     fetch_target_inventory(session, "dst")

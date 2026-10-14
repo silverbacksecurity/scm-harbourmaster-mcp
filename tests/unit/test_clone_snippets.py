@@ -251,6 +251,42 @@ def test_pan_snippet_is_never_written_even_without_snippet_types(tmp_path):
     assert session.posts == [] and session.puts == []
 
 
+@pytest.mark.parametrize(
+    ("extra", "noted"),
+    [
+        # Backed up from a child folder; the source associated it on the parent
+        ({"folder": "branch-a"}, True),
+        ({"folder": "ngfw-shared"}, False),
+        # A whole-tenant backup: still true, the target folder gets it directly
+        ({"folder": "All"}, True),
+        # Older backups record no folder
+        ({}, False),
+    ],
+)
+def test_snippet_associated_on_another_folder_is_noted(tmp_path, extra, noted):
+    client = _client(FakeSession())
+    src = _backup(
+        tmp_path,
+        {"tags": [{"name": "t-snip", "snippet": "branch-std"}]},
+        **_CUSTOM,
+        **_RECORD,
+        **extra,
+    )
+    report = cloner.clone_config(
+        client, src, "dst", dry_run=True, snippet_mode="preserve", name_prefix="C_"
+    )
+
+    note = (
+        "- `branch-std` is associated with `ngfw-shared` in the source, not with the "
+        f"backed-up folder `{extra.get('folder')}`. The clone associates `C_branch-std` with `dst` "
+        "itself, so it applies to `dst` and the folders below it, not to everything "
+        "under `ngfw-shared` as in the source."
+    )
+    md = report.to_markdown()
+    assert (note in md) is noted
+    assert ("not with the backed-up folder" in md) is noted
+
+
 def test_name_prefix_renames_the_snippet(tmp_path):
     session = FakeSession()
     client = _client(session)
@@ -285,12 +321,20 @@ def test_failed_snippet_create_fails_its_objects(tmp_path):
     session = FakeSession()
     session.post = lambda url, json, timeout=0: FakeResponse(400, {"error": "bad"})  # type: ignore[method-assign]
     client = _client(session)
-    src = _backup(tmp_path, {"tags": [{"name": "t-snip", "snippet": "branch-std"}]}, **_CUSTOM)
+    src = _backup(
+        tmp_path,
+        {"tags": [{"name": "t-snip", "snippet": "branch-std"}]},
+        folder="branch-a",
+        **_CUSTOM,
+        **_RECORD,
+    )
     report = cloner.clone_config(client, src, "dst", dry_run=False, snippet_mode="preserve")
 
     assert "tag" not in client.resources
     assert report.results[0].status == "failed"
     assert session.puts == []
+    # Nothing was associated, so no note about where it was associated
+    assert "not with the backed-up folder" not in report.to_markdown()
 
 
 def test_unreadable_target_pushes_nothing(tmp_path):

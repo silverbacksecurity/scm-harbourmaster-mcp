@@ -34,6 +34,10 @@ Findings from the live restore that motivated this:
     which a folder cannot see when they are set on a firewall, so an
     interface that resolves nowhere is "unverifiable".  Access and prefix
     lists answer 500 on every tenant probed and are unverifiable too.
+  * BFD, routing timer, BGP dampening, monitor and NetFlow profiles are
+    neither backed up nor listable (vr-bfd-profiles is in the spec but
+    404s), so references to them are always "unverifiable".  A legacy
+    virtual router's own inline dampening profiles still resolve.
 
 The same reference table drives the name_prefix rewrite in the cloner
 (:func:`rewrite_references`), so the check and the rewrite cannot disagree.
@@ -254,6 +258,7 @@ _LIST_500 = (
     "{} answers 500 on every tenant probed, so it is neither backed up nor listable — "
     "check it exists in the target by hand"
 )
+_NOT_LISTED = "{} are not backed up and have no list API — check it exists in the target by hand"
 KINDS.update(
     {
         kind: _Kind(label, ((f"{_NETWORK}/{path}", _names),), _NETWORK_KEYWORDS, network=True)
@@ -280,6 +285,47 @@ KINDS.update(
         ),
         "prefix_list": _Kind(
             "prefix list", (), network=True, no_api=_LIST_500.format("route-prefix-lists")
+        ),
+        # Profiles the network backup does not hold, so the clone never
+        # creates them, and which no list API serves: unverifiable.
+        "bfd_profile": _Kind(
+            "BFD profile",
+            (),
+            _NETWORK_KEYWORDS | {"default"},
+            network=True,
+            no_api=(
+                "BFD profiles are not backed up; logical-router ones have no list API and "
+                "vr-bfd-profiles answers 404 on every tenant probed — check it exists in the "
+                "target by hand"
+            ),
+        ),
+        "timer_profile": _Kind(
+            "routing timer profile",
+            (),
+            _NETWORK_KEYWORDS,
+            network=True,
+            no_api=_NOT_LISTED.format("BGP, OSPF, OSPFv3 and RIP timer profiles"),
+        ),
+        "dampening_profile": _Kind(
+            "BGP dampening profile",
+            (),
+            _NETWORK_KEYWORDS,
+            network=True,
+            no_api=_NOT_LISTED.format("Logical-router BGP dampening profiles"),
+        ),
+        "monitor_profile": _Kind(
+            "monitor profile",
+            (),
+            _NETWORK_KEYWORDS | {"default"},
+            network=True,
+            no_api=_NOT_LISTED.format("Monitor profiles"),
+        ),
+        "netflow_profile": _Kind(
+            "NetFlow profile",
+            (),
+            _NETWORK_KEYWORDS,
+            network=True,
+            no_api=_NOT_LISTED.format("NetFlow server profiles"),
         ),
     }
 )
@@ -452,9 +498,12 @@ REFERENCE_FIELDS: dict[str, tuple[_Ref, ...]] = {
 # Paths are the API's field names (the network backup is read over REST) and
 # step into lists (see holders).  None is strippable: dropping an interface
 # or a route map changes routing.  From the R3 network-services, logical- and
-# virtual-router specs.  Not checked: BFD/timer/dampening/monitor/netflow
-# profiles, certificates, schedules and multicast, which the clone neither
-# creates nor lists.
+# virtual-router specs.  BFD, timer, dampening, monitor and NetFlow profiles
+# are checked but always unverifiable (see KINDS).  A static route's
+# path_monitor holds its destinations inline and names no profile.  Not
+# checked: OSPF area auth, OSPFv3 and RIP auth, and the OSPF/OSPFv3/RIP
+# redistribution routing profiles, certificates, schedules and multicast,
+# which the clone neither creates nor lists.
 
 _IMP = "interface_management_profile"
 
@@ -500,21 +549,35 @@ _BGP_FILTER_FIELDS: tuple[tuple[str, str], ...] = (
 _STATIC_ROUTES = ("routing_table.ip.static_route.", "routing_table.ipv6.static_route.")
 _AF = ("ipv4", "ipv6")
 _LR_OSPF_AUTH = "vrf.ospf.auth_profile.name"
+# Legacy virtual routers define their BGP dampening profiles inline
+_VR_DAMPENING = "protocol.bgp.dampening_profile.name"
+_BFD = "bfd.profile"
+# A static route's BFD profile, under either router's routing table
+_STATIC_BFD = tuple(f"{p}{_BFD}" for p in _STATIC_ROUTES)
+_NETFLOW = _Ref("netflow_profile", "netflow_profile")
 
 NETWORK_REFERENCE_FIELDS: dict[str, tuple[_Ref, ...]] = {
     "ethernet_interfaces": (
         _Ref("layer3.interface_management_profile", _IMP),
         _Ref("aggregate_group", "interface"),
+        *(
+            _Ref(f"{mode}.netflow_profile", "netflow_profile")
+            for mode in ("layer2", "layer3", "tap")
+        ),
     ),
-    "aggregate_interfaces": (_Ref("layer3.interface_management_profile", _IMP),),
+    "aggregate_interfaces": (
+        _Ref("layer3.interface_management_profile", _IMP),
+        *(_Ref(f"{mode}.netflow_profile", "netflow_profile") for mode in ("layer2", "layer3")),
+    ),
     "layer3_subinterfaces": (
         _Ref("interface_management_profile", _IMP),
         _Ref("parent_interface", "interface"),
+        _NETFLOW,
     ),
     "layer2_subinterfaces": (_Ref("parent_interface", "interface"),),
-    "loopback_interfaces": (_Ref("interface_management_profile", _IMP),),
-    "tunnel_interfaces": (_Ref("interface_management_profile", _IMP),),
-    "vlan_interfaces": (_Ref("interface_management_profile", _IMP),),
+    "loopback_interfaces": (_Ref("interface_management_profile", _IMP), _NETFLOW),
+    "tunnel_interfaces": (_Ref("interface_management_profile", _IMP), _NETFLOW),
+    "vlan_interfaces": (_Ref("interface_management_profile", _IMP), _NETFLOW),
     # A DHCP server/relay row is named after the interface it runs on
     "dhcp_interfaces": (_Ref("name", "interface"),),
     "bgp_route_maps": _refs("route_map.", _ROUTE_MAP_FIELDS),
@@ -574,6 +637,40 @@ NETWORK_REFERENCE_FIELDS: dict[str, tuple[_Ref, ...]] = {
         _Ref("vrf.ospf.area.virtual_link.authentication", "ospf_auth_profile", local=_LR_OSPF_AUTH),
         *(_Ref(f"vrf.{p}interface", "interface") for p in _STATIC_ROUTES),
         *(_Ref(f"vrf.{p}nexthop.next_lr", "logical_router") for p in _STATIC_ROUTES),
+        *(
+            _Ref(f"vrf.{p}", "bfd_profile")
+            for p in (
+                *(f"{proto}.global_{_BFD}" for proto in ("bgp", "ospf", "ospfv3", "rip")),
+                f"bgp.peer_group.peer.{_BFD}",
+                f"ospf.area.interface.{_BFD}",
+                f"ospf.area.virtual_link.{_BFD}",
+                f"rip.interface.{_BFD}",
+                *_STATIC_BFD,
+            )
+        ),
+        *(
+            _Ref(f"vrf.{p}", "timer_profile")
+            for p in (
+                "bgp.peer_group.connection_options.timers",
+                "bgp.peer_group.peer.connection_options.timers",
+                *(
+                    f"{proto}.{t}"
+                    for proto in ("ospf", "ospfv3")
+                    for t in ("global_if_timer", "spf_timer")
+                ),
+                "ospf.area.interface.timing",
+                "ospf.area.virtual_link.timing",
+                "rip.global_timer",
+            )
+        ),
+        *(
+            _Ref(f"vrf.bgp.{p}", "dampening_profile")
+            for p in (
+                "peer_group.connection_options.dampening",
+                "peer_group.peer.connection_options.dampening",
+                "policy.import.rules.action.allow.dampening",
+            )
+        ),
     ),
     # Legacy virtual routers define their auth profiles inline
     "virtual_routers": (
@@ -581,6 +678,25 @@ NETWORK_REFERENCE_FIELDS: dict[str, tuple[_Ref, ...]] = {
         _Ref("protocol.bgp.peer_group.peer.local_address.interface", "interface"),
         *(_Ref(f"{p}interface", "interface") for p in _STATIC_ROUTES),
         *(_Ref(f"{p}nexthop.next_vr", "virtual_router") for p in _STATIC_ROUTES),
+        *(
+            _Ref(p, "bfd_profile")
+            for p in (
+                *(f"protocol.{proto}.global_{_BFD}" for proto in ("bgp", "ospf", "ospfv3", "rip")),
+                f"protocol.bgp.peer_group.peer.{_BFD}",
+                *(
+                    f"protocol.{proto}.area.{link}.{_BFD}"
+                    for proto in ("ospf", "ospfv3")
+                    for link in ("interface", "virtual_link")
+                ),
+                f"protocol.rip.interface.{_BFD}",
+                *_STATIC_BFD,
+            )
+        ),
+        _Ref(
+            "protocol.bgp.policy.import.rules.action.allow.dampening",
+            "dampening_profile",
+            local=_VR_DAMPENING,
+        ),
     ),
     "gre_tunnels": (
         _Ref("tunnel_interface", "interface"),
@@ -593,6 +709,7 @@ NETWORK_REFERENCE_FIELDS: dict[str, tuple[_Ref, ...]] = {
         _Ref("service", "service"),
         _Ref("application", "application"),
         _Ref("action.forward.egress_interface", "interface"),
+        _Ref("action.forward.monitor.profile", "monitor_profile"),
         _TAG,
     ),
 }

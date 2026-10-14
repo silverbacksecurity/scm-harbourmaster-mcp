@@ -534,6 +534,8 @@ class SnippetPlan:
     objects: int = 0
     source_folders: list[str] = field(default_factory=list)
     target_folders: list[str] = field(default_factory=list)
+    # The folder the backup was taken from ("" for older backups)
+    backup_folder: str = ""
     description: str = ""
     enable_prefix: bool = False
     dropped_labels: list[str] = field(default_factory=list)
@@ -589,7 +591,26 @@ def _snippet_markdown(plans: list[SnippetPlan], target_folder: str) -> list[str]
                 f"\n- `{p.target}`: labels not copied ({', '.join(p.dropped_labels)}); "
                 "labels must exist in the target tenant."
             )
+        if p.action != "pan" and not p.failed and _associated_elsewhere(p):
+            where = ", ".join(f"`{f}`" for f in p.source_folders)
+            lines.append(
+                f"\n- `{p.source}` is associated with {where} in the source, not with the "
+                f"backed-up folder `{p.backup_folder}`. The clone associates `{p.target}` "
+                f"with `{target_folder}` itself, so it applies to `{target_folder}` and the "
+                f"folders below it, not to everything under {where} as in the source."
+            )
     return lines
+
+
+def _associated_elsewhere(plan: SnippetPlan) -> bool:
+    """The source associated the snippet only with folders other than the
+    backed-up one (typically an ancestor such as ngfw-shared)."""
+    if not (plan.backup_folder and plan.source_folders):
+        return False
+    alias = _API_FOLDER_ALIASES.get
+    return alias(plan.backup_folder, plan.backup_folder) not in {
+        alias(f, f) for f in plan.source_folders
+    }
 
 
 def _setup_rows(session: Any, kind: str) -> list[dict[str, Any]]:
@@ -621,6 +642,7 @@ def _plan_snippets(
         for sn in f.get("snippets") or []:
             used_by.setdefault(str(sn), []).append(str(f.get("name")))
     folder = _API_FOLDER_ALIASES.get(target_folder, target_folder)
+    backup_folder = str(data.get("folder") or "")
 
     plans: list[SnippetPlan] = []
     for source in sorted(objects_by_snippet):
@@ -644,6 +666,7 @@ def _plan_snippets(
                 objects=objects_by_snippet[source],
                 source_folders=list(rec.get("folders") or []),
                 target_folders=sorted(used_by.get(target, [])),
+                backup_folder=backup_folder,
                 description=str(rec.get("description") or ""),
                 enable_prefix=bool(rec.get("enable_prefix")),
                 # Labels must already exist in the target tenant; never sent
