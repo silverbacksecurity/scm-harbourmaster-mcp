@@ -184,9 +184,9 @@ DSPT_ASSERTIONS: dict[str, DsptAssertion] = {
         evidence_guidance=(
             "Palo Alto NGFW / Prisma Access applies threat prevention, anti-spyware, "
             "and WildFire cloud sandboxing profiles to network traffic. Evidence: "
-            "BPA-TP-001 (antivirus profile on all allow rules), BPA-TP-002 "
-            "(anti-spyware on all allow rules), BPA-TP-003 (WildFire on all allow "
-            "rules), BPA-TP-007 (WildFire file-type coverage). Export "
+            "BPA-SR-001 (threat profiles on allow rules), BPA-TP-001 (anti-spyware "
+            "profile), BPA-TP-003 (vulnerability protection), BPA-TP-004 (WildFire), "
+            "BPA-TP-005 (file blocking), BPA-TP-007 (WildFire file-type coverage). Export "
             "`scm_bpa_assess` results filtering for TP checks."
         ),
         dspt_level="meeting",
@@ -206,7 +206,8 @@ DSPT_ASSERTIONS: dict[str, DsptAssertion] = {
             "PAN-OS URL filtering profiles block malicious, phishing, "
             "command-and-control, hacking, proxy-avoidance and dynamic-DNS "
             "categories (BPA-URL-001, BPA-URL-002). DNS sinkholing is configured "
-            "in anti-spyware profiles (BPA-TP-006). Provide BPA assessment "
+            "in anti-spyware profiles (BPA-TP-001) and a DNS Security profile "
+            "(BPA-TP-002). Provide BPA assessment "
             "export showing URL and DNS security checks passing."
         ),
         dspt_level="meeting",
@@ -429,24 +430,21 @@ BPA_TO_DSPT: dict[str, list[str]] = {
     "BPA-SR-009": ["DSPT-9.1.2"],  # zero-trust gaps → network segmentation
     "BPA-SR-010": ["DSPT-9.3.1"],  # cleartext protocols → access restriction
     # Threat prevention — Standard 9.2 (malware protection)
-    "BPA-TP-001": ["DSPT-9.2.1"],  # antivirus profile → malware
-    "BPA-TP-002": ["DSPT-9.2.1"],  # anti-spyware → malware
-    "BPA-TP-003": ["DSPT-9.2.1"],  # WildFire → malware (sandboxing)
-    "BPA-TP-004": ["DSPT-9.2.1"],  # AV severity actions → malware response
-    "BPA-TP-005": ["DSPT-9.2.1"],  # spyware severity actions → malware response
-    "BPA-TP-006": ["DSPT-9.2.2"],  # DNS sinkholing → malicious URL/DNS
+    # (as bpa_checks emits them; check_tp_006 reports BPA-DEC-001)
+    "BPA-TP-001": ["DSPT-9.2.1", "DSPT-9.2.2"],  # anti-spyware + DNS sinkhole → malware, DNS
+    "BPA-TP-002": ["DSPT-9.2.2"],  # DNS Security profile → malicious domains
+    "BPA-TP-003": ["DSPT-9.2.1"],  # vulnerability protection → exploits
+    "BPA-TP-004": ["DSPT-9.2.1"],  # WildFire → malware (sandboxing)
+    "BPA-TP-005": ["DSPT-9.2.1"],  # file blocking → malware delivery
     "BPA-TP-007": ["DSPT-9.2.1"],  # WildFire file types → malware coverage
     # URL filtering — Standard 9.2.2 (malicious content)
     "BPA-URL-001": ["DSPT-9.2.2"],  # URL filtering profile → malicious URLs
     "BPA-URL-002": ["DSPT-9.2.2"],  # block high-risk categories → malicious URLs
-    "BPA-URL-003": ["DSPT-9.2.2"],  # safe search → web content filtering
     # Decryption — Standard 9.2.3 (encrypted traffic inspection)
     "BPA-DEC-001": ["DSPT-9.2.3"],  # decryption profile → TLS inspection
     "BPA-DEC-002": ["DSPT-9.2.3"],  # decryption rule active → TLS inspection
     # Zone protection — Standard 9.1 (boundary/segmentation)
     "BPA-ZP-001": ["DSPT-9.1.1"],  # zone protection profiles → boundary
-    "BPA-ZP-002": ["DSPT-9.1.1"],  # zone protection settings → boundary
-    "BPA-ZP-003": ["DSPT-9.1.2"],  # zone design → segmentation
     # Logging — Standard 9.6 (audit logging)
     "BPA-LOG-001": ["DSPT-9.6.1"],  # log forwarding destinations → retention
     "BPA-LOG-002": ["DSPT-9.6.1"],  # traffic logs on all rules → audit trail

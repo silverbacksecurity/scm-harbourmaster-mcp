@@ -342,19 +342,15 @@ BPA_TO_NCSC: dict[str, list[str]] = {
     "BPA-TP-003": ["CAF-B4.a"],
     "BPA-TP-004": ["CAF-B3.a"],
     "BPA-TP-005": ["CAF-B3.a"],
-    "BPA-TP-006": ["CAF-B3.b", "10S-NS-2"],
     "BPA-TP-007": ["CAF-B4.a"],
     # URL filtering
     "BPA-URL-001": ["10S-NS-3", "CAF-B3.a"],
     "BPA-URL-002": ["10S-NS-3", "CAF-B3.a"],
-    "BPA-URL-003": ["10S-NS-3"],
     # Decryption
     "BPA-DEC-001": ["10S-TP-1"],
     "BPA-DEC-002": ["10S-TP-1"],
     # Zone protection
     "BPA-ZP-001": ["CAF-B2.b", "CE-FW-1"],
-    "BPA-ZP-002": ["CAF-B2.b"],
-    "BPA-ZP-003": ["CAF-B2.b"],
     # Logging
     "BPA-LOG-001": ["CAF-C1.a", "CAF-C1.b", "NSF-LOG-1"],
     "BPA-LOG-002": ["CAF-C1.a", "NSF-LOG-1"],

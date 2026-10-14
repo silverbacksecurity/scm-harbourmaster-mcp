@@ -550,3 +550,29 @@ class TestRunAllChecks:
         assert findings[1].status is Status.SKIP
         assert "kaboom" in findings[1].description
         assert findings[1].check_id == "boom"
+
+
+@pytest.mark.parametrize(
+    ("module", "name"),
+    [
+        ("dspt_controls", "BPA_TO_DSPT"),
+        ("iso27001_controls", "BPA_TO_ISO27001"),
+        ("ncsc_controls", "BPA_TO_NCSC"),
+    ],
+)
+def test_framework_maps_only_name_emitted_checks(module, name):
+    """Map keys are looked up by finding id: a key no check emits never maps."""
+    import importlib
+
+    mapping = getattr(importlib.import_module(f"scm_harbourmaster_mcp.audit.{module}"), name)
+    emitted = {f.check_id for f in bpa.run_all_checks(_snap())}
+    assert set(mapping) <= emitted
+
+
+def test_dspt_threat_checks_map_to_what_they_test():
+    from scm_harbourmaster_mcp.audit.dspt_controls import BPA_TO_DSPT
+
+    # TP-001 anti-spyware with DNS sinkhole, TP-002 DNS Security profile
+    assert BPA_TO_DSPT["BPA-TP-001"] == ["DSPT-9.2.1", "DSPT-9.2.2"]
+    assert BPA_TO_DSPT["BPA-TP-002"] == ["DSPT-9.2.2"]
+    assert BPA_TO_DSPT["BPA-DEC-001"] == ["DSPT-9.2.3"]

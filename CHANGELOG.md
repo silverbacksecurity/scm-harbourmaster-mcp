@@ -567,6 +567,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     stub's `file:` override. npm is still left out of the runtime image.
 
 ### Fixed
+- **DSPT assessment mapped the threat-prevention checks to the wrong
+  assertions.** The map's labels didn't match what the BPA checks test: TP-001
+  is anti-spyware with DNS sinkholing and TP-002 is the DNS Security profile.
+  TP-001 now counts toward 9.2.1 and 9.2.2 (malicious domains), and TP-002
+  toward 9.2.2 instead of 9.2.1. The evidence text for both assertions now
+  cites the right checks. The DSPT
+  and NCSC maps also dropped check IDs that no check emits (TP-006, URL-003,
+  ZP-002, ZP-003); a test now keeps every framework map to emitted IDs.
 - **`scm_config_clone` no longer replays snippet placeholder rows as
   rules.** SCM lists each snippet associated with a folder as a row named
   after the snippet (`optional-default`, `office365`, ...). The SDK fills
