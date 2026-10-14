@@ -354,7 +354,8 @@ code. New candidates are listed below._
       create (400 `API_I00013`) and takes `folder`, `snippet` or `device`
       instead; that's fixed. An update sends no container.
     - Named-snapshot load, named-snapshot delete and version push haven't
-      been sent live.
+      been sent live. The lab tenant has no named snapshots. Only the
+      delete's refusal of an unknown name was checked, on 2026-10-14.
   - Still open, other R3 resources:
     - `sites:query` and `remote-networks:query` answer 403 on every lab
       tenant, the same as an unknown path, so they don't appear to be routed.
@@ -996,6 +997,17 @@ updated through the API. Each needs its own design and a live payload check
 before it's built. Day-1 Fast Start, as specified, would duplicate
 `scm_create_ncsc_snippet` with fewer objects. Until there is a distinct
 minimal set, use the NCSC snippet as the Day-1 bundle.
+
+**Live check (2026-10-14):** all five new snippet tools were run on a lab
+tenant, and the test objects were removed afterwards.
+- Every object was created (31 in all), with no failures, and the read-back
+  matched the payloads.
+- The read-back covered the `pan-dns-sec-*` categories, the
+  `default-paloalto-dns` sinkhole list, the file-blocking types (including
+  `encrypted-rar` and `encrypted-zip`), the "Category Match" URL category,
+  the forward-proxy, inbound and no-proxy settings in one decryption profile
+  with `max_version: "max"`, and safe search on the ISO URL profile.
+- `associate_folder` associated the snippet with the folder.
 
 ✅ **Do this before framework #3**: extract a shared `build_and_create_snippet()`
 helper — NCSC/NIST already duplicate ~130 lines of create/dry-run/error-handling

@@ -17,7 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     in the dry run as well.
   - The dry run shows the snapshot's name, save time, who saved it and the
     exact request.
-  - The delete hasn't been sent live yet.
+  - Only the refusal of an unknown name has been tested live: the lab
+    tenant has no named snapshots, so a real delete hasn't been sent yet.
 - **ISO 27001 and NHS DSPT snippets.** `scm_create_iso27001_snippet` and
   `scm_create_dspt_snippet` create a reusable snippet of security profiles,
   the same way the NCSC and NIST snippet tools do: dry run by default, a
@@ -58,6 +59,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     backup traffic in its own zone.
 - The DNS Security, decryption and ransomware snippets are also in the CLI's
   NCSC menu, as options 10, 11 and 12.
+- All five new snippet tools were live-tested on a lab tenant on 2026-10-14
+  and the test objects were removed afterwards.
+  - Every object was created (31 in all), and the read-back matched what
+    was sent.
+  - That includes the DNS Security category names and sinkhole list, the
+    file-blocking types (including the encrypted-archive types), the
+    "Category Match" URL category, and the combined decryption profile.
+  - `associate_folder` associated the snippet with the folder.
 - **`scm_config_clone` can keep the customer's snippets** with
   `snippet_mode="preserve"`. The default, `flatten`, is unchanged.
   - Objects from the customer's own snippets go into a snippet of the same
