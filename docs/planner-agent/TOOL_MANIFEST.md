@@ -82,6 +82,7 @@ Everything not listed here is `read`.
 | `scm_address_delete` | |
 | `dlp_restore` | overwrites live DLP profiles — not reversible |
 | `scm_config_rollback` | `commit_immediately=true` pushes straight to running |
+| `scm_config_snapshot_delete` | deletes a named snapshot by exact name — permanent |
 | `scm_config_push_track` | |
 | `scm_config_clone` | |
 | `mssp_onboard_tenant` | |

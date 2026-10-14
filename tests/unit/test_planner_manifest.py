@@ -31,6 +31,7 @@ EXPECTED_WRITE_TOOLS = {
     "scm_application_tags",
     "dlp_restore",
     "scm_config_rollback",
+    "scm_config_snapshot_delete",
     "scm_config_push_track",
     "scm_config_clone",
     "mssp_evict_tenant",

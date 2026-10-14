@@ -336,8 +336,9 @@ code. New candidates are listed below._
     - Application tags: `scm_application_tags`, with bulk writes on the SSR
       pattern. They are also in config backups.
     - Device models: `scm_device_models`.
-    - Named snapshots: listed by `scm_config_versions` and loaded with
-      `scm_config_rollback(snapshot=)`.
+    - Named snapshots: listed by `scm_config_versions`, loaded with
+      `scm_config_rollback(snapshot=)` and deleted with
+      `scm_config_snapshot_delete` (SSR pattern, built 2026-10-14).
     - Version push: `config-versions:push` via
       `scm_config_rollback(version=, push_folders/push_devices)`.
     - GP tunnel settings return the same objects as the existing
@@ -347,11 +348,11 @@ code. New candidates are listed below._
       delete work. The live API rejects the spec's `location` field on
       create (400 `API_I00013`) and takes `folder`, `snippet` or `device`
       instead; that's fixed. An update sends no container.
-    - Named-snapshot load and version push haven't been sent live.
+    - Named-snapshot load, named-snapshot delete and version push haven't
+      been sent live.
   - Still open, other R3 resources:
     - `sites:query` and `remote-networks:query` answer 403 on every lab
       tenant, the same as an unknown path, so they don't appear to be routed.
-    - Deleting a named snapshot isn't built.
     - Rollback now sends `config-versions:load` with `{"version": N}` in the
       body, as every spec documents. Until 2026-10-13 it sent
       `config-versions/{version}:load`. The new call hasn't been sent live:

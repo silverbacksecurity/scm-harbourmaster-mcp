@@ -367,6 +367,15 @@ scm_config_rollback:
     child push jobs with scm_list_jobs.
   retry_policy: fail_fast
   scope: tenant
+scm_config_snapshot_delete:
+  access: write
+  domain: config_change
+  idempotent: false
+  known_failure_modes: Deletes a named snapshot by exact name (snapshots have no id);
+    refuses when the name is not listed or is listed twice.  The delete is permanent
+    but leaves the candidate and running config untouched.
+  retry_policy: fail_fast
+  scope: tenant
 scm_config_versions:
   access: read
   domain: config_change

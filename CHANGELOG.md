@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`scm_config_snapshot_delete`** deletes a named config snapshot
+  (`DELETE /config/device/v1/named-snapshots/{name}`, R3 device-settings
+  spec). It follows the SSR pattern: dry run by default and a mandatory
+  `ticket_ref`.
+  - A snapshot has no id, so the name must match exactly one snapshot in
+    the tenant's list. A name that is missing or listed twice is refused,
+    in the dry run as well.
+  - The dry run shows the snapshot's name, save time, who saved it and the
+    exact request.
+  - The delete hasn't been sent live yet.
 - **`scm_config_clone` can keep the customer's snippets** with
   `snippet_mode="preserve"`. The default, `flatten`, is unchanged.
   - Objects from the customer's own snippets go into a snippet of the same

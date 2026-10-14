@@ -91,7 +91,8 @@ def _snapshot_lines(snapshots: list[dict[str, Any]]) -> list[str]:
     lines += [
         "",
         "Use `scm_config_rollback(snapshot=NAME, ticket_ref=...)` to preview loading a "
-        "named snapshot into the candidate config.",
+        "named snapshot into the candidate config, or "
+        "`scm_config_snapshot_delete(snapshot=NAME, ticket_ref=...)` to preview deleting one.",
     ]
     return lines
 
@@ -792,6 +793,101 @@ def register_deployment_tools(mcp: FastMCP, get_client: Any) -> None:
         return "\n".join(
             lines + _after_load(client, tenant_id, commit_immediately, desc, version=version)
         )
+
+    @mcp.tool()
+    @tool
+    def scm_config_snapshot_delete(
+        client: Any,
+        tenant_id: str,
+        snapshot: str,
+        dry_run: bool = True,
+        ticket_ref: str = "",
+    ) -> str:
+        """Delete a named config snapshot (``DELETE named-snapshots/{name}``).
+
+        Named snapshots are saved in the SCM UI and listed by
+        `scm_config_versions`.  A snapshot has no id: its name is the
+        identifier, so the name must match exactly one listed snapshot.  The
+        delete cannot be undone and does not touch the candidate or running
+        config.
+
+        Args:
+            snapshot: Exact name of the named snapshot to delete.
+            dry_run: If True (default), show the snapshot that would be deleted
+                without deleting it.
+            ticket_ref: Mandatory change-ticket reference (logged and echoed,
+                never sent to SCM).
+            tenant_id: SCM tenant ID. Defaults to the configured default tenant.
+
+        **Write safety (SSR pattern):** ``dry_run=True`` by default;
+        ``ticket_ref`` is mandatory.
+        """
+        err = ticket_ref_error(ticket_ref)
+        if err:
+            return f"Error: {err}"
+        ticket_ref = normalize_ticket_ref(ticket_ref)
+        snapshot = (snapshot or "").strip()
+        # The name goes into the URL path, so check it before building one.
+        if not _SNAPSHOT_NAME_RE.match(snapshot):
+            return (
+                "Error: snapshot names are 1-64 letters, digits, '-' or '_' "
+                "(see scm_config_versions)."
+            )
+
+        # Refuse in the dry run too: a preview of a missing or ambiguous name
+        # would show nothing worth approving.
+        matches = [s for s in _named_snapshots(client) if s.get("name") == snapshot]
+        if not matches:
+            return (
+                f"Error: named snapshot {snapshot!r} not found, or the snapshot list "
+                "could not be read — run scm_config_versions to list the saved snapshots."
+            )
+        if len(matches) > 1:
+            return (
+                f"Error: {len(matches)} named snapshots are called {snapshot!r} — "
+                "refusing an ambiguous delete; remove the duplicate in the SCM UI."
+            )
+        ts = matches[0].get("timestamp")
+        path = f"{_SNAPSHOT_BASE}/{snapshot}"
+        rows = [
+            "| Field | Value |",
+            "|---|---|",
+            f"| Named snapshot | {snapshot} |",
+            f"| Saved | {_age(ts)} ({ts or '—'}) |",
+            f"| Saved by | {matches[0].get('savedby') or '—'} |",
+            f"| Request | `DELETE {path}` |",
+        ]
+        if dry_run:
+            return "\n".join(
+                [
+                    f"## Named Snapshot Delete — DRY-RUN — {snapshot}",
+                    "",
+                    *rows,
+                    f"| Ticket ref | {ticket_ref} |",
+                    "",
+                    "Would:",
+                    f"1. Delete named snapshot {snapshot} permanently (it cannot be "
+                    "restored; candidate and running config are untouched)",
+                    "",
+                    DRY_RUN_HINT,
+                ]
+            )
+
+        audit_write("scm_config_snapshot_delete", ticket_ref, tenant_id, snapshot=snapshot)
+        raw = client.delete(path)
+        result: dict[str, Any] = raw if isinstance(raw, dict) else {}
+        status = str(result.get("status") or "")
+        logger.info(
+            "config_snapshot_deleted", snapshot=snapshot, status=status, tenant_id=tenant_id
+        )
+        lines = [f"## Named Snapshot Deleted — {snapshot}", "", *rows]
+        if result.get("message"):
+            lines.append(f"| API message | {result['message']} |")
+        if status and status != "success":
+            lines += ["", f"⚠️ Delete returned status `{status}` — check scm_config_versions."]
+        else:
+            lines += ["", f"✅ Named snapshot {snapshot} deleted."]
+        return "\n".join(lines)
 
 
 def _commit_step(commit_immediately: bool) -> str:

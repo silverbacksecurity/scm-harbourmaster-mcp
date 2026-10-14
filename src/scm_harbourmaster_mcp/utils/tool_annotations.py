@@ -42,6 +42,7 @@ DESTRUCTIVE_TOOLS: frozenset[str] = frozenset(
         "scm_address_delete",
         "scm_security_rule_delete",
         "scm_config_rollback",  # replaces candidate config with an older version
+        "scm_config_snapshot_delete",  # permanently deletes a named snapshot
         "scm_config_push_track",  # rollback_on_failure reloads an older version
         "scm_config_clone",  # on_conflict="overwrite" replaces target objects
         "scm_gp_copy",  # replaces target agent profiles and Mobile Users locations

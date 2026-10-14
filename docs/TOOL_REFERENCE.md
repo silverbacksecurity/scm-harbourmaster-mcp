@@ -4,7 +4,7 @@
 
 All tools authenticate via Bearer-token OAuth (SASE client credentials) configured in `settings.toml` / `.secrets.toml`.
 
-**<!-- tool-count -->178<!-- /tool-count --> tools** across <!-- module-count -->43<!-- /module-count --> modules.
+**<!-- tool-count -->179<!-- /tool-count --> tools** across <!-- module-count -->43<!-- /module-count --> modules.
 
 ## Table of Contents
 
@@ -744,6 +744,36 @@ Args:
 | `snapshot` | `str` | `''` |
 | `push_folders` | `list[str] \| None` | `None` |
 | `push_devices` | `list[str] \| None` | `None` |
+
+### `scm_config_snapshot_delete`
+
+Delete a named config snapshot (``DELETE named-snapshots/{name}``).
+
+```
+Named snapshots are saved in the SCM UI and listed by
+`scm_config_versions`.  A snapshot has no id: its name is the
+identifier, so the name must match exactly one listed snapshot.  The
+delete cannot be undone and does not touch the candidate or running
+config.
+
+Args:
+    snapshot: Exact name of the named snapshot to delete.
+    dry_run: If True (default), show the snapshot that would be deleted
+        without deleting it.
+    ticket_ref: Mandatory change-ticket reference (logged and echoed,
+        never sent to SCM).
+    tenant_id: SCM tenant ID. Defaults to the configured default tenant.
+
+**Write safety (SSR pattern):** ``dry_run=True`` by default;
+``ticket_ref`` is mandatory.
+```
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `tenant_id` | `str` | `''` |
+| `snapshot` | `str` | `—` |
+| `dry_run` | `bool` | `True` |
+| `ticket_ref` | `str` | `''` |
 
 ---
 

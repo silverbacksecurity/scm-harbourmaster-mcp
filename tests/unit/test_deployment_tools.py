@@ -467,6 +467,105 @@ class TestNamedSnapshots:
         client.post.assert_not_called()
 
 
+class TestSnapshotDelete:
+    def test_dry_run_shows_snapshot_and_request(self) -> None:
+        client = _snapshot_client()
+        fn = _tools(client)["scm_config_snapshot_delete"]
+        out = fn(tenant_id=TENANT, snapshot="pre-change-a", dry_run=True)
+        assert "Named Snapshot Delete — DRY-RUN — pre-change-a" in out
+        assert "| Saved | 3d" in out
+        assert "| Saved by | admin@example.com |" in out
+        assert f"`DELETE {_SNAP}/pre-change-a`" in out
+        assert "| Ticket ref | CHG-TEST |" in out
+        client.delete.assert_not_called()
+
+    def test_dry_run_is_the_default(self) -> None:
+        client = _snapshot_client()
+        fn = functools.partial(
+            _tools(client)["scm_config_snapshot_delete"].func, ticket_ref="CHG-TEST"
+        )
+        assert "DRY-RUN" in fn(tenant_id=TENANT, snapshot="pre-change-a")
+        client.delete.assert_not_called()
+
+    def test_delete_sends_name_in_path_and_audits(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        audited: list[tuple[Any, ...]] = []
+        monkeypatch.setattr(
+            dep, "audit_write", lambda tool, ref, tid, **kw: audited.append((tool, ref, kw))
+        )
+        client = _snapshot_client()
+        client.delete.return_value = {"status": "success", "message": "Deleted snapshot"}
+        out = _tools(client)["scm_config_snapshot_delete"](
+            tenant_id=TENANT, snapshot="pre-change-a"
+        )
+        client.delete.assert_called_once_with(f"{_SNAP}/pre-change-a")
+        assert audited == [("scm_config_snapshot_delete", "CHG-TEST", {"snapshot": "pre-change-a"})]
+        assert "| API message | Deleted snapshot |" in out
+        assert "✅ Named snapshot pre-change-a deleted." in out
+
+    def test_non_success_status_warns(self) -> None:
+        client = _snapshot_client()
+        client.delete.return_value = {"status": "error", "message": "locked"}
+        out = _tools(client)["scm_config_snapshot_delete"](
+            tenant_id=TENANT, snapshot="pre-change-a"
+        )
+        assert "status `error`" in out and "deleted." not in out
+
+    @pytest.mark.parametrize("dry_run", [True, False])
+    def test_unknown_snapshot_is_refused(self, dry_run: bool) -> None:
+        client = _snapshot_client()
+        out = _tools(client)["scm_config_snapshot_delete"](
+            tenant_id=TENANT, snapshot="missing", dry_run=dry_run
+        )
+        assert out.startswith("Error: named snapshot 'missing' not found")
+        client.delete.assert_not_called()
+
+    def test_unreadable_list_is_refused(self) -> None:
+        client = MagicMock()
+        client.get.side_effect = RuntimeError("403")
+        out = _tools(client)["scm_config_snapshot_delete"](
+            tenant_id=TENANT, snapshot="example-snapshot"
+        )
+        assert "could not be read" in out
+        client.delete.assert_not_called()
+
+    @pytest.mark.parametrize("dry_run", [True, False])
+    def test_duplicate_name_is_refused(self, dry_run: bool) -> None:
+        rows = [{"name": "example-snapshot", "timestamp": _ago(days=d)} for d in (1, 2)]
+        client = _snapshot_client(rows)
+        out = _tools(client)["scm_config_snapshot_delete"](
+            tenant_id=TENANT, snapshot="example-snapshot", dry_run=dry_run
+        )
+        assert out.startswith("Error: 2 named snapshots") and "ambiguous" in out
+        client.delete.assert_not_called()
+
+    @pytest.mark.parametrize("name", ["", "../x", "a/b", "a?b", "x" * 65])
+    def test_bad_name_is_refused_before_any_call(self, name: str) -> None:
+        client = _snapshot_client()
+        out = _tools(client)["scm_config_snapshot_delete"](tenant_id=TENANT, snapshot=name)
+        assert out.startswith("Error: snapshot names are")
+        client.get.assert_not_called()
+        client.delete.assert_not_called()
+
+    def test_ticket_ref_is_mandatory(self) -> None:
+        client = _snapshot_client()
+        out = _tools(client)["scm_config_snapshot_delete"](
+            tenant_id=TENANT, snapshot="pre-change-a", ticket_ref=""
+        )
+        assert out.startswith("Error:") and "ticket_ref" in out
+        client.delete.assert_not_called()
+
+    def test_versions_points_at_delete(self) -> None:
+        out = _tools(_snapshot_client())["scm_config_versions"](tenant_id=TENANT)
+        assert "scm_config_snapshot_delete(snapshot=NAME" in out
+
+    def test_annotated_destructive_write(self) -> None:
+        from scm_harbourmaster_mcp.utils.tool_annotations import annotations_for
+
+        ann = annotations_for("scm_config_snapshot_delete")
+        assert ann.readOnlyHint is False
+        assert ann.destructiveHint is True
+
+
 class TestVersionPush:
     def test_dry_run_shows_targets_and_running_versions(self) -> None:
         client = _snapshot_client()
