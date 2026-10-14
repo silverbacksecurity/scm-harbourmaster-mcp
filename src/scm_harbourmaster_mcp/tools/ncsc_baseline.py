@@ -1,12 +1,17 @@
 """
-MCP tools for NCSC/NIST baseline and compliance gap analysis.
+MCP tools for NCSC/NIST baseline, compliance snippets and gap analysis.
 
-  scm_apply_ncsc_baseline   — push NCSC-compliant security profiles + deny-all rule
-  scm_create_ncsc_snippet   — create NCSC baseline as a reusable SCM snippet
-  scm_attach_ncsc_profiles  — create NCSC-Baseline profile group + attach to allow rules
-  scm_ncsc_gap              — compare live config against NCSC baseline (CAF/CE/10 Steps)
-  scm_create_nist_snippet   — create NIST CSF / SP 800-53 baseline as a reusable SCM snippet
-  scm_nist_gap              — compare live config against NIST baseline (CSF/SP 800-53/800-171)
+  scm_apply_ncsc_baseline      — push NCSC-compliant security profiles + deny-all rule
+  scm_create_ncsc_snippet      — create NCSC baseline as a reusable SCM snippet
+  scm_attach_ncsc_profiles     — create NCSC-Baseline profile group + attach to allow rules
+  scm_ncsc_gap                 — compare live config against NCSC baseline (CAF/CE/10 Steps)
+  scm_create_nist_snippet      — create NIST CSF / SP 800-53 baseline as a reusable SCM snippet
+  scm_create_iso27001_snippet  — create ISO 27001:2022 Annex A baseline as an SCM snippet
+  scm_create_dspt_snippet      — create NHS DSPT Standard 9 baseline as an SCM snippet
+  scm_create_dns_security_snippet — create a standalone DNS Security sinkhole snippet
+  scm_create_decryption_snippet   — create an SSL/TLS decryption best-practice snippet
+  scm_create_ransomware_snippet   — create a ransomware-readiness (NIST IR 8374) snippet
+  scm_nist_gap                 — compare live config against NIST baseline (CSF/SP 800-53/800-171)
 """
 
 from __future__ import annotations
@@ -33,11 +38,28 @@ from ..audit.ncsc_templates import (
     check_log_forwarding,
     check_security_rules,
 )
+from ..audit.snippet_blocks import SnippetSpec
+from ..audit.snippet_templates import (
+    build_decryption_snippet,
+    build_dns_security_snippet,
+    build_dspt_snippet,
+    build_iso27001_snippet,
+    build_ransomware_snippet,
+)
 from ..utils.logging import get_logger
 from ..utils.tool_decorator import scm_tool
 from ..utils.write_safety import audit_write, normalize_ticket_ref, ticket_ref_error
+from .snippet_builder import build_and_create_snippet
 
 logger = get_logger(__name__)
+
+# Follow-ups shared by the baseline snippets: their profiles need a deny-all
+# rule and a profile group on allow rules, which only a folder rulebase holds.
+_BASELINE_NEXT_STEPS = (
+    "Add deny-all rule to the folder rulebase: "
+    "`scm_apply_ncsc_baseline(folder=..., dry_run=False, ticket_ref=...)`",
+    "Attach profiles to allow rules: `scm_attach_ncsc_profiles(folder=...)`",
+)
 
 
 def register_ncsc_tools(mcp: FastMCP, get_client: Callable[..., Any]) -> None:
@@ -167,6 +189,7 @@ def register_ncsc_tools(mcp: FastMCP, get_client: Callable[..., Any]) -> None:
         ticket_ref: str = "",
         syslog_profile: str = "",
         description: str = "NCSC CAF v4.0 / CE v3.2 compliance baseline — managed by scm-harbourmaster-mcp",
+        associate_folder: str = "",
     ) -> str:
         """
         Create an SCM snippet containing NCSC-compliant security profiles.
@@ -194,106 +217,35 @@ def register_ncsc_tools(mcp: FastMCP, get_client: Callable[..., Any]) -> None:
             ticket_ref: Mandatory change-ticket reference (never sent to SCM).
             syslog_profile: Optional syslog server profile name to add to log forwarding.
             description: Description for the snippet container.
+            associate_folder: Optional folder to associate the snippet with once every
+                object is created (off by default — assign it in the portal instead).
             tenant_id: Tenant to target (default: first loaded tenant).
         """
-        err = ticket_ref_error(ticket_ref)
-        if err:
-            return f"Error: {err}"
-        ticket_ref = normalize_ticket_ref(ticket_ref)
-        if not dry_run:
-            audit_write("scm_create_ncsc_snippet", ticket_ref, tenant_id, snippet_name=snippet_name)
-
         templates = build_snippet_templates(snippet_name, syslog_profile=syslog_profile or None)
-
-        results: list[str] = []
-        created = 0
-        skipped = 0
-        failed = 0
-        mode = "DRY-RUN" if dry_run else "APPLY"
-        results.append(f"## NCSC Snippet — {mode}: '{snippet_name}'\n")
-
-        # ── Step 1: create snippet container ──────────────────────────────────
-        results.append("### Step 1: Snippet Container")
-        snippet_payload = {
-            "name": snippet_name,
-            "description": description,
-            "enable_prefix": False,
-        }
-        if dry_run:
-            results.append(f"  [DRY-RUN] would create snippet '{snippet_name}'")
-        else:
-            try:
-                snip = client.snippet.create(snippet_payload)
-                results.append(
-                    f"  [OK] Created snippet '{snippet_name}' (id={getattr(snip, 'id', '?')})"
-                )
-            except Exception as exc:
-                msg = str(exc)
-                if "already exists" in msg.lower() or "duplicate" in msg.lower():
-                    results.append(f"  [OK] Snippet '{snippet_name}' already exists — continuing")
-                else:
-                    results.append(f"  [FAIL] Could not create snippet: {msg}")
-                    results.append("\nAborting — snippet container is required.")
-                    return "\n".join(results)
-
-        # ── Step 2: populate profiles ──────────────────────────────────────────
-        results.append("\n### Step 2: Security Profiles")
-
-        def _apply(sdk_attr: str, payload: dict[str, Any], display_name: str) -> None:
-            nonlocal created, skipped, failed
-            if dry_run:
-                results.append(f"  [DRY-RUN] would create {display_name}")
-                created += 1
-                return
-
-            resource = getattr(client, sdk_attr, None)
-            if resource is None:
-                results.append(f"  [SKIP] {display_name} — SDK attr '{sdk_attr}' not available")
-                skipped += 1
-                return
-
-            try:
-                obj = resource.create(payload)
-                results.append(f"  [OK] Created {display_name} (id={getattr(obj, 'id', '?')})")
-                created += 1
-            except Exception as exc:
-                msg = str(exc)
-                if "already exists" in msg.lower() or "duplicate" in msg.lower():
-                    results.append(f"  [SKIP] {display_name} already exists")
-                    skipped += 1
-                else:
-                    results.append(f"  [FAIL] {display_name}: {msg}")
-                    failed += 1
-                    logger.warning("ncsc_snippet_create_failed", object=display_name, error=msg)
-
-        for sdk_attr, payload in templates.all_profiles:
-            _apply(sdk_attr, payload, payload["name"])
-
-        results.append("\n### Step 3: Tag")
-        _apply("tag", templates.tag, TAG_NAME)
-
-        results.append("\n### Summary")
-        results.append(f"  Created: {created} | Skipped: {skipped} | Failed: {failed}")
-
-        if dry_run:
-            results.append(
-                "\nNo changes written. Re-run with `dry_run=False` and the same `ticket_ref` to apply."
-                "\n\nNote: Security rules (deny-all etc.) cannot be stored in a snippet — "
+        spec = SnippetSpec(
+            label="NCSC",
+            snippet=snippet_name,
+            sections=(
+                ("Security Profiles", tuple(templates.all_profiles)),
+                ("Tag", (("tag", templates.tag),)),
+            ),
+            log_event="ncsc_snippet_create_failed",
+            dry_run_note=(
+                "Security rules (deny-all etc.) cannot be stored in a snippet — "
                 "use `scm_apply_ncsc_baseline(folder=...)` to add rules to a folder rulebase."
-            )
-        elif failed == 0:
-            results.append(
-                f"\n**NCSC snippet '{snippet_name}' created.**\n"
-                "Next steps:\n"
-                "  1. Assign this snippet to tenants/folders via the SCM portal or API\n"
-                "  2. Add deny-all rule to the folder rulebase: "
-                "`scm_apply_ncsc_baseline(folder=..., dry_run=False, ticket_ref=...)`\n"
-                "  3. Attach profiles to allow rules: `scm_attach_ncsc_profiles(folder=...)`"
-            )
-        else:
-            results.append(f"\n{failed} object(s) failed — see errors above.")
-
-        return "\n".join(results)
+            ),
+            next_steps=_BASELINE_NEXT_STEPS,
+        )
+        return build_and_create_snippet(
+            client,
+            spec,
+            tool_name="scm_create_ncsc_snippet",
+            tenant_id=tenant_id,
+            description=description,
+            dry_run=dry_run,
+            ticket_ref=ticket_ref,
+            associate_folder=associate_folder,
+        )
 
     # ── Create NIST snippet ───────────────────────────────────────────────────
 
@@ -307,6 +259,7 @@ def register_ncsc_tools(mcp: FastMCP, get_client: Callable[..., Any]) -> None:
         ticket_ref: str = "",
         syslog_profile: str = "",
         description: str = "NIST CSF v2.0 / SP 800-53 Rev 5 compliance baseline — managed by scm-harbourmaster-mcp",
+        associate_folder: str = "",
     ) -> str:
         """
         Create an SCM snippet containing NIST-compliant security profiles.
@@ -335,108 +288,326 @@ def register_ncsc_tools(mcp: FastMCP, get_client: Callable[..., Any]) -> None:
             ticket_ref: Mandatory change-ticket reference (never sent to SCM).
             syslog_profile: Optional syslog server profile name to add to log forwarding.
             description: Description for the snippet container.
+            associate_folder: Optional folder to associate the snippet with once every
+                object is created (off by default — assign it in the portal instead).
             tenant_id: Tenant to target (default: first loaded tenant).
         """
-        err = ticket_ref_error(ticket_ref)
-        if err:
-            return f"Error: {err}"
-        ticket_ref = normalize_ticket_ref(ticket_ref)
-        if not dry_run:
-            audit_write("scm_create_nist_snippet", ticket_ref, tenant_id, snippet_name=snippet_name)
-
         templates = _nist.build_nist_snippet_templates(
             snippet_name, syslog_profile=syslog_profile or None
         )
-
-        results: list[str] = []
-        created = 0
-        skipped = 0
-        failed = 0
-        mode = "DRY-RUN" if dry_run else "APPLY"
-        results.append(f"## NIST Snippet — {mode}: '{snippet_name}'\n")
-
-        # ── Step 1: create snippet container ──────────────────────────────────
-        results.append("### Step 1: Snippet Container")
-        snippet_payload = {
-            "name": snippet_name,
-            "description": description,
-            "enable_prefix": False,
-        }
-        if dry_run:
-            results.append(f"  [DRY-RUN] would create snippet '{snippet_name}'")
-        else:
-            try:
-                snip = client.snippet.create(snippet_payload)
-                results.append(
-                    f"  [OK] Created snippet '{snippet_name}' (id={getattr(snip, 'id', '?')})"
-                )
-            except Exception as exc:
-                msg = str(exc)
-                if "already exists" in msg.lower() or "duplicate" in msg.lower():
-                    results.append(f"  [OK] Snippet '{snippet_name}' already exists — continuing")
-                else:
-                    results.append(f"  [FAIL] Could not create snippet: {msg}")
-                    results.append("\nAborting — snippet container is required.")
-                    return "\n".join(results)
-
-        # ── Step 2: populate profiles ──────────────────────────────────────────
-        results.append("\n### Step 2: Security Profiles")
-
-        def _apply(sdk_attr: str, payload: dict[str, Any], display_name: str) -> None:
-            nonlocal created, skipped, failed
-            if dry_run:
-                results.append(f"  [DRY-RUN] would create {display_name}")
-                created += 1
-                return
-
-            resource = getattr(client, sdk_attr, None)
-            if resource is None:
-                results.append(f"  [SKIP] {display_name} — SDK attr '{sdk_attr}' not available")
-                skipped += 1
-                return
-
-            try:
-                obj = resource.create(payload)
-                results.append(f"  [OK] Created {display_name} (id={getattr(obj, 'id', '?')})")
-                created += 1
-            except Exception as exc:
-                msg = str(exc)
-                if "already exists" in msg.lower() or "duplicate" in msg.lower():
-                    results.append(f"  [SKIP] {display_name} already exists")
-                    skipped += 1
-                else:
-                    results.append(f"  [FAIL] {display_name}: {msg}")
-                    failed += 1
-                    logger.warning("nist_snippet_create_failed", object=display_name, error=msg)
-
-        for sdk_attr, payload in templates.all_profiles:
-            _apply(sdk_attr, payload, payload["name"])
-
-        results.append("\n### Step 3: Tag")
-        _apply("tag", templates.tag, _nist.TAG_NAME)
-
-        results.append("\n### Summary")
-        results.append(f"  Created: {created} | Skipped: {skipped} | Failed: {failed}")
-
-        if dry_run:
-            results.append(
-                "\nNo changes written. Re-run with `dry_run=False` and the same `ticket_ref` to apply."
-                "\n\nNote: Security rules cannot be stored in a snippet — "
+        spec = SnippetSpec(
+            label="NIST",
+            snippet=snippet_name,
+            sections=(
+                ("Security Profiles", tuple(templates.all_profiles)),
+                ("Tag", (("tag", templates.tag),)),
+            ),
+            log_event="nist_snippet_create_failed",
+            dry_run_note=(
+                "Security rules cannot be stored in a snippet — "
                 "use `scm_apply_ncsc_baseline(folder=...)` to add a deny-all rule to a folder rulebase."
-            )
-        elif failed == 0:
-            results.append(
-                f"\n**NIST snippet '{snippet_name}' created.**\n"
-                "Next steps:\n"
-                "  1. Assign this snippet to tenants/folders via the SCM portal or API\n"
-                "  2. Add deny-all rule to the folder rulebase: "
-                "`scm_apply_ncsc_baseline(folder=..., dry_run=False, ticket_ref=...)`\n"
-                "  3. Attach profiles to allow rules: `scm_attach_ncsc_profiles(folder=...)`"
-            )
-        else:
-            results.append(f"\n{failed} object(s) failed — see errors above.")
+            ),
+            next_steps=_BASELINE_NEXT_STEPS,
+        )
+        return build_and_create_snippet(
+            client,
+            spec,
+            tool_name="scm_create_nist_snippet",
+            tenant_id=tenant_id,
+            description=description,
+            dry_run=dry_run,
+            ticket_ref=ticket_ref,
+            associate_folder=associate_folder,
+        )
 
-        return "\n".join(results)
+    # ── Create ISO 27001 snippet ──────────────────────────────────────────────
+
+    @mcp.tool()
+    @tool
+    def scm_create_iso27001_snippet(
+        client: Any,
+        tenant_id: str,
+        snippet_name: str = "ISO27001-Compliance",
+        dry_run: bool = True,
+        ticket_ref: str = "",
+        syslog_profile: str = "",
+        description: str = "ISO 27001:2022 Annex A compliance baseline — managed by scm-harbourmaster-mcp",
+        associate_folder: str = "",
+    ) -> str:
+        """
+        Create an SCM snippet containing ISO 27001:2022 Annex A security profiles.
+
+        Creates a named snippet container and populates it with:
+          - Anti-spyware profile (C2 detection, block critical+high spyware)
+          - DNS Security profile (sinkhole C2/malware/phishing/new domains)
+          - Vulnerability protection profile (block critical/high CVEs, alert medium)
+          - WildFire antivirus profile (all files, both directions, public cloud)
+          - File blocking profile (block script/legacy executable types, alert all)
+          - URL access profile (block malware/C2/phishing, safe search enforced)
+          - Decryption profile (TLS 1.2+, no RSA key exchange, certificate checks)
+          - Log forwarding profile (traffic/threat/wildfire/url/auth → Cortex Data Lake)
+          - ISO27001-Compliant tag
+
+        Snippets are reusable configuration bundles — they do NOT contain security rules
+        (add deny-all and rule tuning separately via scm_apply_ncsc_baseline).
+
+        ISO 27001:2022 Annex A mapping (from the BPA → ISO control catalogue):
+          A.8.7  Protection against malware — anti-spyware, DNS, vulnerability, WildFire
+          A.8.28 Secure coding              — vulnerability protection (virtual patching)
+          A.5.14 Information transfer       — file blocking
+          A.8.23 Web filtering              — URL access profile
+          A.8.21 Security of network services — decryption profile
+          A.8.15 Logging / A.5.28 Evidence  — log forwarding
+
+        Safe search enforcement blocks search results unless the engine's strict
+        safe search is on, and needs decrypted traffic to take effect.
+
+        Args:
+            snippet_name: Name of the SCM snippet to create (default: "ISO27001-Compliance").
+            dry_run: If True (default) show what WOULD be created without writing.
+            ticket_ref: Mandatory change-ticket reference (never sent to SCM).
+            syslog_profile: Optional syslog server profile name to add to log forwarding.
+            description: Description for the snippet container.
+            associate_folder: Optional folder to associate the snippet with once every
+                object is created (off by default — assign it in the portal instead).
+            tenant_id: Tenant to target (default: first loaded tenant).
+        """
+        return build_and_create_snippet(
+            client,
+            build_iso27001_snippet(snippet_name, syslog_profile=syslog_profile or None),
+            tool_name="scm_create_iso27001_snippet",
+            tenant_id=tenant_id,
+            description=description,
+            dry_run=dry_run,
+            ticket_ref=ticket_ref,
+            associate_folder=associate_folder,
+        )
+
+    # ── Create NHS DSPT snippet ───────────────────────────────────────────────
+
+    @mcp.tool()
+    @tool
+    def scm_create_dspt_snippet(
+        client: Any,
+        tenant_id: str,
+        snippet_name: str = "DSPT-Compliance",
+        dry_run: bool = True,
+        ticket_ref: str = "",
+        syslog_profile: str = "",
+        description: str = "NHS DSPT Standard 9 compliance baseline — managed by scm-harbourmaster-mcp",
+        associate_folder: str = "",
+    ) -> str:
+        """
+        Create an SCM snippet containing NHS DSPT Standard 9 security profiles.
+
+        Creates a named snippet container and populates it with:
+          - Anti-spyware profile (C2 detection, block critical+high spyware)
+          - Vulnerability protection profile (block critical/high CVEs, alert medium)
+          - WildFire antivirus profile (all files, both directions, public cloud)
+          - DNS Security profile (sinkhole C2/malware/phishing/new domains)
+          - URL access profile (block malware/C2/phishing categories)
+          - Decryption profile (TLS 1.2+, no RSA key exchange, certificate checks)
+          - Log forwarding profile (traffic/threat/wildfire/url/auth → Cortex Data Lake)
+          - DSPT-Compliant tag
+
+        Snippets are reusable configuration bundles — they do NOT contain security rules
+        (add deny-all and rule tuning separately via scm_apply_ncsc_baseline).
+
+        NHS DSPT (Data Security and Protection Toolkit) assertion mapping:
+          9.2.1 Anti-malware protection          — anti-spyware, vulnerability, WildFire
+          9.2.2 Malicious URL and DNS filtering  — URL access + DNS Security sinkholing
+          9.2.3 Encrypted traffic inspection     — decryption profile
+          9.6.1 Audit logs retained 6+ months    — log forwarding (point syslog at the SIEM)
+          9.6.2 Security monitoring              — threat logs forwarded
+
+        Args:
+            snippet_name: Name of the SCM snippet to create (default: "DSPT-Compliance").
+            dry_run: If True (default) show what WOULD be created without writing.
+            ticket_ref: Mandatory change-ticket reference (never sent to SCM).
+            syslog_profile: Optional syslog server profile name to add to log forwarding.
+            description: Description for the snippet container.
+            associate_folder: Optional folder to associate the snippet with once every
+                object is created (off by default — assign it in the portal instead).
+            tenant_id: Tenant to target (default: first loaded tenant).
+        """
+        return build_and_create_snippet(
+            client,
+            build_dspt_snippet(snippet_name, syslog_profile=syslog_profile or None),
+            tool_name="scm_create_dspt_snippet",
+            tenant_id=tenant_id,
+            description=description,
+            dry_run=dry_run,
+            ticket_ref=ticket_ref,
+            associate_folder=associate_folder,
+        )
+
+    # ── Create DNS Security snippet ───────────────────────────────────────────
+
+    @mcp.tool()
+    @tool
+    def scm_create_dns_security_snippet(
+        client: Any,
+        tenant_id: str,
+        snippet_name: str = "DNS-Security",
+        dry_run: bool = True,
+        ticket_ref: str = "",
+        description: str = "DNS Security sinkhole baseline — managed by scm-harbourmaster-mcp",
+        associate_folder: str = "",
+    ) -> str:
+        """
+        Create an SCM snippet containing a standalone DNS Security sinkhole profile.
+
+        Creates a named snippet container and populates it with:
+          - DNS Security profile — sinkholes C2 (including DGA), malware, phishing,
+            dynamic-DNS, grayware, proxy and newly registered domains, plus PAN's
+            content-based `default-paloalto-dns` list; ad-tracking and parked
+            domains keep the default action. Sinkhole: pan-sinkhole-default-ip / ::1
+          - DNS-Security-Managed tag
+
+        A shared building block: layer it onto any baseline whose anti-spyware
+        profile has no DNS policy. The category sinkholes need the DNS Security
+        licence; the default-paloalto-dns list works without it.
+
+        Compliance mapping:
+          BPA-TP-002 — DNS security profile configured
+          ISO 27001:2022 A.8.7 Protection against malware
+          NHS DSPT 9.2.2 — DNS security sinkholes malicious domains
+
+        Args:
+            snippet_name: Name of the SCM snippet to create (default: "DNS-Security").
+            dry_run: If True (default) show what WOULD be created without writing.
+            ticket_ref: Mandatory change-ticket reference (never sent to SCM).
+            description: Description for the snippet container.
+            associate_folder: Optional folder to associate the snippet with once every
+                object is created (off by default — assign it in the portal instead).
+            tenant_id: Tenant to target (default: first loaded tenant).
+        """
+        return build_and_create_snippet(
+            client,
+            build_dns_security_snippet(snippet_name),
+            tool_name="scm_create_dns_security_snippet",
+            tenant_id=tenant_id,
+            description=description,
+            dry_run=dry_run,
+            ticket_ref=ticket_ref,
+            associate_folder=associate_folder,
+        )
+
+    # ── Create SSL/TLS decryption snippet ─────────────────────────────────────
+
+    @mcp.tool()
+    @tool
+    def scm_create_decryption_snippet(
+        client: Any,
+        tenant_id: str,
+        snippet_name: str = "Decryption-Baseline",
+        dry_run: bool = True,
+        ticket_ref: str = "",
+        description: str = "SSL/TLS decryption best-practice baseline — managed by scm-harbourmaster-mcp",
+        associate_folder: str = "",
+    ) -> str:
+        """
+        Create an SCM snippet containing SSL/TLS decryption best-practice objects.
+
+        Creates a named snippet container and populates it with:
+          - Decryption profile for SSL Forward Proxy and inbound inspection —
+            TLS 1.2 minimum; MD5, SHA-1, 3DES, RC4 and RSA key exchange off;
+            blocks expired, untrusted-issuer, unknown-status and timed-out
+            certificates and unsupported versions/ciphers
+          - No-decrypt profile — still blocks expired / untrusted server certificates
+          - No-decrypt exclusion URL category (Category Match: financial-services,
+            health-and-medicine, government)
+          - Decryption-Managed tag
+
+        Snippets hold the profiles only — create the decrypt and no-decrypt rules in
+        the folder rulebase. Enabled decrypt rules only push once a forward-trust
+        certificate is selected.
+
+        Compliance mapping:
+          BPA-DEC-001 — decryption profiles configured
+          ISO 27001:2022 A.8.21 Security of network services
+          NHS DSPT 9.2.3 — encrypted traffic inspection with certificate verification
+
+        Args:
+            snippet_name: Name of the SCM snippet to create (default: "Decryption-Baseline").
+            dry_run: If True (default) show what WOULD be created without writing.
+            ticket_ref: Mandatory change-ticket reference (never sent to SCM).
+            description: Description for the snippet container.
+            associate_folder: Optional folder to associate the snippet with once every
+                object is created (off by default — assign it in the portal instead).
+            tenant_id: Tenant to target (default: first loaded tenant).
+        """
+        return build_and_create_snippet(
+            client,
+            build_decryption_snippet(snippet_name),
+            tool_name="scm_create_decryption_snippet",
+            tenant_id=tenant_id,
+            description=description,
+            dry_run=dry_run,
+            ticket_ref=ticket_ref,
+            associate_folder=associate_folder,
+        )
+
+    # ── Create ransomware-readiness snippet ───────────────────────────────────
+
+    @mcp.tool()
+    @tool
+    def scm_create_ransomware_snippet(
+        client: Any,
+        tenant_id: str,
+        snippet_name: str = "Ransomware-Readiness",
+        dry_run: bool = True,
+        ticket_ref: str = "",
+        syslog_profile: str = "",
+        description: str = "Ransomware-readiness baseline (NIST IR 8374) — managed by scm-harbourmaster-mcp",
+        associate_folder: str = "",
+    ) -> str:
+        """
+        Create an SCM snippet containing ransomware-readiness security profiles.
+
+        Creates a named snippet container and populates it with a profile per
+        ransomware kill-chain stage:
+          - Anti-spyware profile (C2 detectors, block critical+high spyware)
+          - DNS Security profile (sinkhole C2/DGA, malware, phishing, new domains)
+          - Vulnerability protection profile (block critical/high CVEs — SMB, RDP,
+            VPN exploits used for entry and lateral movement)
+          - WildFire antivirus profile (all files, both directions, public cloud)
+          - File blocking profile (block scripts, legacy executables and
+            password-protected archives; alert on everything else)
+          - URL access profile (block malware/C2/phishing categories)
+          - Log forwarding profile (traffic/threat/wildfire/url/auth → Cortex Data Lake)
+          - Ransomware-Ready tag
+
+        Snippets are reusable configuration bundles — they do NOT contain security
+        rules. After applying, attach the profiles to east-west/intrazone allow rules
+        as well as internet-bound ones (SMB lateral movement is inspected there
+        without decryption), and isolate backup traffic in its own zone.
+
+        Compliance mapping:
+          NIST IR 8374 — Ransomware Risk Management (the CSF ransomware profile)
+          SP 800-53   — SI-2/RA-5 exploit blocking, SI-3 malware, SI-4 C2 detection,
+                        SC-7 boundary protection, AU-2/AU-12 logging
+
+        Args:
+            snippet_name: Name of the SCM snippet to create (default: "Ransomware-Readiness").
+            dry_run: If True (default) show what WOULD be created without writing.
+            ticket_ref: Mandatory change-ticket reference (never sent to SCM).
+            syslog_profile: Optional syslog server profile name to add to log forwarding.
+            description: Description for the snippet container.
+            associate_folder: Optional folder to associate the snippet with once every
+                object is created (off by default — assign it in the portal instead).
+            tenant_id: Tenant to target (default: first loaded tenant).
+        """
+        return build_and_create_snippet(
+            client,
+            build_ransomware_snippet(snippet_name, syslog_profile=syslog_profile or None),
+            tool_name="scm_create_ransomware_snippet",
+            tenant_id=tenant_id,
+            description=description,
+            dry_run=dry_run,
+            ticket_ref=ticket_ref,
+            associate_folder=associate_folder,
+        )
 
     # ── Attach profiles to rules ───────────────────────────────────────────────
 

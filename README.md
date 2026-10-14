@@ -7,7 +7,7 @@
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 
-MCP (Model Context Protocol) server for **Palo Alto Networks Strata Cloud Manager (SCM)**, built for Managed Security Service Providers. Exposes <!-- tool-count -->179<!-- /tool-count --> SCM operations as MCP tools consumable by Claude Desktop, Cursor, Copilot Studio, or any MCP-compatible AI assistant.
+MCP (Model Context Protocol) server for **Palo Alto Networks Strata Cloud Manager (SCM)**, built for Managed Security Service Providers. Exposes <!-- tool-count -->184<!-- /tool-count --> SCM operations as MCP tools consumable by Claude Desktop, Cursor, Copilot Studio, or any MCP-compatible AI assistant.
 
 ---
 
@@ -178,7 +178,7 @@ Add to `~/.config/Claude/claude_desktop_config.json`:
 }
 ```
 
-Restart Claude Desktop. The server registers as <!-- tool-count -->179<!-- /tool-count --> tools in Cowork mode.
+Restart Claude Desktop. The server registers as <!-- tool-count -->184<!-- /tool-count --> tools in Cowork mode.
 
 ### Cursor / VS Code
 
@@ -562,6 +562,11 @@ List all tenants, their auth status, and which licences are expiring soonest.
 | `scm_apply_ncsc_baseline` | Create NCSC-compliant profile set and deny-all rule in a folder |
 | `scm_create_ncsc_snippet` | Create a reusable SCM snippet containing NCSC-compliant security profiles |
 | `scm_create_nist_snippet` | Create a reusable SCM snippet containing NIST-compliant security profiles |
+| `scm_create_iso27001_snippet` | Create a reusable SCM snippet containing ISO 27001:2022 Annex A security profiles |
+| `scm_create_dspt_snippet` | Create a reusable SCM snippet containing NHS DSPT Standard 9 security profiles |
+| `scm_create_dns_security_snippet` | Create a standalone DNS Security sinkhole snippet (shared building block) |
+| `scm_create_decryption_snippet` | Create an SSL/TLS decryption best-practice snippet: decrypt + no-decrypt profiles and exclusion category |
+| `scm_create_ransomware_snippet` | Create a ransomware-readiness snippet (NIST IR 8374): C2, DNS sinkhole, exploit, WildFire, file blocking, logging |
 | `scm_attach_ncsc_profiles` | Create NCSC-Baseline profile group and attach it to all allow rules |
 
 **NCSC baseline objects created** (`scm_apply_ncsc_baseline` / `scm_create_ncsc_snippet`):
@@ -587,6 +592,55 @@ List all tenants, their auth status, and which licences are expiring soonest.
 | `NIST-Baseline-URL` | URL access profile | CSF PR.AC-5 / SC-7 — block C2/malware/phishing |
 | `NIST-Baseline-Logging` | Log forwarding profile | SP 800-53 AU-2 / AU-12 — audit logging |
 | `NIST-Compliant` | Tag | Inventory tagging |
+
+**ISO 27001 baseline objects created** (`scm_create_iso27001_snippet`):
+
+| Object | Type | ISO 27001:2022 control |
+|--------|------|-------------|
+| `ISO27001-Baseline-AntiSpyware` | Anti-spyware profile | A.8.7 — C2 detection, critical+high block |
+| `ISO27001-Baseline-DNSSecurity` | DNS Security profile | A.8.7 — sinkhole C2/malware/phishing/new domains |
+| `ISO27001-Baseline-Vulnerability` | Vulnerability profile | A.8.7 / A.8.28 — block critical/high CVEs |
+| `ISO27001-Baseline-WildFire` | WildFire AV profile | A.8.7 — all files, public cloud |
+| `ISO27001-Baseline-FileBlocking` | File blocking profile | A.5.14 — block script/legacy executable types |
+| `ISO27001-Baseline-URL` | URL access profile | A.8.23 — block C2/malware/phishing, safe search |
+| `ISO27001-Baseline-Decryption` | Decryption profile | A.8.21 — TLS 1.2+, certificate checks |
+| `ISO27001-Baseline-Logging` | Log forwarding profile | A.8.15 / A.5.28 — logging and evidence |
+| `ISO27001-Compliant` | Tag | Inventory tagging |
+
+**NHS DSPT baseline objects created** (`scm_create_dspt_snippet`):
+
+| Object | Type | DSPT assertion |
+|--------|------|-------------|
+| `DSPT-Baseline-AntiSpyware` | Anti-spyware profile | 9.2.1 — C2 detection, critical+high block |
+| `DSPT-Baseline-Vulnerability` | Vulnerability profile | 9.2.1 — block critical/high CVEs |
+| `DSPT-Baseline-WildFire` | WildFire AV profile | 9.2.1 — sandboxing, all files |
+| `DSPT-Baseline-DNSSecurity` | DNS Security profile | 9.2.2 — sinkhole malicious domains |
+| `DSPT-Baseline-URL` | URL access profile | 9.2.2 — block C2/malware/phishing |
+| `DSPT-Baseline-Decryption` | Decryption profile | 9.2.3 — TLS 1.2+, certificate checks |
+| `DSPT-Baseline-Logging` | Log forwarding profile | 9.6.1 / 9.6.2 — audit logging and monitoring |
+| `DSPT-Compliant` | Tag | Inventory tagging |
+
+**Building-block snippets** (layer onto any baseline):
+
+| Object | Tool | Type | Purpose |
+|--------|------|------|---------|
+| `DNS-Security-Baseline` | `scm_create_dns_security_snippet` | DNS Security profile | Sinkhole C2/DGA, malware, phishing, DDNS, grayware, proxy, new domains (A.8.7 / DSPT 9.2.2) |
+| `Decryption-Baseline` | `scm_create_decryption_snippet` | Decryption profile | Forward proxy + inbound inspection, TLS 1.2+, certificate checks (A.8.21 / DSPT 9.2.3) |
+| `Decryption-Baseline-NoDecrypt` | `scm_create_decryption_snippet` | Decryption profile | For no-decrypt rules — still blocks expired/untrusted certificates |
+| `Decryption-Baseline-Exclusions` | `scm_create_decryption_snippet` | URL category | Category Match: financial-services, health-and-medicine, government |
+
+**Ransomware-readiness objects created** (`scm_create_ransomware_snippet`):
+
+| Object | Type | Kill-chain stage (NIST IR 8374 / SP 800-53) |
+|--------|------|-------------|
+| `Ransomware-AntiSpyware` | Anti-spyware profile | C2 — SI-4 |
+| `Ransomware-DNSSecurity` | DNS Security profile | C2 / DGA — SI-4 |
+| `Ransomware-Vulnerability` | Vulnerability profile | Exploit and lateral movement — SI-2 / RA-5 |
+| `Ransomware-WildFire` | WildFire AV profile | Delivery — SI-3 |
+| `Ransomware-FileBlocking` | File blocking profile | Delivery — scripts and encrypted archives, SI-3 / SC-7 |
+| `Ransomware-URL` | URL access profile | Delivery — SC-7 |
+| `Ransomware-Logging` | Log forwarding profile | Response — AU-2 / AU-12 |
+| `Ransomware-Ready` | Tag | Inventory tagging |
 
 ### SD-WAN
 

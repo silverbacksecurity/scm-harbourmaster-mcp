@@ -4,7 +4,7 @@
 
 All tools authenticate via Bearer-token OAuth (SASE client credentials) configured in `settings.toml` / `.secrets.toml`.
 
-**<!-- tool-count -->179<!-- /tool-count --> tools** across <!-- module-count -->43<!-- /module-count --> modules.
+**<!-- tool-count -->184<!-- /tool-count --> tools** across <!-- module-count -->43<!-- /module-count --> modules.
 
 ## Table of Contents
 
@@ -1741,6 +1741,8 @@ Args:
     ticket_ref: Mandatory change-ticket reference (never sent to SCM).
     syslog_profile: Optional syslog server profile name to add to log forwarding.
     description: Description for the snippet container.
+    associate_folder: Optional folder to associate the snippet with once every
+        object is created (off by default — assign it in the portal instead).
     tenant_id: Tenant to target (default: first loaded tenant).
 ```
 
@@ -1752,6 +1754,7 @@ Args:
 | `ticket_ref` | `str` | `''` |
 | `syslog_profile` | `str` | `''` |
 | `description` | `str` | `'NCSC CAF v4.0 / CE v3.2 compliance baseline — managed by scm-harbourmaster-mcp'` |
+| `associate_folder` | `str` | `''` |
 
 ### `scm_create_nist_snippet`
 
@@ -1782,6 +1785,8 @@ Args:
     ticket_ref: Mandatory change-ticket reference (never sent to SCM).
     syslog_profile: Optional syslog server profile name to add to log forwarding.
     description: Description for the snippet container.
+    associate_folder: Optional folder to associate the snippet with once every
+        object is created (off by default — assign it in the portal instead).
     tenant_id: Tenant to target (default: first loaded tenant).
 ```
 
@@ -1793,6 +1798,236 @@ Args:
 | `ticket_ref` | `str` | `''` |
 | `syslog_profile` | `str` | `''` |
 | `description` | `str` | `'NIST CSF v2.0 / SP 800-53 Rev 5 compliance baseline — managed by scm-harbourmaster-mcp'` |
+| `associate_folder` | `str` | `''` |
+
+### `scm_create_iso27001_snippet`
+
+Create an SCM snippet containing ISO 27001:2022 Annex A security profiles.
+
+```
+Creates a named snippet container and populates it with:
+  - Anti-spyware profile (C2 detection, block critical+high spyware)
+  - DNS Security profile (sinkhole C2/malware/phishing/new domains)
+  - Vulnerability protection profile (block critical/high CVEs, alert medium)
+  - WildFire antivirus profile (all files, both directions, public cloud)
+  - File blocking profile (block script/legacy executable types, alert all)
+  - URL access profile (block malware/C2/phishing, safe search enforced)
+  - Decryption profile (TLS 1.2+, no RSA key exchange, certificate checks)
+  - Log forwarding profile (traffic/threat/wildfire/url/auth → Cortex Data Lake)
+  - ISO27001-Compliant tag
+
+Snippets are reusable configuration bundles — they do NOT contain security rules
+(add deny-all and rule tuning separately via scm_apply_ncsc_baseline).
+
+ISO 27001:2022 Annex A mapping (from the BPA → ISO control catalogue):
+  A.8.7  Protection against malware — anti-spyware, DNS, vulnerability, WildFire
+  A.8.28 Secure coding              — vulnerability protection (virtual patching)
+  A.5.14 Information transfer       — file blocking
+  A.8.23 Web filtering              — URL access profile
+  A.8.21 Security of network services — decryption profile
+  A.8.15 Logging / A.5.28 Evidence  — log forwarding
+
+Safe search enforcement blocks search results unless the engine's strict
+safe search is on, and needs decrypted traffic to take effect.
+
+Args:
+    snippet_name: Name of the SCM snippet to create (default: "ISO27001-Compliance").
+    dry_run: If True (default) show what WOULD be created without writing.
+    ticket_ref: Mandatory change-ticket reference (never sent to SCM).
+    syslog_profile: Optional syslog server profile name to add to log forwarding.
+    description: Description for the snippet container.
+    associate_folder: Optional folder to associate the snippet with once every
+        object is created (off by default — assign it in the portal instead).
+    tenant_id: Tenant to target (default: first loaded tenant).
+```
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `tenant_id` | `str` | `''` |
+| `snippet_name` | `str` | `'ISO27001-Compliance'` |
+| `dry_run` | `bool` | `True` |
+| `ticket_ref` | `str` | `''` |
+| `syslog_profile` | `str` | `''` |
+| `description` | `str` | `'ISO 27001:2022 Annex A compliance baseline — managed by scm-harbourmaster-mcp'` |
+| `associate_folder` | `str` | `''` |
+
+### `scm_create_dspt_snippet`
+
+Create an SCM snippet containing NHS DSPT Standard 9 security profiles.
+
+```
+Creates a named snippet container and populates it with:
+  - Anti-spyware profile (C2 detection, block critical+high spyware)
+  - Vulnerability protection profile (block critical/high CVEs, alert medium)
+  - WildFire antivirus profile (all files, both directions, public cloud)
+  - DNS Security profile (sinkhole C2/malware/phishing/new domains)
+  - URL access profile (block malware/C2/phishing categories)
+  - Decryption profile (TLS 1.2+, no RSA key exchange, certificate checks)
+  - Log forwarding profile (traffic/threat/wildfire/url/auth → Cortex Data Lake)
+  - DSPT-Compliant tag
+
+Snippets are reusable configuration bundles — they do NOT contain security rules
+(add deny-all and rule tuning separately via scm_apply_ncsc_baseline).
+
+NHS DSPT (Data Security and Protection Toolkit) assertion mapping:
+  9.2.1 Anti-malware protection          — anti-spyware, vulnerability, WildFire
+  9.2.2 Malicious URL and DNS filtering  — URL access + DNS Security sinkholing
+  9.2.3 Encrypted traffic inspection     — decryption profile
+  9.6.1 Audit logs retained 6+ months    — log forwarding (point syslog at the SIEM)
+  9.6.2 Security monitoring              — threat logs forwarded
+
+Args:
+    snippet_name: Name of the SCM snippet to create (default: "DSPT-Compliance").
+    dry_run: If True (default) show what WOULD be created without writing.
+    ticket_ref: Mandatory change-ticket reference (never sent to SCM).
+    syslog_profile: Optional syslog server profile name to add to log forwarding.
+    description: Description for the snippet container.
+    associate_folder: Optional folder to associate the snippet with once every
+        object is created (off by default — assign it in the portal instead).
+    tenant_id: Tenant to target (default: first loaded tenant).
+```
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `tenant_id` | `str` | `''` |
+| `snippet_name` | `str` | `'DSPT-Compliance'` |
+| `dry_run` | `bool` | `True` |
+| `ticket_ref` | `str` | `''` |
+| `syslog_profile` | `str` | `''` |
+| `description` | `str` | `'NHS DSPT Standard 9 compliance baseline — managed by scm-harbourmaster-mcp'` |
+| `associate_folder` | `str` | `''` |
+
+### `scm_create_dns_security_snippet`
+
+Create an SCM snippet containing a standalone DNS Security sinkhole profile.
+
+```
+Creates a named snippet container and populates it with:
+  - DNS Security profile — sinkholes C2 (including DGA), malware, phishing,
+    dynamic-DNS, grayware, proxy and newly registered domains, plus PAN's
+    content-based `default-paloalto-dns` list; ad-tracking and parked
+    domains keep the default action. Sinkhole: pan-sinkhole-default-ip / ::1
+  - DNS-Security-Managed tag
+
+A shared building block: layer it onto any baseline whose anti-spyware
+profile has no DNS policy. The category sinkholes need the DNS Security
+licence; the default-paloalto-dns list works without it.
+
+Compliance mapping:
+  BPA-TP-002 — DNS security profile configured
+  ISO 27001:2022 A.8.7 Protection against malware
+  NHS DSPT 9.2.2 — DNS security sinkholes malicious domains
+
+Args:
+    snippet_name: Name of the SCM snippet to create (default: "DNS-Security").
+    dry_run: If True (default) show what WOULD be created without writing.
+    ticket_ref: Mandatory change-ticket reference (never sent to SCM).
+    description: Description for the snippet container.
+    associate_folder: Optional folder to associate the snippet with once every
+        object is created (off by default — assign it in the portal instead).
+    tenant_id: Tenant to target (default: first loaded tenant).
+```
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `tenant_id` | `str` | `''` |
+| `snippet_name` | `str` | `'DNS-Security'` |
+| `dry_run` | `bool` | `True` |
+| `ticket_ref` | `str` | `''` |
+| `description` | `str` | `'DNS Security sinkhole baseline — managed by scm-harbourmaster-mcp'` |
+| `associate_folder` | `str` | `''` |
+
+### `scm_create_decryption_snippet`
+
+Create an SCM snippet containing SSL/TLS decryption best-practice objects.
+
+```
+Creates a named snippet container and populates it with:
+  - Decryption profile for SSL Forward Proxy and inbound inspection —
+    TLS 1.2 minimum; MD5, SHA-1, 3DES, RC4 and RSA key exchange off;
+    blocks expired, untrusted-issuer, unknown-status and timed-out
+    certificates and unsupported versions/ciphers
+  - No-decrypt profile — still blocks expired / untrusted server certificates
+  - No-decrypt exclusion URL category (Category Match: financial-services,
+    health-and-medicine, government)
+  - Decryption-Managed tag
+
+Snippets hold the profiles only — create the decrypt and no-decrypt rules in
+the folder rulebase. Enabled decrypt rules only push once a forward-trust
+certificate is selected.
+
+Compliance mapping:
+  BPA-DEC-001 — decryption profiles configured
+  ISO 27001:2022 A.8.21 Security of network services
+  NHS DSPT 9.2.3 — encrypted traffic inspection with certificate verification
+
+Args:
+    snippet_name: Name of the SCM snippet to create (default: "Decryption-Baseline").
+    dry_run: If True (default) show what WOULD be created without writing.
+    ticket_ref: Mandatory change-ticket reference (never sent to SCM).
+    description: Description for the snippet container.
+    associate_folder: Optional folder to associate the snippet with once every
+        object is created (off by default — assign it in the portal instead).
+    tenant_id: Tenant to target (default: first loaded tenant).
+```
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `tenant_id` | `str` | `''` |
+| `snippet_name` | `str` | `'Decryption-Baseline'` |
+| `dry_run` | `bool` | `True` |
+| `ticket_ref` | `str` | `''` |
+| `description` | `str` | `'SSL/TLS decryption best-practice baseline — managed by scm-harbourmaster-mcp'` |
+| `associate_folder` | `str` | `''` |
+
+### `scm_create_ransomware_snippet`
+
+Create an SCM snippet containing ransomware-readiness security profiles.
+
+```
+Creates a named snippet container and populates it with a profile per
+ransomware kill-chain stage:
+  - Anti-spyware profile (C2 detectors, block critical+high spyware)
+  - DNS Security profile (sinkhole C2/DGA, malware, phishing, new domains)
+  - Vulnerability protection profile (block critical/high CVEs — SMB, RDP,
+    VPN exploits used for entry and lateral movement)
+  - WildFire antivirus profile (all files, both directions, public cloud)
+  - File blocking profile (block scripts, legacy executables and
+    password-protected archives; alert on everything else)
+  - URL access profile (block malware/C2/phishing categories)
+  - Log forwarding profile (traffic/threat/wildfire/url/auth → Cortex Data Lake)
+  - Ransomware-Ready tag
+
+Snippets are reusable configuration bundles — they do NOT contain security
+rules. After applying, attach the profiles to east-west/intrazone allow rules
+as well as internet-bound ones (SMB lateral movement is inspected there
+without decryption), and isolate backup traffic in its own zone.
+
+Compliance mapping:
+  NIST IR 8374 — Ransomware Risk Management (the CSF ransomware profile)
+  SP 800-53   — SI-2/RA-5 exploit blocking, SI-3 malware, SI-4 C2 detection,
+                SC-7 boundary protection, AU-2/AU-12 logging
+
+Args:
+    snippet_name: Name of the SCM snippet to create (default: "Ransomware-Readiness").
+    dry_run: If True (default) show what WOULD be created without writing.
+    ticket_ref: Mandatory change-ticket reference (never sent to SCM).
+    syslog_profile: Optional syslog server profile name to add to log forwarding.
+    description: Description for the snippet container.
+    associate_folder: Optional folder to associate the snippet with once every
+        object is created (off by default — assign it in the portal instead).
+    tenant_id: Tenant to target (default: first loaded tenant).
+```
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `tenant_id` | `str` | `''` |
+| `snippet_name` | `str` | `'Ransomware-Readiness'` |
+| `dry_run` | `bool` | `True` |
+| `ticket_ref` | `str` | `''` |
+| `syslog_profile` | `str` | `''` |
+| `description` | `str` | `'Ransomware-readiness baseline (NIST IR 8374) — managed by scm-harbourmaster-mcp'` |
+| `associate_folder` | `str` | `''` |
 
 ### `scm_attach_ncsc_profiles`
 

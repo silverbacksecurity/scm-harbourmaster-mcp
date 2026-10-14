@@ -700,6 +700,19 @@ def _menu_remediation(
                 [
                     ("3", "Create NCSC Snippet", "NCSC baseline as reusable snippet"),
                     ("4", "Create NIST Snippet", "NIST baseline as reusable snippet"),
+                    (
+                        "8",
+                        "Create ISO 27001 Snippet",
+                        "ISO 27001:2022 baseline as reusable snippet",
+                    ),
+                    ("9", "Create DSPT Snippet", "NHS DSPT baseline as reusable snippet"),
+                    (
+                        "10",
+                        "Create DNS Security Snippet",
+                        "DNS sinkhole profile as reusable snippet",
+                    ),
+                    ("11", "Create Decryption Snippet", "SSL/TLS decryption best-practice snippet"),
+                    ("12", "Create Ransomware Snippet", "Ransomware-readiness profiles as snippet"),
                 ]
             )
         )
@@ -749,6 +762,24 @@ def _menu_remediation(
             _op_nist_gap(tenant, console, _pause)
         elif choice == "7":
             _op_ai_advisor(tenant, console, _pause)
+        elif choice == "8":
+            _op_create_framework_snippet(
+                tenant, console, _pause, "scm_create_iso27001_snippet", "ISO 27001"
+            )
+        elif choice == "9":
+            _op_create_framework_snippet(tenant, console, _pause, "scm_create_dspt_snippet", "DSPT")
+        elif choice == "10":
+            _op_create_framework_snippet(
+                tenant, console, _pause, "scm_create_dns_security_snippet", "DNS Security"
+            )
+        elif choice == "11":
+            _op_create_framework_snippet(
+                tenant, console, _pause, "scm_create_decryption_snippet", "decryption"
+            )
+        elif choice == "12":
+            _op_create_framework_snippet(
+                tenant, console, _pause, "scm_create_ransomware_snippet", "ransomware"
+            )
 
 
 # ── sub-menu: Config Lifecycle ────────────────────────────────────────────
@@ -2580,6 +2611,28 @@ def _op_create_nist_snippet(tenant, console, _pause) -> None:
                 tenant,
                 register_ncsc_tools,
                 "scm_create_nist_snippet",
+                dry_run=dry_run,
+                ticket_ref=ticket_ref,
+            )
+            console.print(result)
+        except Exception as exc:
+            console.print(f"[red]Error: {_exc_str(exc)}[/red]")
+    _pause()
+
+
+def _op_create_framework_snippet(tenant, console, _pause, tool_name: str, label: str) -> None:
+    from .cli import _exc_str
+
+    dry_run = Prompt.ask("Dry run?", default="yes").strip().lower() in ("yes", "y", "true")
+    ticket_ref = Prompt.ask("Change ticket reference (mandatory)", default="").strip()
+    with console.status(f"[cyan]Creating {label} snippet...[/cyan]"):
+        try:
+            from .tools.ncsc_baseline import register_ncsc_tools
+
+            result = _call_mcp_tool(
+                tenant,
+                register_ncsc_tools,
+                tool_name,
                 dry_run=dry_run,
                 ticket_ref=ticket_ref,
             )

@@ -394,6 +394,36 @@ scm_create_nist_snippet:
   idempotent: false
   retry_policy: fail_fast
   scope: tenant
+scm_create_iso27001_snippet:
+  access: write
+  domain: posture_compliance
+  idempotent: false
+  retry_policy: fail_fast
+  scope: tenant
+scm_create_dspt_snippet:
+  access: write
+  domain: posture_compliance
+  idempotent: false
+  retry_policy: fail_fast
+  scope: tenant
+scm_create_decryption_snippet:
+  access: write
+  domain: posture_compliance
+  idempotent: false
+  retry_policy: fail_fast
+  scope: tenant
+scm_create_dns_security_snippet:
+  access: write
+  domain: posture_compliance
+  idempotent: false
+  retry_policy: fail_fast
+  scope: tenant
+scm_create_ransomware_snippet:
+  access: write
+  domain: posture_compliance
+  idempotent: false
+  retry_policy: fail_fast
+  scope: tenant
 scm_csp_licensing_query:
   access: read
   domain: licensing

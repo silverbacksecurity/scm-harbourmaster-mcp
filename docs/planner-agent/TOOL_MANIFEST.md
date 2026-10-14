@@ -69,7 +69,7 @@ target ≤ ~20 per domain, hard cap 25 enforced in tests):
 | certificates | 3 |
 | licensing | 3 |
 
-## `access: write` tools (22)
+## `access: write` tools (28)
 
 Everything not listed here is `read`.
 
@@ -93,6 +93,11 @@ Everything not listed here is `read`.
 | `scm_attach_ncsc_profiles` | |
 | `scm_create_ncsc_snippet` | |
 | `scm_create_nist_snippet` | |
+| `scm_create_iso27001_snippet` | |
+| `scm_create_dspt_snippet` | |
+| `scm_create_dns_security_snippet` | |
+| `scm_create_decryption_snippet` | |
+| `scm_create_ransomware_snippet` | |
 | `scm_reload` | also a Planner recovery action (with approval) |
 | `scm_restart` | also a Planner recovery action (with approval) |
 | `scm_ssr_execute` | the one idempotent write (already_present semantics; dry_run default) |

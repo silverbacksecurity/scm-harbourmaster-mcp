@@ -449,6 +449,11 @@ class TestExistingDryRunTools:
             ("scm_apply_ncsc_baseline", {"folder": "Shared"}),
             ("scm_create_ncsc_snippet", {}),
             ("scm_create_nist_snippet", {}),
+            ("scm_create_iso27001_snippet", {}),
+            ("scm_create_dspt_snippet", {}),
+            ("scm_create_dns_security_snippet", {}),
+            ("scm_create_decryption_snippet", {}),
+            ("scm_create_ransomware_snippet", {}),
         ],
     )
     def test_ncsc_tools_require_ticket_ref(self, tool_name: str, kwargs: dict[str, Any]) -> None:

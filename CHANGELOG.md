@@ -18,6 +18,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The dry run shows the snapshot's name, save time, who saved it and the
     exact request.
   - The delete hasn't been sent live yet.
+- **ISO 27001 and NHS DSPT snippets.** `scm_create_iso27001_snippet` and
+  `scm_create_dspt_snippet` create a reusable snippet of security profiles,
+  the same way the NCSC and NIST snippet tools do: dry run by default, a
+  mandatory `ticket_ref` and an optional `associate_folder`.
+  - ISO 27001:2022: anti-spyware, DNS Security, vulnerability, WildFire,
+    file blocking, URL (with safe search), decryption and log forwarding
+    profiles, plus an `ISO27001-Compliant` tag. Each description cites the
+    Annex A controls that the control catalogue maps to the object's BPA
+    checks.
+  - NHS DSPT: the same profiles without file blocking, plus a
+    `DSPT-Compliant` tag. Each description cites the Standard 9 assertion
+    (9.2.1, 9.2.2, 9.2.3, 9.6.1 or 9.6.2) whose evidence guidance names it.
+  - The profiles are built from shared blocks (`audit/snippet_blocks.py`)
+    and match the NCSC/NIST threat-prevention settings. The decryption
+    profile requires TLS 1.2 or later, turns off MD5, SHA-1, 3DES, RC4 and
+    RSA key exchange, and blocks expired or untrusted certificates.
+  - Both are in the CLI's NCSC menu as options 8 and 9.
+- **DNS Security and SSL/TLS decryption building-block snippets.**
+  `scm_create_dns_security_snippet` and `scm_create_decryption_snippet`
+  create single-purpose snippets that can be layered onto any baseline.
+  They use the same create path and safety as the other snippet tools.
+  - DNS Security: a profile that sinkholes the C2 (including DGA), malware,
+    phishing, dynamic-DNS, grayware, proxy and newly-registered-domain
+    categories, and PAN's `default-paloalto-dns` list.
+  - Decryption: a forward-proxy and inbound-inspection decryption profile, a
+    no-decrypt profile that still blocks expired or untrusted certificates,
+    and a "Category Match" URL category for no-decrypt exclusions. The
+    decrypt and no-decrypt rules themselves stay in the folder rulebase.
+- **Ransomware-readiness snippet.** `scm_create_ransomware_snippet` creates
+  one profile for each network stage of a ransomware attack: anti-spyware
+  C2 detectors, a DNS Security sinkhole (C2 and DGA domains), vulnerability
+  protection, WildFire, and file blocking that also blocks
+  password-protected archives. It also adds a URL profile and log forwarding.
+  - Each description cites NIST IR 8374 and the SP 800-53 control behind
+    that stage.
+  - After an apply, the tool says to attach the profiles to east-west and
+    intrazone rules, so SMB lateral movement is inspected, and to isolate
+    backup traffic in its own zone.
+- The DNS Security, decryption and ransomware snippets are also in the CLI's
+  NCSC menu, as options 10, 11 and 12.
 - **`scm_config_clone` can keep the customer's snippets** with
   `snippet_mode="preserve"`. The default, `flatten`, is unchanged.
   - Objects from the customer's own snippets go into a snippet of the same
@@ -822,6 +862,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `list-tenants` show the default folder where they showed the tier.
 
 ### Changed
+- **The snippet tools share one create path.** `scm_create_ncsc_snippet` and
+  `scm_create_nist_snippet` now run through `build_and_create_snippet()`
+  (`tools/snippet_builder.py`, new file), driven by a `SnippetSpec`
+  (`audit/snippet_blocks.py`, new file). Their output and payloads are
+  unchanged.
+  - Both take a new `associate_folder` argument, empty by default. When set,
+    a clean apply also associates the snippet with that folder, using the
+    same folder `PUT` as `scm_config_clone`. The dry run only reports the
+    association, and a snippet with any failed object is never associated.
 - **Breaking for existing `SCM_MCP_HTTP_AUTH_MODE=entra` deployments.** A
   token now needs the API's delegated scope (`access` by default, set with
   `SCM_MCP_HTTP_ENTRA_SCOPE`) or, for app-only callers such as Power Automate

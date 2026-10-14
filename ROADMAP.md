@@ -964,39 +964,54 @@ MSSP-helpful SCM snippet templates beyond the existing NCSC/NIST pair
 (`scm_create_ncsc_snippet` / `scm_create_nist_snippet` in
 `tools/ncsc_baseline.py`), ranked by value ÷ effort:
 
-1. **ISO 27001:2022 snippet** — parity with NCSC/NIST; `audit/iso27001_controls.py`
+1. ✅ **ISO 27001:2022 snippet** (`scm_create_iso27001_snippet`) — parity with NCSC/NIST; `audit/iso27001_controls.py`
    already has the Annex A catalogue + BPA mappings.
-2. **NHS DSPT snippet** — same parity gap; `audit/dspt_controls.py` already maps
+2. ✅ **NHS DSPT snippet** (`scm_create_dspt_snippet`) — same parity gap; `audit/dspt_controls.py` already maps
    Standards 7–10 to BPA checks.
 3. **PCI DSS v4.0 CDE snippet** — net-new framework: zone protection + decryption
    exclusions for card-data flows, strict egress logging, no-decrypt rule for
    payment processors.
-4. **Ransomware-readiness snippet** — WildFire ransomware detonation signatures,
+4. ✅ **Ransomware-readiness snippet** (`scm_create_ransomware_snippet`) — WildFire ransomware detonation signatures,
    DNS Security C2/DGA sinkholing, decryption coverage for SMB lateral movement,
-   backup-traffic isolation guidance.
+   backup-traffic isolation guidance. *Built as profiles plus guidance: SMB
+   isn't TLS, so lateral movement is covered by vulnerability protection on
+   east-west rules rather than decryption; WildFire update cadence is a
+   tenant setting, not a snippet object.*
 5. **Zero Trust segmentation baseline snippet** — App-ID default-deny
    microsegmentation + dynamic-address-group tagging convention (NIST SP 800-207).
-6. **Standalone SSL/TLS decryption best-practice snippet** — forward-proxy and
+6. ✅ **Standalone SSL/TLS decryption best-practice snippet** (`scm_create_decryption_snippet`) — forward-proxy and
    inbound-inspection profiles plus a no-decrypt exclusion list, as one snippet.
-7. **Standalone DNS Security / sinkhole snippet** — split out of anti-spyware
+7. ✅ **Standalone DNS Security / sinkhole snippet** (`scm_create_dns_security_snippet`) — split out of anti-spyware
    so it's a shared building block across the frameworks above.
 8. **GlobalProtect / remote-access hardening snippet** — HIP-based posture +
    MFA-enforcement checks; no existing snippet touches remote access today.
 9. **"Day-1 Fast Start" onboarding snippet** — minimal safe-by-default bundle
     for a brand-new tenant before its full baseline is applied.
 
-**Do this before framework #3**: extract a shared `build_and_create_snippet()`
+**Still open (3, 5, 8, 9)**: PCI DSS, Zero Trust and GlobalProtect need objects
+outside the profile-snippet pattern: zone protection profiles, CDE-specific
+security and decryption rules, dynamic address groups with a tagging
+convention, and HIP objects and profiles. Mobile-agent auth settings can't be
+updated through the API. Each needs its own design and a live payload check
+before it's built. Day-1 Fast Start, as specified, would duplicate
+`scm_create_ncsc_snippet` with fewer objects. Until there is a distinct
+minimal set, use the NCSC snippet as the Day-1 bundle.
+
+✅ **Do this before framework #3**: extract a shared `build_and_create_snippet()`
 helper — NCSC/NIST already duplicate ~130 lines of create/dry-run/error-handling
 logic nearly verbatim; a third framework copying it verbatim is the point to
 parameterize by a `TemplateSet`-like dataclass instead.
 
-**Standing caveat for all 9**: `client.snippet.associate_folder()` /
-`disassociate_folder()` raise `NotImplementedError` in the installed SDK
-(0.15.1) — every future `scm_create_*_snippet` tool can create and populate a
-snippet but cannot attach it to a tenant folder programmatically; that stays a
-manual portal step until PAN ships the endpoint. Note `mssp_onboard_tenant`'s
-current "associate" step doesn't even attempt the SDK call today — it just
-logs success unconditionally (existing tech debt, not fixed here).
+**Folder association**: `client.snippet.associate_folder()` /
+`disassociate_folder()` still raise `NotImplementedError` in the installed SDK
+(0.15.1), but the API itself works: `PUT /config/setup/v1/folders/{id}` with the
+full folder body from a GET (minus `id`) and the snippet name appended to
+`snippets` associates it (live-proven 2026-10-13, used by `scm_config_clone`'s
+`snippet_mode="preserve"`). Every `scm_create_*_snippet` tool takes an optional
+`associate_folder` (off by default, dry-run aware) that makes this call after a
+clean apply. Note `mssp_onboard_tenant`'s "associate" step still doesn't make
+the call — it just logs success unconditionally (existing tech debt, not fixed
+here).
 
 **Reusable references**: [pan-scm-sdk](https://github.com/cdot65/pan-scm-sdk)
 ([Snippet resource docs](https://cdot65.github.io/pan-scm-sdk/sdk/config/setup/snippet/)) ·
