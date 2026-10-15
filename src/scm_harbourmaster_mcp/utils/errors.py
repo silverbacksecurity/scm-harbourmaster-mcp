@@ -21,6 +21,8 @@ _EXPECTED_EXCEPTION_NAMES = frozenset(
         "AuthenticationError",
         "EmptyFieldError",
         "ReferenceNotZeroError",
+        # A wrong or missing tenant_id is the caller's mistake, not a crash
+        "TenantNotFoundError",
     }
 )
 

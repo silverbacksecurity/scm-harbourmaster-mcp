@@ -83,6 +83,16 @@ def get_client_for_tenant(tenant_id: str) -> Scm:
     return client
 
 
+def tenant_required_error() -> TenantNotFoundError:
+    """The error for a call that names no tenant when there is no default one."""
+    return TenantNotFoundError(
+        "No tenant_id given, and no default tenant is configured (MSSP mode needs a "
+        "tenant on every call). Pass tenant_id as a TSG ID, a settings.toml section "
+        "name or a label. Valid tenants: "
+        f"{_describe_known(_known_tenants(include_configured=True))}"
+    )
+
+
 def list_loaded_tenants() -> list[str]:
     with _lock:
         return list(_clients.keys())

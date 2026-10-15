@@ -24,6 +24,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   are replaced by one shared `JobStore` (`utils/jobs.py`). That module is
   left out of hot reload, so a running job's thread and the `*_result` tools
   keep sharing the same store across a reload.
+- **A tool called without `tenant_id` in MSSP mode now says so.** It used to
+  fall back to the default single-tenant credentials, which MSSP setups
+  leave empty, and return a raw `TenantConfig` validation error
+  ("tenant_id must not be empty"). Claude Desktop hit this on most tools.
+  The tool now answers `[TenantNotFoundError] No tenant_id given…` and lists
+  the valid tenants. It never guesses one. That error is also logged as an
+  expected caller error, not a crash with a traceback.
 
 ## [0.14.0] - 2026-10-15
 

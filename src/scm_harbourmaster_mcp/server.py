@@ -104,6 +104,13 @@ def _build_client_resolver(settings: object) -> Callable[..., Any]:
             from .auth.oauth import get_client_for_tenant
 
             return get_client_for_tenant(tenant_id)
+        if not s.scm_tenant_id:
+            # No default tenant (normal in MSSP mode): say which tenants
+            # exist instead of failing TenantConfig validation, and never
+            # guess one — that could act on the wrong customer.
+            from .auth.oauth import tenant_required_error
+
+            raise tenant_required_error()
         # Fall back to the default / single-tenant credentials
         return get_scm_client(s.default_tenant())
 
