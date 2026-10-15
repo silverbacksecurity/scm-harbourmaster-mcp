@@ -201,6 +201,18 @@ def capability_specs(tsg_id: str, insights_region: str = "europe") -> list[Capab
             used_by="AS-BUILT managed tenants",
         ),
         CapabilitySpec(
+            "airs",
+            "Prisma AIRS — AI security profile list",
+            f"{_SASE}/aisec/v1/mgmt/profiles",
+            params={"limit": 1},
+            # Live: every tenant without AIRS answers 401 "Not Authorized".
+            # Probes the profile list only: scm_airs_list also counts a tenant
+            # with deployment profiles as provisioned. Informational — nothing
+            # is skipped on it (the AIRS fetch is two calls when unprovisioned).
+            unprovisioned_statuses=frozenset({401, 404, 424}),
+            used_by="scm_airs_list (informational)",
+        ),
+        CapabilitySpec(
             "sdwan",
             "Prisma SD-WAN — sites",
             "/sdwan/v4.13/api/sites",

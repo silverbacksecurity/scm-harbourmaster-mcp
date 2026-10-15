@@ -296,7 +296,8 @@ def register_planner_tools(mcp: FastMCP, get_client: Any) -> None:  # noqa: ARG0
         One trigger fans out per-tenant sub-plans with bounded concurrency
         through the Planner loop. Every tenant gets the same check set:
         licensing + certs + connectivity basics, BPA posture + change audit,
-        NCSC CAF + ISO 27001, and DLP/SSPM posture. Cross-tenant anomaly
+        NCSC CAF + ISO 27001, DLP/SSPM posture, and Prisma AIRS (AI
+        security) risks. Cross-tenant anomaly
         rules then flag patterns invisible per-tenant (SD-WAN topology with
         zero licences, duplicate NFR licence sets, provisioned-but-idle
         tenants).

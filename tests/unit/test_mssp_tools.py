@@ -447,6 +447,12 @@ class TestCasbDlp:
 
 
 class TestNgfwAirs:
+    @pytest.fixture(autouse=True)
+    def _sdk_session_as_bearer(self):  # type: ignore[no-untyped-def]
+        # scm_airs_list builds a bearer session; route it back to the mock.
+        with patch.object(mssp, "_bearer_session", side_effect=lambda c: c.session):
+            yield
+
     def test_ngfw_device_list(self) -> None:
         client = MagicMock()
         dev = MagicMock()
@@ -472,48 +478,92 @@ class TestNgfwAirs:
         client.device.list.side_effect = RuntimeError("503")
         assert _all_tools(client)["scm_ngfw_device_list"]().startswith("Error: [RuntimeError] 503")
 
-    def test_airs_not_activated(self) -> None:
+    @staticmethod
+    def _airs_router(routes: dict[str, Any]) -> Any:
+        """session.get side effect keyed on the URL suffix; unknown paths 401."""
+
+        def get(url: str, params: Any = None, timeout: Any = None) -> Any:
+            for suffix, resp in routes.items():
+                if url.endswith(suffix):
+                    return resp
+            return _resp(401)
+
+        return get
+
+    def test_airs_not_provisioned(self) -> None:
         client = MagicMock()
-        client.session.get.return_value = _resp(404)
+        client.session.get.side_effect = self._airs_router(
+            {"/deploymentprofiles": _resp(200, {"deployment_profiles": [], "status": ""})}
+        )
         out = _all_tools(client)["scm_airs_list"](tenant_id=TENANT)
-        assert "Prisma AIRS is not activated" in out
+        assert "Prisma AIRS is not provisioned" in out
+        # Gate: deployment profiles + profiles only, no further list calls.
+        assert client.session.get.call_count == 2
+        assert all("/tsg/" not in c.args[0] for c in client.session.get.call_args_list)
 
-    def test_airs_lists_and_partial_licensing(self) -> None:
+    def test_airs_full_report(self) -> None:
         client = MagicMock()
-        client.session.get.side_effect = [
-            _resp(200, {"customer_apps": [{"app_name": "chatbot", "status": "active"}]}),
-            _resp(200, [{"profile_name": "strict", "profile_id": "p1", "active": True}]),
-            _resp(424),
-        ]
+        client.session.get.side_effect = self._airs_router(
+            {
+                "/deploymentprofiles": _resp(
+                    200,
+                    {
+                        "deployment_profiles": [
+                            {"dp_name": "dp1", "auth_code": "AC1", "expiration_date": "2020-01-01"}
+                        ]
+                    },
+                ),
+                "/profiles": _resp(
+                    200,
+                    {
+                        "ai_profiles": [
+                            {
+                                "profile_name": "strict",
+                                "profile_id": "p1",
+                                "active": True,
+                                "updated_by": "admin@example.com",
+                                "last_modified_ts": "2026-10-01T10:00:00Z",
+                                "policy": {"ai-security-profiles": []},
+                            }
+                        ]
+                    },
+                ),
+                "/customerapps": _resp(200, {"customer_apps": [{"app_name": "chatbot"}]}),
+                "/topics": _resp(200, {"custom_topics": []}),
+                "/apikeys": _resp(403),
+                "/devices": _resp(
+                    200,
+                    {
+                        "data": [
+                            {
+                                "hostname": "fw-1",
+                                "serial_number": "001",
+                                "installedLicenses": [{"feature": "X", "authcode": "AC1"}],
+                            }
+                        ]
+                    },
+                ),
+            }
+        )
         out = _all_tools(client)["scm_airs_list"](tenant_id=TENANT)
-        assert f"/customerapp/tsg/{TENANT}" in client.session.get.call_args_list[0].args[0]
-        assert "| chatbot | — | — | — | active |" in out
-        assert "| strict | p1 | — | ✓ |" in out
-        assert "### Deployment Profiles\n_Not licensed / not activated._" in out
-
-        client.session.get.side_effect = [
-            _resp(403),
-            _resp(200, {"ai_profiles": []}),
-            _resp(200, {"deployment_profiles": [{"dp_name": "dp", "status": "ok"}]}),
-        ]
-        out = _all_tools(client)["scm_airs_list"](tenant_id=TENANT)
-        assert "### Customer Applications\n_Not licensed / not activated._" in out
-        assert "_No AI security profiles defined._" in out
-        assert "| dp | — | ok | — |" in out
-
-        client.session.get.side_effect = [
-            _resp(200, []),
-            _resp(403),
-            _resp(200, {"deployment_profiles": []}),
-        ]
-        out = _all_tools(client)["scm_airs_list"](tenant_id=TENANT)
-        assert "_No customer applications registered._" in out
-        assert "_No deployment profiles defined._" in out
+        assert "| dp1 | AC1 | — | 2020-01-01 |" in out
+        assert "| strict | p1 | — | ✓ | admin@example.com |" in out
+        assert "| chatbot | — | — | — | 0 |" in out
+        assert "### API Keys\n\n_Refused by the API (HTTP 403)._" in out
+        assert "| fw-1 | 001 | — | X | dp1 | — |" in out
+        assert (
+            "| 2026-10-01 10:00 UTC | admin@example.com | AI security profile | strict | updated |"
+            in out
+        )
+        assert "HIGH | Licence | Deployment profile `dp1` expired" in out
+        assert "no model protection" in out
+        assert out.index("**AIRS risks:** 🔴") < out.index("### Licence")  # headline on top
 
     def test_airs_errors(self) -> None:
         client = SimpleNamespace(session=None)
-        tools = _all_tools(client)
-        assert "client has no .session attribute" in tools["scm_airs_list"](tenant_id=TENANT)
+        assert "client has no .session attribute" in _all_tools(client)["scm_airs_list"](
+            tenant_id=TENANT
+        )
 
         client2 = MagicMock()
         client2.session.get.return_value = _resp(500)
@@ -523,7 +573,8 @@ class TestNgfwAirs:
         exc.response = SimpleNamespace(status_code=404)  # type: ignore[attr-defined]
         client3 = MagicMock()
         client3.session.get.side_effect = exc
-        assert "not activated" in _all_tools(client3)["scm_airs_list"](tenant_id=TENANT)
+        # 404 everywhere (deploymentprofiles included) = not licensed.
+        assert "not provisioned" in _all_tools(client3)["scm_airs_list"](tenant_id=TENANT)
 
         client4 = MagicMock()
         client4.session.get.side_effect = RuntimeError("timeout")

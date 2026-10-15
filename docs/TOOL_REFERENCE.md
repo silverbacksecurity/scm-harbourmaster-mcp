@@ -2487,21 +2487,31 @@ Ref: https://pan.dev/scm/api/config/ngfw/setup/list-devices/
 
 ### `scm_airs_list`
 
-List Prisma AIRS (AI Runtime Security) configuration for a tenant.
+Prisma AIRS (AI Runtime Security) status, inventory, change history and risks.
 
 ```
-Queries the AIRS management API for:
-- Customer Applications — AI apps registered for inline API inspection
-- AI Security Profiles — threat detection profile configurations
-- Deployment Profiles — how AIRS is deployed (inline, async, etc.)
+Use this to answer "is AIRS enabled/licensed for this tenant?", "what AI
+security profiles exist?", "who changed AIRS?" and "are there any AI
+security risks to report?". Reads the AIRS management API:
+- Licence — deployment profiles (auth code, expiry)
+- Customer applications, AI security profiles, custom topics
+- API keys (name, app, expiry, rotation — never key material)
+- Firewalls carrying an AIRS licence (from the SCM device list)
+- Recent changes — who created/updated each object, newest first
+- Risks — expired/expiring licence or keys, profiles with no model
+  protection, detections set to allow, fail-open on timeout, missing
+  DLP, unused topics/apps
 
-Returns 'not licensed' if AIRS is not activated for this tenant.
+A tenant with no deployment profiles whose profile list is refused
+reports "not provisioned" in one line.
 
 Args:
     tenant_id: Tenant ID. Omit to use the default tenant.
+    include_devices: Cross-reference the SCM device list (every page)
+        for firewalls licensed for AIRS (default True).
 
 Returns:
-    Markdown summary of AIRS configuration.
+    Markdown report.
 
 Ref: https://pan.dev/prisma-airs/api/airuntimesecurity/prismaairsmanagementapi/
 ```
@@ -2509,6 +2519,7 @@ Ref: https://pan.dev/prisma-airs/api/airuntimesecurity/prismaairsmanagementapi/
 | Parameter | Type | Default |
 |-----------|------|---------|
 | `tenant_id` | `str` | `''` |
+| `include_devices` | `bool` | `True` |
 
 ---
 
@@ -3586,6 +3597,11 @@ Columns:
     PAB           — Prisma Access Browser: enrolled users/devices and the
                     share of devices passing all posture checks (screen
                     lock + disk encryption + firewall); — if unprovisioned
+    AIRS          — Prisma AIRS: AI security profiles / customer apps,
+                    with 🔴 high or 🟡 other risk counts (scm_airs_list
+                    for detail; "+" = partial count); — if
+                    unprovisioned, ⛔ RBAC if the role lacks AIRS,
+                    ⚠️ error / ⏱ if the AIRS API failed or was slow
     Nearest Expiry — soonest licence expiry date (see include_expired)
     Days          — days until that expiry
     Lic           — licence RAG status
@@ -4471,6 +4487,7 @@ Probe which API families a tenant's service account can actually use.
 Sends one cheap, read-only request per API family (SCM config jobs,
 allocated egress IPs, licences, Incidents, Insights, ADEM, Compliance
 Center, Enterprise DLP, Email DLP, ZTNA Connector, SSPM, IAM, Tenancy,
+Prisma AIRS,
 SD-WAN sites and audit log) and classifies each as available,
 forbidden (403 RBAC), unprovisioned (not licensed/enabled) or error
 (inconclusive). Results are cached per tenant for 6 hours.
@@ -5782,7 +5799,8 @@ Run the estate check across every configured tenant.
 One trigger fans out per-tenant sub-plans with bounded concurrency
 through the Planner loop. Every tenant gets the same check set:
 licensing + certs + connectivity basics, BPA posture + change audit,
-NCSC CAF + ISO 27001, and DLP/SSPM posture. Cross-tenant anomaly
+NCSC CAF + ISO 27001, DLP/SSPM posture, and Prisma AIRS (AI
+security) risks. Cross-tenant anomaly
 rules then flag patterns invisible per-tenant (SD-WAN topology with
 zero licences, duplicate NFR licence sets, provisioned-but-idle
 tenants).

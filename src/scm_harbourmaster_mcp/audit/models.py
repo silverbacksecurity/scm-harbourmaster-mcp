@@ -234,6 +234,12 @@ class AuditSnapshot:
     airs_apps: list[dict[str, Any]] = field(default_factory=list)
     airs_security_profiles: list[dict[str, Any]] = field(default_factory=list)
     airs_deployment_profiles: list[dict[str, Any]] = field(default_factory=list)
+    airs_topics: list[dict[str, Any]] = field(default_factory=list)
+    airs_api_keys: list[dict[str, Any]] = field(default_factory=list)
+    airs_provisioned: bool = False
+    airs_refused: dict[str, int] = field(default_factory=dict)  # resource -> HTTP status
+    airs_errors: dict[str, str] = field(default_factory=dict)  # resource -> error text
+    airs_truncated: list[str] = field(default_factory=list)  # lists cut at the page limit
 
     # IoT Security / Enterprise IoT / OT Security (formerly Zingbox)
     # via api.strata.paloaltonetworks.com/iot/pub/v1+v2 — same SASE OAuth token

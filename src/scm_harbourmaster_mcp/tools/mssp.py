@@ -889,133 +889,79 @@ def register_ngfw_airs_tools(mcp: FastMCP, get_client: Any) -> None:
 
     @mcp.tool()
     @tool
-    def scm_airs_list(client: Any, tenant_id: str) -> str:
-        """List Prisma AIRS (AI Runtime Security) configuration for a tenant.
+    def scm_airs_list(client: Any, tenant_id: str, include_devices: bool = True) -> str:
+        """Prisma AIRS (AI Runtime Security) status, inventory, change history and risks.
 
-        Queries the AIRS management API for:
-        - Customer Applications — AI apps registered for inline API inspection
-        - AI Security Profiles — threat detection profile configurations
-        - Deployment Profiles — how AIRS is deployed (inline, async, etc.)
+        Use this to answer "is AIRS enabled/licensed for this tenant?", "what AI
+        security profiles exist?", "who changed AIRS?" and "are there any AI
+        security risks to report?". Reads the AIRS management API:
+        - Licence — deployment profiles (auth code, expiry)
+        - Customer applications, AI security profiles, custom topics
+        - API keys (name, app, expiry, rotation — never key material)
+        - Firewalls carrying an AIRS licence (from the SCM device list)
+        - Recent changes — who created/updated each object, newest first
+        - Risks — expired/expiring licence or keys, profiles with no model
+          protection, detections set to allow, fail-open on timeout, missing
+          DLP, unused topics/apps
 
-        Returns 'not licensed' if AIRS is not activated for this tenant.
+        A tenant with no deployment profiles whose profile list is refused
+        reports "not provisioned" in one line.
 
         Args:
             tenant_id: Tenant ID. Omit to use the default tenant.
+            include_devices: Cross-reference the SCM device list (every page)
+                for firewalls licensed for AIRS (default True).
 
         Returns:
-            Markdown summary of AIRS configuration.
+            Markdown report.
 
         Ref: https://pan.dev/prisma-airs/api/airuntimesecurity/prismaairsmanagementapi/
         """
-        _AIRS_BASE = "https://api.sase.paloaltonetworks.com/aisec"
-
-        def _fetch(session: Any, url: str, list_key: str) -> tuple[list[Any] | None, bool]:
-            """Fetch a management API list endpoint. Returns (items, not_licensed)."""
-            try:
-                resp = session.get(url, timeout=(4, 10))
-            except Exception as exc:
-                if _exc_status(exc) in _NOT_LICENSED_STATUSES:
-                    return None, True
-                raise
-            if resp.status_code in _NOT_LICENSED_STATUSES:
-                return None, True  # not licensed / not activated / not found
-            resp.raise_for_status()
-            data = resp.json()
-            if isinstance(data, list):
-                return data, False
-            return (data.get(list_key) or []), False
+        from ..utils.airs import (
+            airs_sections,
+            assess_airs,
+            fetch_airs,
+            fetch_airs_devices,
+            render_sections_markdown,
+            risk_headline,
+        )
 
         try:
-            session = getattr(client, "session", None)
-            if session is None:
+            if getattr(client, "session", None) is None:
                 return "Error: client has no .session attribute"
+            # A plain bearer session: the SDK's OAuth2Session raises
+            # TokenExpiredError on direct non-SDK calls once the token ages.
+            session = _bearer_session(client)
 
-            # Get TSG ID from the client (tenant_id passed to this tool is the TSG)
-            tsg_id = tenant_id or getattr(client, "tsg_id", "") or ""
-
-            apps, apps_unlicensed = _fetch(
-                session, f"{_AIRS_BASE}/v1/mgmt/customerapp/tsg/{tsg_id}", "customer_apps"
-            )
-            profiles, prof_unlicensed = _fetch(
-                session, f"{_AIRS_BASE}/v1/mgmt/profiles/tsg/{tsg_id}", "ai_profiles"
-            )
-            deploys, dep_unlicensed = _fetch(
-                session, f"{_AIRS_BASE}/v1/mgmt/deploymentprofiles", "deployment_profiles"
-            )
-
-            if apps_unlicensed and prof_unlicensed and dep_unlicensed:
+            inv = fetch_airs(session)
+            if not inv.provisioned:
+                if inv.forbidden:
+                    return (
+                        "Prisma AIRS: the management API refused the profile list with HTTP 403 "
+                        "— the service account's role lacks AIRS permissions (RBAC), so whether "
+                        "AIRS is provisioned cannot be determined."
+                    )
+                if inv.errors:
+                    return "Error: " + "; ".join(f"{k}: {v}" for k, v in inv.errors.items())
                 return (
-                    "Prisma AIRS is not activated for this tenant (all endpoints returned 404/424)."
+                    "Prisma AIRS is not provisioned for this tenant "
+                    "(no deployment profiles; the management API refused the profile list)."
                 )
 
-            lines = ["## Prisma AIRS — AI Runtime Security\n"]
+            devices: list[dict[str, Any]] | None = None
+            device_note = ""
+            if include_devices:
+                try:
+                    devices = fetch_airs_devices(session, inv)
+                except Exception as exc:
+                    device_note = f"_Device list unavailable: {exc}_"
 
-            # Customer Applications
-            if apps is not None:
-                lines.append(f"### Customer Applications ({len(apps)})")
-                if apps:
-                    lines.append(
-                        "| App Name | Cloud Provider | Environment | AI Agent Framework | Status |"
-                    )
-                    lines.append("|---|---|---|---|---|")
-                    for a in apps:
-                        lines.append(
-                            "| {} | {} | {} | {} | {} |".format(
-                                a.get("app_name", "—"),
-                                a.get("cloud_provider", "—"),
-                                a.get("environment", "—"),
-                                a.get("ai_agent_framework", "—"),
-                                a.get("status", "—"),
-                            )
-                        )
-                else:
-                    lines.append("_No customer applications registered._")
-                lines.append("")
-            elif apps_unlicensed:
-                lines.append("### Customer Applications\n_Not licensed / not activated._\n")
-
-            # AI Security Profiles
-            if profiles is not None:
-                lines.append(f"### AI Security Profiles ({len(profiles)})")
-                if profiles:
-                    lines.append("| Profile Name | Profile ID | Revision | Active |")
-                    lines.append("|---|---|---|---|")
-                    for p in profiles:
-                        lines.append(
-                            "| {} | {} | {} | {} |".format(
-                                p.get("profile_name", "—"),
-                                p.get("profile_id", "—"),
-                                p.get("revision", "—"),
-                                "✓" if p.get("active") else "✗",
-                            )
-                        )
-                else:
-                    lines.append("_No AI security profiles defined._")
-                lines.append("")
-            elif prof_unlicensed:
-                lines.append("### AI Security Profiles\n_Not licensed / not activated._\n")
-
-            # Deployment Profiles
-            if deploys is not None:
-                lines.append(f"### Deployment Profiles ({len(deploys)})")
-                if deploys:
-                    lines.append("| Profile Name | Auth Code | Status | Expiration |")
-                    lines.append("|---|---|---|---|")
-                    for dp in deploys:
-                        lines.append(
-                            "| {} | {} | {} | {} |".format(
-                                dp.get("dp_name", "—"),
-                                dp.get("auth_code", "—"),
-                                dp.get("status", "—"),
-                                dp.get("expiration_date", "—"),
-                            )
-                        )
-                else:
-                    lines.append("_No deployment profiles defined._")
-            elif dep_unlicensed:
-                lines.append("### Deployment Profiles\n_Not licensed / not activated._")
-
-            return "\n".join(lines)
+            risks = assess_airs(inv, devices)
+            lines = ["## Prisma AIRS — AI Runtime Security\n", risk_headline(risks), ""]
+            if device_note:
+                lines += [device_note, ""]
+            lines += render_sections_markdown(airs_sections(inv, devices, risks))
+            return "\n".join(lines).rstrip()
         except Exception as exc:
             from ..utils.errors import handle_scm_exception
 

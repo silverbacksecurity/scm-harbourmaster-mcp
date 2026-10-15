@@ -480,6 +480,14 @@ _Zero-hit rule detection, least-privilege App-ID recommendations, and CIDR-aware
 256. "Which of Acme Corp's security rules does the Policy Optimizer have App-ID recommendations for? Rank them by cleanup value, then pull the suggested replacement rules for the top one so I can see exactly what it wants to narrow `application: any` down to."
 257. "For Contoso Ltd, list the optimizer's analysed rules that pushed more than a gigabyte of traffic, and for each one show me the recommended least-privilege replacements — I want to know how much of that traffic is unknown-tcp/unknown-udp before I commit to narrowing anything."
 
+## 35. Prisma AIRS (AI Runtime Security)
+
+_Licence, AI security profiles, licensed firewalls, change history, risks._
+
+258. "Which of our tenants are licensed for Prisma AIRS? Show me the AIRS column on the tenant health dashboard."
+259. "Are there any AI security risks to report for Acme Corp? List the AIRS findings, most severe first, with what to fix."
+260. "Who changed Contoso Ltd's AIRS security profiles recently, and which firewalls carry an AIRS licence?"
+
 ---
 
 *Generated against the 163-tool surface documented in [`TOOL_REFERENCE.md`](TOOL_REFERENCE.md). If a prompt references a feature your tenant isn't licensed for (AIRS, ZTNA Connector, Compliance Center, ADNSR, NGFW Operations, Posture Management, SPI, PAB), the tool reports that clearly instead of failing silently.*

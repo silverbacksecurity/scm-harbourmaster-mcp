@@ -8,7 +8,8 @@ The differentiator over PANW's single-tenant model:
     bounded concurrency through the same PlannerLoop; results aggregate
     into one estate digest.
   * One check set per tenant — licensing, certs, connectivity, BPA
-    posture, change audit, NCSC CAF, ISO 27001, and DLP/SSPM posture.
+    posture, change audit, NCSC CAF, ISO 27001, DLP/SSPM posture, and
+    Prisma AIRS risks.
     (The BPA/NCSC/ISO steps share one snapshot per tenant via the
     extractor's short-TTL cache, so the whole set costs one extraction.)
   * Cross-tenant anomaly rules — patterns invisible per-tenant: SD-WAN
@@ -86,6 +87,10 @@ def estate_steps(spec: TenantSpec) -> list[StepDraft]:
     )
     add("dlp", "scm_dlp_list", folder="All", tenant_id=spec.tenant_id)
     add("posture_compliance", "scm_saas_posture", tenant_id=spec.tenant_id)
+
+    # AI security — AIRS licence, profiles and risks ("not provisioned" is one line)
+    # (no device sweep: the planner keeps only the summary, risk line first)
+    add("threat_coverage", "scm_airs_list", tenant_id=spec.tenant_id, include_devices=False)
 
     return steps
 

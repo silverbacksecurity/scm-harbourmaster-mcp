@@ -1912,43 +1912,26 @@ def _op_browser_list(tenant, console, _pause) -> None:
 
 def _op_airs_list(tenant, console, _pause) -> None:
     from .auth.oauth import get_scm_client
-    from .tools.mssp import _NOT_LICENSED_STATUSES, _bearer_session, _exc_status
-
-    _AIRS_BASE = "https://api.sase.paloaltonetworks.com/aisec"
-
-    def _fetch(session, url, list_key):
-        try:
-            resp = session.get(url, timeout=(4, 10))
-        except Exception as exc:
-            if _exc_status(exc) in _NOT_LICENSED_STATUSES:
-                return None
-            raise
-        if resp.status_code in _NOT_LICENSED_STATUSES:
-            return None
-        resp.raise_for_status()
-        data = resp.json()
-        return data if isinstance(data, list) else (data.get(list_key) or [])
+    from .tools.mssp import _bearer_session
+    from .utils.airs import assess_airs, fetch_airs, risk_headline
 
     client = get_scm_client(tenant)
     with console.status("[cyan]Fetching AIRS config...[/cyan]"):
         try:
-            session = _bearer_session(client)
-            tsg_id = tenant.tenant_id
-            apps = _fetch(
-                session, f"{_AIRS_BASE}/v1/mgmt/customerapp/tsg/{tsg_id}", "customer_apps"
-            )
-            profiles = _fetch(session, f"{_AIRS_BASE}/v1/mgmt/profiles/tsg/{tsg_id}", "ai_profiles")
-            deploys = _fetch(
-                session, f"{_AIRS_BASE}/v1/mgmt/deploymentprofiles", "deployment_profiles"
-            )
-            if apps is None and profiles is None and deploys is None:
-                console.print("[yellow]Prisma AIRS is not activated for this tenant.[/yellow]")
+            inv = fetch_airs(_bearer_session(client))
+            if inv.forbidden:
+                console.print("[yellow]AIRS: profile list refused (HTTP 403, RBAC).[/yellow]")
+            elif not inv.provisioned and inv.errors:
+                console.print(f"[yellow]AIRS not readable: {inv.errors}[/yellow]")
+            elif not inv.provisioned:
+                console.print("[yellow]Prisma AIRS is not provisioned for this tenant.[/yellow]")
             else:
                 console.print(
-                    f"[green]✓[/green] Customer apps: {len(apps or [])}, "
-                    f"AI security profiles: {len(profiles or [])}, "
-                    f"Deployment profiles: {len(deploys or [])}"
+                    f"[green]✓[/green] Customer apps: {len(inv.apps)}, "
+                    f"AI security profiles: {len(inv.profiles)}, "
+                    f"Deployment profiles: {len(inv.deployment_profiles)}"
                 )
+                console.print(risk_headline(assess_airs(inv)), markup=False)
         except Exception as exc:
             console.print(f"[yellow]AIRS not available: {exc}[/yellow]")
     _pause()

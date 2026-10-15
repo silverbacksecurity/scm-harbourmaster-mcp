@@ -1163,3 +1163,80 @@ class TestNestedHelper:
 
     def test_integer_value_returned_as_string(self) -> None:
         assert _nested({"a": {"b": 42}}, "a", "b") == "42"
+
+
+class TestAirsSection:
+    def test_provisioned_airs_renders_devices_changes_and_risks(self) -> None:
+        snap = AuditSnapshot(folder="Acme-Corp", tenant_id="tsg-acme-123")
+        snap.airs_provisioned = True
+        snap.airs_deployment_profiles = [
+            {"dp_name": "dp-1", "auth_code": "AC1", "expiration_date": "2020-01-01"}
+        ]
+        snap.airs_security_profiles = [
+            {
+                "profile_name": "strict",
+                "profile_id": "p1",
+                "active": True,
+                "updated_by": "admin@example.com",
+                "last_modified_ts": "2026-10-01T10:00:00Z",
+            }
+        ]
+        snap.ngfw_devices = [
+            {
+                "name": "fw-1",
+                "serial_number": "001",
+                "installed_licenses": [{"feature": "X", "authcode": "AC1"}],
+            }
+        ]
+        md = _build(snap)
+        section = md.split("5.6 Prisma AIRS")[-1].split("5.7 Traffic Steering")[0]
+        assert "Licence — Deployment Profiles (1)" in section
+        assert "Firewalls Licensed for AIRS (1)" in section
+        assert "| fw-1 | 001 |" in section
+        assert "Recent Changes (1)" in section
+        assert "**AIRS risks:** 🔴" in section
+        assert "admin@example.com" in section
+        assert "Deployment profile `dp-1` expired" in section
+
+    def test_unprovisioned_airs_says_so(self) -> None:
+        snap = AuditSnapshot(folder="Acme-Corp", tenant_id="tsg-acme-123")
+        snap.airs_refused = {"profiles": 401}
+        md = _build(snap)
+        section = md.split("5.6 Prisma AIRS")[-1].split("5.7 Traffic Steering")[0]
+        assert "not provisioned on this tenant" in section
+
+    def test_forbidden_airs_is_not_called_unprovisioned(self) -> None:
+        snap = AuditSnapshot(folder="Acme-Corp", tenant_id="tsg-acme-123")
+        snap.airs_refused = {"profiles": 403}
+        section = _build(snap).split("5.6 Prisma AIRS")[-1].split("5.7 Traffic Steering")[0]
+        assert "HTTP 403" in section and "not provisioned on this tenant" not in section
+
+    def test_airs_errors_and_refusals_are_shown(self) -> None:
+        snap = AuditSnapshot(folder="Acme-Corp", tenant_id="tsg-acme-123")
+        snap.airs_provisioned = True
+        snap.airs_deployment_profiles = [{"dp_name": "dp-1"}]
+        snap.airs_errors = {"profiles": "page 2: timeout"}
+        snap.airs_refused = {"apps": 401}
+        section = _build(snap).split("5.6 Prisma AIRS")[-1].split("5.7 Traffic Steering")[0]
+        assert "AI Security Profiles (0+)" in section
+        assert "Incomplete — page 2: timeout" in section
+        assert "Refused by the API (HTTP 401)." in section
+        # An errored profile list must not produce the "no profiles" risk.
+        assert "no AI security profiles exist" not in section
+
+    def test_airs_fetch_failure_is_not_reported_as_unprovisioned(self) -> None:
+        snap = AuditSnapshot(folder="Acme-Corp", tenant_id="tsg-acme-123")
+        snap.airs_errors = {"profiles": "HTTP 500"}
+        snap.airs_refused = {"apps": 401}
+        section = _build(snap).split("5.6 Prisma AIRS")[-1].split("5.7 Traffic Steering")[0]
+        assert "could not be read" in section and "HTTP 500" in section
+        assert "not provisioned on this tenant" not in section
+
+    def test_failed_device_list_is_not_reported_as_no_firewalls(self) -> None:
+        snap = AuditSnapshot(folder="Acme-Corp", tenant_id="tsg-acme-123")
+        snap.airs_provisioned = True
+        snap.airs_deployment_profiles = [{"dp_name": "dp-1"}]
+        snap.extraction_errors = ["ngfw_devices[All]: boom"]
+        section = _build(snap).split("5.6 Prisma AIRS")[-1].split("5.7 Traffic Steering")[0]
+        assert "could not be read" in section
+        assert "No SCM-managed firewall carries an AIRS licence" not in section

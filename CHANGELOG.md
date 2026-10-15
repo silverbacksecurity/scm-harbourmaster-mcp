@@ -8,6 +8,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Prisma AIRS coverage beyond a config list.** `scm_airs_list` now reports
+  licence status, inventory, change history and risks, and the same data
+  feeds the AS-BUILT report, the tenant dashboards and the estate check.
+  - It uses the documented management API paths (`/v1/mgmt/customerapps`,
+    `/profiles`, `/topics`, `/apikeys`, `/deploymentprofiles`) with
+    `offset`/`limit` pagination. The old `/tsg/{tsg}` paths are not in the
+    spec.
+  - It adds custom topics and API keys. API keys show name, app, last 8
+    characters, expiry and rotation. The key value the API returns is dropped
+    on fetch, so it never reaches snapshots, the config search index or drift
+    baselines.
+  - AIRS calls use a refreshed bearer session, not the SDK's OAuth session,
+    which raises once the token ages. The CLI menu's AIRS option uses the same
+    fetch.
+  - Firewalls licensed for AIRS are matched from the SCM device list by
+    deployment-profile auth code or an AIRS licence feature.
+  - Recent changes list who created or updated each profile, topic, app and
+    key.
+  - Risk checks cover expired or expiring licences and keys, profiles with
+    no model protection, detections or toxic categories set to allow,
+    fail-open on inline timeout, missing DLP, unused topics, and apps with
+    no key.
+  - A tenant with no deployment profiles whose profile list is refused
+    reports "not provisioned" in one line, without the remaining calls. A 403
+    is reported as a missing AIRS role (RBAC), and a failed call as an error,
+    never as "not provisioned".
+  - A list that fails part-way keeps the pages it got and says it is
+    incomplete; risk checks that depend on a full list (no profiles, unused
+    topics) are skipped for it.
+  - Reports open with a one-line risk verdict (🔴/🟡/🟢 counts plus the worst
+    finding), so it survives the estate planner's summary truncation.
+  - AS-BUILT §5.6 renders the same tables, devices, changes and risks from
+    the same code, and says plainly whether AIRS is not provisioned, not
+    readable (RBAC) or failed.
+  - `scm_tenant_dashboard` has an AIRS column (profiles/apps plus a risk
+    count, "+" when partial). It runs alongside the row's other pulls, so a
+    slow AIRS API shows ⏱ in that cell instead of losing the row.
+    `mssp_tenant_capabilities` probes an `airs` family (informational).
+    `scm_estate_check` runs `scm_airs_list` for every tenant.
+  - Shared logic lives in `utils/airs.py`. Table cells escape `|` and line
+    breaks from API free text.
 - **`scm_panorama_migrate` migrates a Panorama device group or a firewall
   vsys into an SCM folder** from an offline config export. It needs no
   Panorama or firewall API access. `scm_panorama_migrate_result` returns the

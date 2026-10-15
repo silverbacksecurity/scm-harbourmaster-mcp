@@ -31,6 +31,7 @@ def register_capability_tools(mcp: FastMCP, get_client: Any) -> None:
         Sends one cheap, read-only request per API family (SCM config jobs,
         allocated egress IPs, licences, Incidents, Insights, ADEM, Compliance
         Center, Enterprise DLP, Email DLP, ZTNA Connector, SSPM, IAM, Tenancy,
+        Prisma AIRS,
         SD-WAN sites and audit log) and classifies each as available,
         forbidden (403 RBAC), unprovisioned (not licensed/enabled) or error
         (inconclusive). Results are cached per tenant for 6 hours.

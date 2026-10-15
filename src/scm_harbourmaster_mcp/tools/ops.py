@@ -13,11 +13,13 @@ Tools:
 
 from __future__ import annotations
 
+import contextlib
 import json as _json
 import time
 import urllib.error
 import urllib.request
 from concurrent.futures import ALL_COMPLETED, ThreadPoolExecutor, wait
+from concurrent.futures import TimeoutError as FutureTimeout
 from datetime import UTC, datetime
 from typing import Any
 
@@ -1784,6 +1786,11 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
             PAB           — Prisma Access Browser: enrolled users/devices and the
                             share of devices passing all posture checks (screen
                             lock + disk encryption + firewall); — if unprovisioned
+            AIRS          — Prisma AIRS: AI security profiles / customer apps,
+                            with 🔴 high or 🟡 other risk counts (scm_airs_list
+                            for detail; "+" = partial count); — if
+                            unprovisioned, ⛔ RBAC if the role lacks AIRS,
+                            ⚠️ error / ⏱ if the AIRS API failed or was slow
             Nearest Expiry — soonest licence expiry date (see include_expired)
             Days          — days until that expiry
             Lic           — licence RAG status
@@ -1825,8 +1832,8 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
             "",
             f"**Generated:** {ts}  | **Tenants:** {len(tenant_cfgs)}",
             "",
-            "| Tenant | Rules | RNs | Tunnels | PAB | Nearest Expiry | Days | Lic | Errors | RAG |",
-            "|---|---|---|---|---|---|---|---|---|---|",
+            "| Tenant | Rules | RNs | Tunnels | PAB | AIRS | Nearest Expiry | Days | Lic | Errors | RAG |",
+            "|---|---|---|---|---|---|---|---|---|---|---|",
         ]
 
         # Build each tenant's row in parallel under a hard wall-clock budget.
@@ -1835,13 +1842,41 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
         # retries with backoff) can no longer block the whole dashboard — it
         # simply renders as a degraded "slow/skipped" row while the rest report
         # normally. This mirrors the bounded-parallel pattern in extractor.py.
+        _DASH_TIMEOUT = 25  # seconds — overall wall-clock budget for the poll
+        _AIRS_WAIT = 4  # most a row waits for its AIRS cell after its other pulls
+        poll_deadline = time.monotonic() + _DASH_TIMEOUT
+
+        def _airs_cell(session: Any) -> str:
+            from ..utils.airs import (
+                airs_dashboard_cell,
+                assess_airs,
+                fetch_airs,
+                fetch_airs_devices,
+            )
+
+            inv = fetch_airs(session, max_pages=1, timeout=(3, 6))
+            devices: list[dict[str, Any]] = []
+            if inv.provisioned:
+                with contextlib.suppress(Exception):
+                    devices = fetch_airs_devices(session, inv, quick=True)
+            return airs_dashboard_cell(inv, assess_airs(inv, devices))
+
         def _row(tc: TenantConfig) -> str:
             try:
                 client = get_scm_client(tc)
             except Exception:
-                return f"| **{tc.label}** | — | — | — | — | — | — | ⚪ | Auth failed | 🔴 |"
+                return f"| **{tc.label}** | — | — | — | — | — | — | — | ⚪ | Auth failed | 🔴 |"
 
             session = getattr(client, "session", None)
+            # AIRS runs alongside the other pulls so a slow AIRS or device API
+            # can only cost this one cell ("⏱"), never the whole row. First
+            # page of each list only; counts show "+" when partial.
+            airs_pool = ThreadPoolExecutor(max_workers=1)
+            # Bearer session built here, on the row thread, so the AIRS thread
+            # never refreshes the token the row's SDK calls are using.
+            from ..audit.extractor import _bearer_session_for
+
+            airs_fut = airs_pool.submit(_airs_cell, _bearer_session_for(client))
             rules = _quick_list(
                 session, "security-rules", {"folder": tc.default_folder, "position": "pre"}
             )
@@ -1881,6 +1916,18 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
             except Exception:
                 pass
 
+            # AIRS — collected from the pull started at the top of the row.
+            try:
+                # Never wait past the poll budget: a late row must still render.
+                wait_s = min(_AIRS_WAIT, max(0.0, poll_deadline - 1 - time.monotonic()))
+                airs = airs_fut.result(timeout=wait_s)
+            except FutureTimeout:
+                airs = "⏱"
+            except Exception:
+                airs = "⚠️ error"
+            finally:
+                airs_pool.shutdown(wait=False)
+
             lic_st = _status(min_days)
             lic_emoji = _STATUS_EMOJI.get(lic_st, "⚪")
             days_s = str(min_days) if min_days is not None else "?"
@@ -1894,11 +1941,10 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
                 rag = "🟢"
 
             return (
-                f"| **{tc.label}** | {len(rules)} | {len(rns)} | {len(tunnels)} | {pab} "
+                f"| **{tc.label}** | {len(rules)} | {len(rns)} | {len(tunnels)} | {pab} | {airs} "
                 f"| {min_exp_str} | {days_s} | {lic_emoji} {lic_st} | 0 | {rag} |"
             )
 
-        _DASH_TIMEOUT = 25  # seconds — overall wall-clock budget for the poll
         rows_by_label: dict[str, str] = {}
         pool = ThreadPoolExecutor(max_workers=min(8, len(tenant_cfgs)))
         try:
@@ -1912,13 +1958,13 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
                     rows_by_label[label] = fut.result()
                 except Exception:
                     rows_by_label[label] = (
-                        f"| **{label}** | — | — | — | — | — | — | ⚪ | Error | 🔴 |"
+                        f"| **{label}** | — | — | — | — | — | — | — | ⚪ | Error | 🔴 |"
                     )
             for fut in not_done:
                 label = fut_to_label[fut]
                 fut.cancel()
                 rows_by_label[label] = (
-                    f"| **{label}** | — | — | — | — | — | — | ⏱ | Slow/skipped | 🟡 |"
+                    f"| **{label}** | — | — | — | — | — | — | — | ⏱ | Slow/skipped | 🟡 |"
                 )
         finally:
             pool.shutdown(wait=False)
@@ -1937,7 +1983,7 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
         for tc in tenant_cfgs.values():
             lines.append(
                 rows_by_label.get(
-                    tc.label, f"| **{tc.label}** | — | — | — | — | — | — | ⚪ | No data | 🔴 |"
+                    tc.label, f"| **{tc.label}** | — | — | — | — | — | — | — | ⚪ | No data | 🔴 |"
                 )
             )
 

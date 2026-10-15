@@ -1229,7 +1229,6 @@ def extract_cdl(client: Any, snap: Any) -> Any:
     return snap
 
 
-_AIRS_BASE = "https://api.sase.paloaltonetworks.com/aisec"
 _DLP_BASE = "https://api.dlp.paloaltonetworks.com"
 _ADEM_BASE = "https://api.sase.paloaltonetworks.com/adem/telemetry/v2"
 _PRISMA_DATAPATH_BASE = "https://api.prod.datapath.prismaaccess.com"
@@ -2366,59 +2365,37 @@ def extract_airs(client: Any, snap: Any) -> Any:
     """
     Fetch Prisma AIRS (AI Runtime Security) config via the management API.
 
-    Base URL: https://api.sase.paloaltonetworks.com/aisec
-    Auth:     Same OAuth 2.0 bearer token as SCM (reuses client.session).
-    TSG ID:   Taken from snap.tenant_id — required for per-TSG list endpoints.
-
-    Endpoints:
-      GET /v1/mgmt/customerapp/tsg/{tsgId} — customer apps  (response key: customer_apps)
-      GET /v1/mgmt/profiles/tsg/{tsgId}    — AI sec profiles (response key: ai_profiles)
-      GET /v1/mgmt/deploymentprofiles       — deployment profiles (response key: deployment_profiles)
-
-    All return 404/424 if AIRS is not licensed/activated — non-fatal.
-
-    Response schemas confirmed from cdot65/prisma-airs-sdk:
-      - Customer app fields: app_name, cloud_provider, environment, status, ai_agent_framework
-      - Security profile fields: profile_name, profile_id, revision, active
-      - Deployment profile fields: dp_name, auth_code, status, expiration_date
+    Delegates to :func:`utils.airs.fetch_airs` (spec paths, pagination, the
+    "not provisioned" gate) so AS-BUILT and ``scm_airs_list`` agree. An
+    unprovisioned tenant is non-fatal and leaves ``snap.airs_provisioned``
+    False.
 
     Ref: https://pan.dev/prisma-airs/api/airuntimesecurity/prismaairsmanagementapi/
     """
-    session = getattr(client, "session", None)
-    if session is None:
+    from ..utils.airs import fetch_airs
+
+    if getattr(client, "session", None) is None:
         snap.extraction_errors.append("airs: Scm client has no .session")
         return snap
 
-    tsg_id = snap.tenant_id
-
-    _endpoints = [
-        # (snap_attr, url_path, response_list_key)
-        ("airs_apps", f"/v1/mgmt/customerapp/tsg/{tsg_id}", "customer_apps"),
-        ("airs_security_profiles", f"/v1/mgmt/profiles/tsg/{tsg_id}", "ai_profiles"),
-        ("airs_deployment_profiles", "/v1/mgmt/deploymentprofiles", "deployment_profiles"),
-    ]
-
-    for attr, url_path, list_key in _endpoints:
-        try:
-            resp = session.get(f"{_AIRS_BASE}{url_path}", timeout=(4, 10))
-            if resp.status_code in _NOT_LICENSED_STATUSES:
-                logger.info("airs_not_licensed", resource=attr, status=resp.status_code)
-                continue
-            resp.raise_for_status()
-            data = resp.json()
-            if isinstance(data, list):
-                items = data
-            else:
-                items = data.get(list_key, data.get("data", data.get("items", []))) or []
-            setattr(snap, attr, items)
-            logger.info("airs_extracted", resource=attr, count=len(items))
-        except Exception as exc:
-            if _exc_status(exc) in _NOT_LICENSED_STATUSES:
-                logger.info("airs_not_licensed", resource=attr, status=_exc_status(exc))
-                continue
-            snap.extraction_errors.append(f"{attr}: {exc}")
-            logger.warning("airs_error", resource=attr, error=str(exc))
-
+    inv = fetch_airs(_bearer_session_for(client))
+    snap.airs_provisioned = inv.provisioned
+    snap.airs_deployment_profiles = inv.deployment_profiles
+    snap.airs_apps = inv.apps
+    snap.airs_security_profiles = inv.profiles
+    snap.airs_topics = inv.topics
+    snap.airs_api_keys = inv.api_keys
+    snap.airs_refused = dict(inv.refused)
+    snap.airs_errors = dict(inv.errors)
+    snap.airs_truncated = sorted(inv.truncated)
+    for resource, err in inv.errors.items():
+        snap.extraction_errors.append(f"airs_{resource}: {err}")
+    logger.info(
+        "airs_extracted",
+        provisioned=inv.provisioned,
+        profiles=len(inv.profiles),
+        apps=len(inv.apps),
+    )
     return snap
 
 

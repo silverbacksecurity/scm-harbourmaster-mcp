@@ -51,6 +51,7 @@ class TestCheckTemplate:
             "scm_iso27001_assess",
             "scm_dlp_list",
             "scm_saas_posture",
+            "scm_airs_list",
         }
 
     def test_every_tenant_gets_the_same_steps(self) -> None:

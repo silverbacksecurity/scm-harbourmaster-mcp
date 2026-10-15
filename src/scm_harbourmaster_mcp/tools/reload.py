@@ -82,6 +82,7 @@ _RELOAD_ORDER = [
     "scm_harbourmaster_mcp.audit.bpa_checks",
     "scm_harbourmaster_mcp.audit.report",
     "scm_harbourmaster_mcp.audit.extractor",
+    "scm_harbourmaster_mcp.utils.airs",
     "scm_harbourmaster_mcp.audit.clone_preflight",
     "scm_harbourmaster_mcp.audit.cloner",
     "scm_harbourmaster_mcp.audit.panos_import",

@@ -4023,62 +4023,71 @@ class AsBuiltReportBuilder:
             "sensitive data loss, insecure outputs, and AI agentic threats."
         )
         self._p()
-        if snap.airs_apps or snap.airs_security_profiles or snap.airs_deployment_profiles:
-            if snap.airs_apps:
-                self._h(4, f"Customer Applications ({len(snap.airs_apps)})")
-                rows = [
-                    [
-                        a.get("app_name", "—"),
-                        a.get("cloud_provider", _NA),
-                        a.get("environment", _NA),
-                        a.get("ai_agent_framework", _NA),
-                        a.get("status", _NA),
-                    ]
-                    for a in snap.airs_apps
-                ]
-                self._table(
-                    ["App Name", "Cloud Provider", "Environment", "AI Agent Framework", "Status"],
-                    rows,
-                )
+        from ..utils.airs import (
+            AirsInventory,
+            airs_devices,
+            airs_sections,
+            assess_airs,
+            render_sections_markdown,
+            risk_headline,
+        )
 
-            if snap.airs_security_profiles:
-                self._h(4, f"AI Security Profiles ({len(snap.airs_security_profiles)})")
-                rows = [
-                    [
-                        p.get("profile_name", "—"),
-                        p.get("profile_id", _NA),
-                        str(p.get("revision", _NA)),
-                        "✓" if p.get("active") else "✗",
-                    ]
-                    for p in snap.airs_security_profiles
-                ]
-                self._table(["Profile Name", "Profile ID", "Revision", "Active"], rows)
-
-            if snap.airs_deployment_profiles:
-                self._h(4, f"Deployment Profiles ({len(snap.airs_deployment_profiles)})")
-                rows = [
-                    [
-                        dp.get("dp_name", "—"),
-                        dp.get("auth_code", _NA),
-                        dp.get("status", _NA),
-                        dp.get("expiration_date", _NA),
-                    ]
-                    for dp in snap.airs_deployment_profiles
-                ]
-                self._table(["Profile Name", "Auth Code", "Status", "Expiration Date"], rows)
+        inv = AirsInventory(
+            provisioned=snap.airs_provisioned,
+            deployment_profiles=snap.airs_deployment_profiles,
+            apps=snap.airs_apps,
+            profiles=snap.airs_security_profiles,
+            topics=snap.airs_topics,
+            api_keys=snap.airs_api_keys,
+            refused=snap.airs_refused,
+            errors=snap.airs_errors,
+            truncated=set(snap.airs_truncated),
+        )
+        if inv.provisioned:
+            # An unreadable device list is "unknown", not "no AIRS firewalls".
+            device_list_failed = any(e.startswith("ngfw_devices") for e in snap.extraction_errors)
+            devices = None if device_list_failed else airs_devices(snap.ngfw_devices, inv)
+            risks = assess_airs(inv, devices)
+            self._p(risk_headline(risks))
+            self._p()
+            if device_list_failed:
+                self._p("_Firewall licences not checked: the NGFW device list could not be read._")
+                self._p()
+            for line in render_sections_markdown(airs_sections(inv, devices, risks), level=4):
+                self._p(line)
         else:
-            self._warn(
-                "No Prisma AIRS configuration found. This section is populated when "
-                "`include_extended=True` is set and the tenant has a Prisma AIRS licence. "
-                "If AIRS is not yet deployed, complete the table below manually."
-            )
+            if inv.forbidden:
+                self._note(
+                    "The AIRS management API refused the profile list with HTTP 403: the "
+                    "service account's role lacks AIRS permissions, so whether AIRS is "
+                    "provisioned could not be determined."
+                )
+            elif inv.errors:
+                self._warn(
+                    "The AIRS management API could not be read ("
+                    + "; ".join(f"{k}: {v}" for k, v in inv.errors.items())
+                    + "). Re-run the report, or complete the table below manually."
+                )
+            elif "profiles" in inv.refused:
+                self._note(
+                    "Prisma AIRS is not provisioned on this tenant: there are no deployment "
+                    "profiles and the AIRS management API refused the profile list. "
+                    "If AIRS is planned, complete the table below manually."
+                )
+            else:
+                self._warn(
+                    "No Prisma AIRS configuration found. This section is populated when "
+                    "`include_extended=True` is set and the tenant has a Prisma AIRS licence. "
+                    "If AIRS is not yet deployed, complete the table below manually."
+                )
             self._table(
                 ["Component", "Status", "Notes"],
                 [
-                    ["Prisma AIRS Licence", _NA, "Verify in Subscription Service"],
+                    ["Prisma AIRS Licence", _NA, "Deployment profile (auth code) in SCM"],
                     ["Customer Applications", _NA, "AI apps registered for API inspection"],
                     ["AI Security Profiles", _NA, "Prompt injection / data loss rules"],
-                    ["Deployment Profiles", _NA, "Inline / async deployment mode"],
+                    ["Custom Topics", _NA, "Topic guardrails"],
+                    ["API Keys", _NA, "Per-app keys, rotation interval"],
                 ],
             )
         self._p(
