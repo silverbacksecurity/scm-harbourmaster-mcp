@@ -46,6 +46,9 @@ _RELOAD_EXCLUDED = {
     "scm_harbourmaster_mcp.auth.entra_resource",
     # This module — it is executing the reload.
     "scm_harbourmaster_mcp.tools.reload",
+    # Background-job stores: running jobs' threads hold these objects, so a
+    # reload must keep them for the *_result tools to find those jobs.
+    "scm_harbourmaster_mcp.utils.jobs",
 }
 
 # Every utils/auth/audit/tools module except _RELOAD_EXCLUDED, ordered so a

@@ -19,7 +19,6 @@ import subprocess
 import tempfile
 import threading
 import time
-import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -91,6 +90,7 @@ from ..auth.oauth import fetch_licenses, get_scm_client, get_tenant_meta
 from ..config.settings import load_all_tenant_configs
 from ..utils.capabilities import capability_skip_reason
 from ..utils.errors import handle_scm_exception
+from ..utils.jobs import ASBUILT_JOBS, DRIFT_JOBS, not_found
 from ..utils.logging import get_logger
 from ..utils.paths import backup_dir, baseline_dir
 from ..utils.tool_decorator import scm_tool
@@ -101,31 +101,6 @@ logger = get_logger(__name__)
 
 _DEFAULT_BACKUP_DIR = backup_dir()
 _DEFAULT_BASELINE_DIR = baseline_dir()
-
-# Background job store for scm_asbuilt_report / scm_asbuilt_result.
-# Jobs expire after 1 hour. Thread-safe via _JOBS_LOCK.
-_ASBUILT_JOBS: dict[str, dict[str, Any]] = {}
-_JOBS_LOCK = threading.Lock()
-_JOB_TTL = 3600  # seconds
-
-# Background job store for the drift sentinel's all-tenants sweep
-# (scm_drift_baseline / scm_drift_check with all_tenants=True).
-_DRIFT_JOBS: dict[str, dict[str, Any]] = {}
-
-
-def _prune_drift_jobs() -> None:
-    cutoff = time.time() - _JOB_TTL
-    with _JOBS_LOCK:
-        for jid in [j for j, meta in _DRIFT_JOBS.items() if meta["started_at"] < cutoff]:
-            del _DRIFT_JOBS[jid]
-
-
-def _prune_asbuilt_jobs() -> None:
-    cutoff = time.time() - _JOB_TTL
-    with _JOBS_LOCK:
-        stale = [k for k, v in _ASBUILT_JOBS.items() if v["started_at"] < cutoff]
-        for k in stale:
-            del _ASBUILT_JOBS[k]
 
 
 def _drop_predefined_apps(rtype: str, items: Any) -> Any:
@@ -1584,8 +1559,6 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
         Returns:
             Job ID string. Call scm_asbuilt_result(job_id) once extraction completes.
         """
-        _prune_asbuilt_jobs()
-
         # Resolve folder before handing off to thread
         _dt = deployment_type.strip()
         _folder = folder or (
@@ -1594,16 +1567,8 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
             else "Prisma Access"
         )
 
-        job_id = uuid.uuid4().hex[:8]
-        with _JOBS_LOCK:
-            _ASBUILT_JOBS[job_id] = {
-                "status": "running",
-                "started_at": time.time(),
-                "folder": _folder,
-                "tenant_id": tenant_id,
-                "result": None,
-                "error": None,
-            }
+        job_id = ASBUILT_JOBS.create(folder=_folder, tenant_id=tenant_id)
+        _started = time.time()
 
         def _run() -> None:
             try:
@@ -1755,19 +1720,14 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
                     jobs=_jobs,
                 )
                 report_md = builder.to_markdown()
-                elapsed = round(time.time() - _ASBUILT_JOBS[job_id]["started_at"])
+                elapsed = round(time.time() - _started)
                 logger.info("asbuilt_job_complete", job_id=job_id, elapsed_s=elapsed)
-                with _JOBS_LOCK:
-                    _ASBUILT_JOBS[job_id]["status"] = "done"
-                    _ASBUILT_JOBS[job_id]["result"] = report_md
-                    # Kept for scm_asbuilt_verify — doc-vs-live drift checking
-                    _ASBUILT_JOBS[job_id]["snap"] = snap
+                # snap is kept for scm_asbuilt_verify — doc-vs-live drift checking
+                ASBUILT_JOBS.update(job_id, status="done", result=report_md, snap=snap)
 
             except Exception as exc:
                 logger.error("asbuilt_job_failed", job_id=job_id, error=str(exc))
-                with _JOBS_LOCK:
-                    _ASBUILT_JOBS[job_id]["status"] = "error"
-                    _ASBUILT_JOBS[job_id]["error"] = handle_scm_exception(exc)
+                ASBUILT_JOBS.update(job_id, status="error", error=handle_scm_exception(exc))
 
         threading.Thread(target=_run, daemon=True, name=f"asbuilt-{job_id}").start()
 
@@ -1804,13 +1764,9 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
             The full Markdown AS-BUILT, a save-path confirmation, or a status
             message if still running.
         """
-        with _JOBS_LOCK:
-            job = dict(_ASBUILT_JOBS.get(job_id, {}))
-
+        job = ASBUILT_JOBS.get(job_id)
         if not job:
-            active = list(_ASBUILT_JOBS.keys())
-            hint = f"  Active jobs: {active}" if active else "  No active jobs."
-            return f"Job `{job_id}` not found (expires after 1 hour).\n{hint}"
+            return not_found("Job", job_id)
 
         elapsed = int(time.time() - job["started_at"])
         mins, secs = divmod(elapsed, 60)
@@ -1879,13 +1835,9 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
         """
         from ..audit.asbuilt_verify import diff_snapshots, render_verification_report
 
-        with _JOBS_LOCK:
-            job = dict(_ASBUILT_JOBS.get(job_id, {}))
-
+        job = ASBUILT_JOBS.get(job_id)
         if not job:
-            active = list(_ASBUILT_JOBS.keys())
-            hint = f"  Active jobs: {active}" if active else "  No active jobs."
-            return f"Job `{job_id}` not found (expires after 1 hour).\n{hint}"
+            return not_found("Job", job_id)
         if job["status"] == "running":
             return f"Job `{job_id}` is still running — verify after scm_asbuilt_result succeeds."
         if job["status"] == "error":
@@ -2012,15 +1964,7 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
                 [_drift_one(mode, label, tsg_id, client, auth_error, folder, update_baseline)]
             )
 
-        _prune_drift_jobs()
-        job_id = uuid.uuid4().hex[:8]
-        with _JOBS_LOCK:
-            _DRIFT_JOBS[job_id] = {
-                "status": "running",
-                "started_at": time.time(),
-                "result": None,
-                "error": None,
-            }
+        job_id = DRIFT_JOBS.create()
 
         def _run() -> None:
             try:
@@ -2036,15 +1980,11 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
                         )
                     )
                 digest = _render(results)
-                with _JOBS_LOCK:
-                    _DRIFT_JOBS[job_id]["status"] = "done"
-                    _DRIFT_JOBS[job_id]["result"] = digest
+                DRIFT_JOBS.update(job_id, status="done", result=digest)
                 logger.info("drift_job_complete", job_id=job_id, mode=mode, tenants=len(targets))
             except Exception as exc:
                 logger.error("drift_job_failed", job_id=job_id, error=str(exc))
-                with _JOBS_LOCK:
-                    _DRIFT_JOBS[job_id]["status"] = "error"
-                    _DRIFT_JOBS[job_id]["error"] = handle_scm_exception(exc)
+                DRIFT_JOBS.update(job_id, status="error", error=handle_scm_exception(exc))
 
         threading.Thread(target=_run, daemon=True, name=f"drift-{job_id}").start()
         return (
@@ -2131,12 +2071,9 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
             The capture summary or drift digest, or a status message if the
             sweep is still running.
         """
-        with _JOBS_LOCK:
-            job = dict(_DRIFT_JOBS.get(job_id, {}))
+        job = DRIFT_JOBS.get(job_id)
         if not job:
-            active = list(_DRIFT_JOBS.keys())
-            hint = f"  Active jobs: {active}" if active else "  No active jobs."
-            return f"Drift job `{job_id}` not found (expires after 1 hour).\n{hint}"
+            return not_found("Drift job", job_id)
         elapsed = int(time.time() - job["started_at"])
         mins, secs = divmod(elapsed, 60)
         if job["status"] == "running":

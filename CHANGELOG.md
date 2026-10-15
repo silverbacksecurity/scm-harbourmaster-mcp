@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Job result tools no longer list other jobs' IDs.** On an unknown job ID,
+  `scm_asbuilt_result`, `scm_asbuilt_verify`, `scm_drift_result` and
+  `scm_config_index_result` replied with every active job ID. These tools
+  take no tenant, so on a shared MSSP server that handed one tenant's
+  report job IDs to anyone asking about another. They now answer
+  "not found" and name nothing else, as `scm_panorama_migrate_result`
+  already did.
+- **Long AS-BUILT, drift and index jobs no longer crash on completion.**
+  Pruning removed jobs older than an hour even while they were running. The
+  worker thread then hit a `KeyError` writing its result, and the result was
+  lost. Running jobs are now never pruned, and a late update to a job that
+  has gone is ignored.
+- **Background jobs survive `scm_reload`.** The four hand-written job stores
+  are replaced by one shared `JobStore` (`utils/jobs.py`). That module is
+  left out of hot reload, so a running job's thread and the `*_result` tools
+  keep sharing the same store across a reload.
+
 ## [0.14.0] - 2026-10-15
 
 ### Added

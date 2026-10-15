@@ -13,6 +13,7 @@ import pytest
 from mcp.server.fastmcp import FastMCP
 
 from scm_harbourmaster_mcp.tools import panorama_migrate as pm
+from scm_harbourmaster_mcp.utils.jobs import MIGRATE_JOBS
 
 PANORAMA = Path(__file__).parent.parent / "fixtures" / "panos" / "panorama.xml"
 TICKET = "CHG-1234"
@@ -165,19 +166,10 @@ def test_blocked_dry_run_says_to_fix_references_not_to_apply(tools):
     assert "dry_run=False" not in out
 
 
-def test_prune_keeps_running_jobs_past_the_ttl(monkeypatch):
-    old = time.time() - pm._JOB_TTL - 1  # noqa: SLF001
-    jobs = {
-        "running": {"status": "running", "started_at": old},
-        "done": {"status": "done", "started_at": old},
-        "fresh": {"status": "done", "started_at": time.time()},
-    }
-    monkeypatch.setattr(pm, "_MIGRATE_JOBS", jobs)
-    pm._prune_jobs()  # noqa: SLF001
-    assert set(jobs) == {"running", "fresh"}
-
-
-def test_unknown_job_does_not_list_other_jobs(tools, monkeypatch):
-    monkeypatch.setitem(pm._MIGRATE_JOBS, "other123", {"status": "running", "started_at": 0})  # noqa: SLF001
-    out = tools.result(job_id="nope")
-    assert "not found" in out and "other123" not in out
+def test_unknown_job_does_not_list_other_jobs(tools):
+    other = MIGRATE_JOBS.create()
+    try:
+        out = tools.result(job_id="nope")
+    finally:
+        MIGRATE_JOBS.clear()
+    assert "not found" in out and other not in out

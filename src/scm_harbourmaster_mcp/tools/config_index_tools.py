@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import threading
 import time
-import uuid
 from datetime import UTC, datetime
 from typing import Any
 
@@ -37,24 +36,12 @@ from ..audit.extractor import extract_snapshot
 from ..auth.oauth import get_scm_client
 from ..config.settings import load_all_tenant_configs
 from ..utils.errors import handle_scm_exception
+from ..utils.jobs import INDEX_JOBS, not_found
 from ..utils.logging import get_logger
 
 logger = get_logger(__name__)
 
 _MAX_CHARS = 15000
-
-# Background job store for the all-tenants index sweep, mirroring the drift
-# sentinel's shape (jobs expire after 1 hour).
-_INDEX_JOBS: dict[str, dict[str, Any]] = {}
-_JOBS_LOCK = threading.Lock()
-_JOB_TTL = 3600
-
-
-def _prune_jobs() -> None:
-    cutoff = time.time() - _JOB_TTL
-    with _JOBS_LOCK:
-        for jid in [j for j, meta in _INDEX_JOBS.items() if meta["started_at"] < cutoff]:
-            del _INDEX_JOBS[jid]
 
 
 def _age(indexed_at: float) -> str:
@@ -231,15 +218,7 @@ def register_config_index_tools(mcp: FastMCP, get_client: Any) -> None:
                     [_index_one(label, tsg_id, client, auth_error, folder, include_predefined)], ts
                 )
 
-            _prune_jobs()
-            job_id = uuid.uuid4().hex[:8]
-            with _JOBS_LOCK:
-                _INDEX_JOBS[job_id] = {
-                    "status": "running",
-                    "started_at": time.time(),
-                    "result": None,
-                    "error": None,
-                }
+            job_id = INDEX_JOBS.create()
 
             def _run() -> None:
                 try:
@@ -254,15 +233,11 @@ def register_config_index_tools(mcp: FastMCP, get_client: Any) -> None:
                                 targets,
                             )
                         )
-                    with _JOBS_LOCK:
-                        _INDEX_JOBS[job_id]["status"] = "done"
-                        _INDEX_JOBS[job_id]["result"] = _render_stats(results, ts)
+                    INDEX_JOBS.update(job_id, status="done", result=_render_stats(results, ts))
                     logger.info("index_job_complete", job_id=job_id, tenants=len(targets))
                 except Exception as exc:
                     logger.error("index_job_failed", job_id=job_id, error=str(exc))
-                    with _JOBS_LOCK:
-                        _INDEX_JOBS[job_id]["status"] = "error"
-                        _INDEX_JOBS[job_id]["error"] = handle_scm_exception(exc)
+                    INDEX_JOBS.update(job_id, status="error", error=handle_scm_exception(exc))
 
             threading.Thread(target=_run, daemon=True, name=f"index-{job_id}").start()
             return (
@@ -284,12 +259,9 @@ def register_config_index_tools(mcp: FastMCP, get_client: Any) -> None:
         Returns:
             The index summary, or a status message if the sweep is still running.
         """
-        with _JOBS_LOCK:
-            job = dict(_INDEX_JOBS.get(job_id, {}))
+        job = INDEX_JOBS.get(job_id)
         if not job:
-            active = list(_INDEX_JOBS.keys())
-            hint = f"  Active jobs: {active}" if active else "  No active jobs."
-            return f"Index job `{job_id}` not found (expires after 1 hour).\n{hint}"
+            return not_found("Index job", job_id)
         mins, secs = divmod(int(time.time() - job["started_at"]), 60)
         if job["status"] == "running":
             return f"Index job `{job_id}` still running ({mins}m {secs}s). Check again shortly."

@@ -17,7 +17,6 @@ from __future__ import annotations
 import json
 import threading
 import time
-import uuid
 from datetime import UTC, datetime
 from typing import Any
 
@@ -27,29 +26,13 @@ from ..audit.clone_preflight import MISSING_REFERENCE_MODES
 from ..audit.cloner import ON_CONFLICT_MODES, CloneReport, clone_config
 from ..audit.panos_import import Conversion, PanosImportError, convert, load_xml, plan_markdown
 from ..utils.errors import handle_scm_exception
+from ..utils.jobs import MIGRATE_JOBS, not_found
 from ..utils.logging import get_logger
 from ..utils.paths import backup_dir
 from ..utils.write_safety import audit_write, normalize_ticket_ref, ticket_ref_error
 from .audit import write_config_backup
 
 logger = get_logger(__name__)
-
-# Apply jobs, kept for 1 hour like the other background jobs (a running job
-# is never pruned: its thread still writes to its entry)
-_MIGRATE_JOBS: dict[str, dict[str, Any]] = {}
-_JOBS_LOCK = threading.Lock()
-_JOB_TTL = 3600
-
-
-def _prune_jobs() -> None:
-    cutoff = time.time() - _JOB_TTL
-    with _JOBS_LOCK:
-        for jid in [
-            j
-            for j, meta in _MIGRATE_JOBS.items()
-            if meta["started_at"] < cutoff and meta["status"] != "running"
-        ]:
-            del _MIGRATE_JOBS[jid]
 
 
 def _write_plan(conv: Conversion) -> str:
@@ -290,22 +273,12 @@ def register_panorama_migrate_tools(mcp: FastMCP, get_client: Any) -> None:
         except Exception as exc:
             return f"Error: {handle_scm_exception(exc, tool='scm_panorama_migrate')}"
 
-        _prune_jobs()
-        job_id = uuid.uuid4().hex[:8]
-        with _JOBS_LOCK:
-            _MIGRATE_JOBS[job_id] = {
-                "status": "running",
-                "stage": "backing up the target folder",
-                "started_at": time.time(),
-                "result": None,
-                "error": None,
-            }
+        job_id = MIGRATE_JOBS.create(stage="backing up the target folder")
 
         def _run() -> None:
             try:
                 backup_path, _ = write_config_backup(client, tenant_id, target_folder)
-                with _JOBS_LOCK:
-                    _MIGRATE_JOBS[job_id]["stage"] = "pushing"
+                MIGRATE_JOBS.update(job_id, stage="pushing")
                 applied = _clone(client, False)
                 if _blocked(applied):
                     # The target changed between the check and the push
@@ -324,9 +297,7 @@ def register_panorama_migrate_tools(mcp: FastMCP, get_client: Any) -> None:
                     pre=[f"**Pre-migration backup:** `{backup_path}`", ""],
                     post=post,
                 )
-                with _JOBS_LOCK:
-                    _MIGRATE_JOBS[job_id]["status"] = "done"
-                    _MIGRATE_JOBS[job_id]["result"] = result
+                MIGRATE_JOBS.update(job_id, status="done", result=result)
                 logger.info(
                     "panos_migration_applied",
                     job_id=job_id,
@@ -335,9 +306,7 @@ def register_panorama_migrate_tools(mcp: FastMCP, get_client: Any) -> None:
                 )
             except Exception as exc:
                 logger.error("panos_migration_failed", job_id=job_id, error=str(exc))
-                with _JOBS_LOCK:
-                    _MIGRATE_JOBS[job_id]["status"] = "error"
-                    _MIGRATE_JOBS[job_id]["error"] = handle_scm_exception(exc)
+                MIGRATE_JOBS.update(job_id, status="error", error=handle_scm_exception(exc))
 
         threading.Thread(target=_run, daemon=True, name=f"panos-migrate-{job_id}").start()
         return (
@@ -358,12 +327,9 @@ def register_panorama_migrate_tools(mcp: FastMCP, get_client: Any) -> None:
             The migration plan and push report, or the job's status if it is
             still running.
         """
-        with _JOBS_LOCK:
-            job = dict(_MIGRATE_JOBS.get(job_id, {}))
+        job = MIGRATE_JOBS.get(job_id)
         if not job:
-            # Other jobs' IDs aren't listed: on a shared server they may be
-            # another tenant's migration
-            return f"Migration job `{job_id}` not found (finished jobs expire after 1 hour)."
+            return not_found("Migration job", job_id)
         mins, secs = divmod(int(time.time() - job["started_at"]), 60)
         if job["status"] == "running":
             return (

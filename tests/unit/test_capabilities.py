@@ -10,6 +10,7 @@ tenant dashboard) skipping forbidden sections up front.
 from __future__ import annotations
 
 import contextlib
+import re
 import time
 from types import SimpleNamespace
 from typing import Any
@@ -20,6 +21,7 @@ from mcp.server.fastmcp import FastMCP
 
 from scm_harbourmaster_mcp.utils import capabilities as caps
 from scm_harbourmaster_mcp.utils.family_probe import probe_endpoint
+from scm_harbourmaster_mcp.utils.jobs import ASBUILT_JOBS
 
 TID = "1234567890"
 
@@ -376,12 +378,12 @@ class TestAsBuiltSkip:
             include_adem=True,
             include_extended=True,
         )
-        job_id = next(k for k, v in audit_tools._ASBUILT_JOBS.items() if k in out)
+        job_id = re.search(r"job `([0-9a-f]{8})`", out).group(1)
         deadline = time.time() + 10
-        while audit_tools._ASBUILT_JOBS[job_id]["status"] == "running":
+        while ASBUILT_JOBS.get(job_id)["status"] == "running":
             assert time.time() < deadline, "asbuilt job did not finish"
             time.sleep(0.01)
-        job = audit_tools._ASBUILT_JOBS[job_id]
+        job = ASBUILT_JOBS.get(job_id)
         assert job["status"] == "done", job["error"]
         calls["_client"] = client
         calls["_snap"] = snap
