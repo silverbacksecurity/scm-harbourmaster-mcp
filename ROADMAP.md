@@ -257,6 +257,64 @@ the migration blockers are dealt with. New candidates are listed below._
   profiles and policies. Session disconnect (`:disconnect` and
   `:disconnect-all`) is done: `scm_saa_session_disconnect`.
 
+- **Migration AS-BUILT and impact report (`scm_migration_report`)** — a
+  customer-facing document for a Panorama → SCM migration. It records the
+  Panorama estate as it was, the SCM estate as it is now, what changed, and
+  what that means for users, integrations and tooling. It's the sign-off
+  pack for `scm_panorama_migrate`. Output is Markdown or DOCX like the
+  AS-BUILT, and it runs as a background job with a `_result` tool.
+  - **Source AS-BUILT (Panorama, before):** the device-group hierarchy and
+    scope of each object, rule counts per rulebase (pre/post), objects and
+    profiles per scope, and managed devices. Phase 2 adds the template and
+    template-stack side: zones, interfaces and routing, GlobalProtect
+    portals and gateways, authentication profiles, server profiles (syslog,
+    SNMP, email, LDAP, RADIUS, SAML), User-ID agents and log forwarding.
+  - **Target AS-BUILT (SCM, after):** the existing AS-BUILT renderer run on
+    the target folder, plus the pre-migration backup that
+    `scm_panorama_migrate` already writes, so the report shows "before
+    apply" against "after apply".
+  - **Change audit:** a status for every source object, with the reason:
+    - migrated unchanged;
+    - migrated with changes (fields dropped by validation, from the
+      importer's `PlanItem`s);
+    - renamed (`name_prefix`);
+    - skipped (a name conflict and `on_conflict`);
+    - not migrated (unsupported section or rulebase);
+    - SCM-only: built-in or predefined, such as the `trust`/`untrust` zones
+      and the default rules.
+
+    It reuses the `asbuilt_verify` diff engine and adds a source-vs-target
+    mode keyed by name and scope.
+  - **Impact register:** each row has severity, area, who is affected, the
+    action and the owner. It's driven by a rule table rather than free
+    text, so the same gap always produces the same advice. Starting rules:
+    - **Users:** GlobalProtect moves to Prisma Access Mobile Users (new
+      portal FQDN, a client rollout, auth profile changes). HIP objects and
+      profiles aren't migrated, so rules that match on HIP stop matching.
+      Dynamic user groups and schedules aren't migrated, which changes when
+      and to whom those rules apply.
+    - **Integrations:** syslog, SNMP and email server profiles and log
+      forwarding move to Strata Logging Service, and SIEM ingest has to be
+      re-pointed. LDAP and User-ID move to the Cloud Identity Engine. EDL
+      sources must be reachable from the Prisma Access egress IPs.
+      Panorama XML API, Terraform and Ansible automation has to move to the
+      SCM REST API with OAuth.
+    - **Tools and operations:** Panorama-only features such as custom
+      reports, scheduled reports and the commit/push workflow change. Custom
+      applications and threat signatures aren't migrated. DoS, PBF, QoS and
+      SD-WAN rulebases need separate redesign.
+  - **Phasing:**
+    1. Change audit and impact register from what we already have: the
+       importer's `PlanItem`s, the migrate job's push report, and the
+       pre/post snapshots. No new parsing.
+    2. A read-only Panorama template parser, which fills in the source
+       AS-BUILT and the integration and user rows.
+    3. Optionally, a live pull from the Panorama API instead of an exported
+       XML file.
+  - **Constraints:** generated reports name real customer objects, so they
+    go under `backups/` (gitignored) and never into the repo or the tests.
+    Test fixtures stay synthetic.
+
 - **Prisma Browser policy & integrations** — the moved spec doubled to 66
   paths. New: browser policy rulebases (`policy/access-and-data`,
   `security`, `sign-in`, `customization`, each with rules, sections and
