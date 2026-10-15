@@ -488,6 +488,14 @@ _Licence, AI security profiles, licensed firewalls, change history, risks._
 259. "Are there any AI security risks to report for Acme Corp? List the AIRS findings, most severe first, with what to fix."
 260. "Who changed Contoso Ltd's AIRS security profiles recently, and which firewalls carry an AIRS licence?"
 
+## 36. Secure Agentless Access (SAA)
+
+_Agentless RDP/SSH/VNC and web app access: apps, groups, profiles, policies, live sessions, risks._
+
+261. "Is Secure Agentless Access set up for Acme Corp? Which private apps are published, and which data region does SAA answer in?"
+262. "Who is connected to Contoso Ltd's agentless apps right now, and have any sessions been running for more than 12 hours?"
+263. "Are there any SAA risks for Acme Corp? I want to know about profiles that allow file transfer, apps no policy reaches and SSH apps without a pinned host key."
+
 ---
 
-*Generated against the 163-tool surface documented in [`TOOL_REFERENCE.md`](TOOL_REFERENCE.md). If a prompt references a feature your tenant isn't licensed for (AIRS, ZTNA Connector, Compliance Center, ADNSR, NGFW Operations, Posture Management, SPI, PAB), the tool reports that clearly instead of failing silently.*
+*Generated against the 163-tool surface documented in [`TOOL_REFERENCE.md`](TOOL_REFERENCE.md). If a prompt references a feature your tenant isn't licensed for (AIRS, Secure Agentless Access, ZTNA Connector, Compliance Center, ADNSR, NGFW Operations, Posture Management, SPI, PAB), the tool reports that clearly instead of failing silently.*

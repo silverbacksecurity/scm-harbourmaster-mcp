@@ -30,6 +30,7 @@ from scm_harbourmaster_mcp.audit.extractor import (
     extract_ngfw_devices,
     extract_ngfw_routing,
     extract_pab_tenant,
+    extract_saa,
     extract_sdwan_snapshot,
     extract_snapshot,
     extract_sspm,
@@ -162,6 +163,7 @@ for tname in all_tenants:
         extract_ngfw_devices(client, snap)
         extract_ngfw_routing(client, snap)
         extract_airs(client, snap)
+        extract_saa(client, snap)
         extract_app_acceleration(client, snap)
 
         # SD-WAN if available

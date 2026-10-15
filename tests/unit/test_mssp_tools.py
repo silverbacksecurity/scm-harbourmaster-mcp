@@ -443,6 +443,85 @@ class TestCasbDlp:
         assert "Pending user requests" not in out
 
 
+# ── Secure Agentless Access ────────────────────────────────────────────────
+
+
+class TestSaa:
+    @pytest.fixture(autouse=True)
+    def _isolated(self):  # type: ignore[no-untyped-def]
+        from scm_harbourmaster_mcp.utils import saa
+
+        saa.clear_region_cache()
+        with (
+            patch.object(mssp, "_bearer_session", side_effect=lambda c: c.session),
+            patch.object(saa, "resolve_region_with_source", return_value=("", "none")),
+        ):
+            yield
+        saa.clear_region_cache()
+
+    @staticmethod
+    def _router(region: str, routes: dict[str, Any]) -> Any:
+        """Answer *routes* only for *region*; everything else 404 "tenant not found"."""
+
+        def get(url: str, params: Any = None, headers: Any = None, timeout: Any = None) -> Any:
+            if (headers or {}).get("x-panw-region") == region:
+                for suffix, resp in routes.items():
+                    if url.endswith(suffix):
+                        return resp
+            return _resp(404, {"_errors": [{"code": "SAA_12008"}]})
+
+        return get
+
+    def test_not_provisioned(self) -> None:
+        client = MagicMock()
+        client.session.get.side_effect = self._router("uk", {})
+        out = _all_tools(client)["scm_saa_list"](tenant_id=TENANT)
+        assert out.startswith("Secure Agentless Access is not provisioned")
+
+    def test_full_report(self) -> None:
+        client = MagicMock()
+        client.session.get.side_effect = self._router(
+            "europe",
+            {
+                "/applications": _resp(
+                    200,
+                    {
+                        "data": [
+                            {
+                                "app_id": "a1",
+                                "name": "ssh-bastion",
+                                "type": "ssh",
+                                "ssh_settings": {"private_key": "SECRET", "host_key": ""},
+                            }
+                        ]
+                    },
+                ),
+                "/application-groups": _resp(200, {"data": []}),
+                "/application-profiles": _resp(200, {"data": []}),
+                "/application-policies": _resp(200, {"data": []}),
+                "/active-sessions": _resp(
+                    200, {"data": [{"user_id": "user@example.com", "app_id": "a1"}]}
+                ),
+            },
+        )
+        out = _all_tools(client)["scm_saa_list"](tenant_id=TENANT)
+        assert out.startswith("## Secure Agentless Access")
+        assert "**Region:** `europe` (probed)" in out
+        assert "| ssh-bastion | ssh |" in out
+        assert "SSH application `ssh-bastion` has no pinned host key." in out
+        assert "| user@example.com | ssh-bastion |" in out
+        assert "SECRET" not in out
+        no_sessions = _all_tools(client)["scm_saa_list"](tenant_id=TENANT, include_sessions=False)
+        assert "Active Sessions" not in no_sessions
+        assert "**Region:** `europe` (cached)" in no_sessions
+
+    def test_error_is_reported(self) -> None:
+        client = MagicMock()
+        client.session.get.side_effect = RuntimeError("connection reset")
+        out = _all_tools(client)["scm_saa_list"](tenant_id=TENANT, region="uk")
+        assert out.startswith("Error:") and "connection reset" in out
+
+
 # ── NGFW / AIRS ────────────────────────────────────────────────────────────
 
 

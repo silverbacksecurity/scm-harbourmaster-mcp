@@ -1240,3 +1240,53 @@ class TestAirsSection:
         section = _build(snap).split("5.6 Prisma AIRS")[-1].split("5.7 Traffic Steering")[0]
         assert "could not be read" in section
         assert "No SCM-managed firewall carries an AIRS licence" not in section
+
+
+class TestSaaSection:
+    @staticmethod
+    def _section(snap: AuditSnapshot) -> str:
+        md = _build(snap)
+        return md.split("Secure Agentless Access (Privileged Remote Access)")[-1].split(
+            "ZTNA Connector (App Connector VMs)"
+        )[0]
+
+    @staticmethod
+    def _licensed(snap: AuditSnapshot) -> None:
+        snap.licenses = [
+            {"licenses": [{"app_id": "add_pra", "license_type": "SKU", "purchased_size": 10}]}
+        ]
+
+    def test_live_tables_replace_placeholder(self) -> None:
+        snap = AuditSnapshot(folder="Acme-Corp", tenant_id="tsg-acme-123")
+        self._licensed(snap)
+        snap.saa_checked = True
+        snap.saa_region = "uk"
+        snap.saa_region_source = "probed"
+        snap.saa_applications = [{"app_id": "a1", "name": "rdp-1", "type": "rdp"}]
+        snap.saa_policies = [{"name": "off", "enabled": False, "profile_id": "p"}]
+        section = self._section(snap)
+        assert "Licensed & Active" in section
+        assert "**Region:** `uk` (probed)" in section
+        assert "##### Applications (1)" in section and "| rdp-1 | rdp |" in section
+        assert "Policy `off` is disabled." in section
+        assert "Active Sessions" not in section
+        assert _NA not in section
+
+    def test_licensed_but_not_onboarded(self) -> None:
+        snap = AuditSnapshot(folder="Acme-Corp", tenant_id="tsg-acme-123")
+        self._licensed(snap)
+        snap.saa_checked = True
+        section = self._section(snap)
+        assert "has not been onboarded" in section and _NA in section
+
+    def test_probe_failure_is_not_called_unlicensed(self) -> None:
+        snap = AuditSnapshot(folder="Acme-Corp", tenant_id="tsg-acme-123")
+        snap.saa_checked = True
+        snap.saa_probe_failures = {"uk": "HTTP 403"}
+        section = self._section(snap)
+        assert "HTTP 403" in section
+        assert "does not appear to be licensed" not in section
+
+    def test_not_checked_and_unlicensed_keeps_old_text(self) -> None:
+        section = self._section(AuditSnapshot(folder="Acme-Corp", tenant_id="tsg-acme-123"))
+        assert "does not appear to be licensed" in section

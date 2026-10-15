@@ -834,6 +834,76 @@ def register_casb_dlp_tools(mcp: FastMCP, get_client: Any) -> None:
 
         return "\n".join(lines)
 
+    @mcp.tool()
+    @tool
+    def scm_saa_list(
+        client: Any, tenant_id: str, region: str = "", include_sessions: bool = True
+    ) -> str:
+        """Secure Agentless Access (SAA) status, inventory, active sessions and risks.
+
+        Use this to answer "is Secure Agentless Access set up for this tenant?",
+        "which private RDP/SSH/VNC/web apps are published?", "who can reach
+        them?", "who is connected right now?" and "are there SAA risks to
+        report?". Reads the SAA API:
+        - Applications (type, destinations, groups, whether credentials are
+          stored — never the credentials themselves)
+        - Application groups, application profiles (clipboard/file
+          transfer/recording permissions per protocol), access policies
+        - Active sessions (user, app, source IP, start, last heartbeat)
+        - Recent changes — applications and groups, newest first
+        - Risks — dangling policy references, file transfer allowed, no
+          session recording, unreachable apps, unpinned SSH host keys, RDP
+          without NLA, unused/empty groups, long-running sessions
+
+        SAA routes every request by data region. The region is found by
+        probing (the tenant's configured region first), cached for the
+        session, and shown in the output. A tenant unknown in every region
+        reports "not provisioned" in one line.
+
+        Args:
+            tenant_id: Tenant ID. Omit to use the default tenant.
+            region: x-panw-region to use (uk, europe, americas, ...). Omit to
+                probe. A wrong value is reported, not replaced.
+            include_sessions: Include the live active-session list (default True).
+
+        Returns:
+            Markdown report.
+
+        Ref: https://pan.dev/scm/api/config/secure_agentless_access/
+        """
+        from ..utils.airs import render_sections_markdown
+        from ..utils.saa import (
+            assess_saa,
+            fetch_saa,
+            not_provisioned_text,
+            region_line,
+            risk_headline,
+            saa_sections,
+        )
+
+        try:
+            if getattr(client, "session", None) is None:
+                return "Error: client has no .session attribute"
+            session = _bearer_session(client)
+            inv = fetch_saa(session, tenant_id, region, include_sessions)
+            if not inv.provisioned:
+                return not_provisioned_text(inv, region)
+
+            risks = assess_saa(inv)
+            lines = [
+                "## Secure Agentless Access\n",
+                risk_headline(risks),
+                "",
+                region_line(inv),
+                "",
+            ]
+            lines += render_sections_markdown(saa_sections(inv, risks, include_sessions))
+            return "\n".join(lines).rstrip()
+        except Exception as exc:
+            from ..utils.errors import handle_scm_exception
+
+            return f"Error: {handle_scm_exception(exc)}"
+
 
 def register_ngfw_airs_tools(mcp: FastMCP, get_client: Any) -> None:
     """Register MCP tools for NGFW device inventory and Prisma AIRS."""

@@ -244,16 +244,19 @@ do about it.
 
 ## Next
 
-_Last pan.dev check: 2026-10-08. The endpoint catalog was regenerated
-(pan.dev `b9122449` → `45052ce5`, 4,193 paths, 31 families). `prisma-sase`
-6.8.1b1 (July 2026 Controller Release) and `pan-scm-sdk` 0.15.1 are both the
-latest. The SD-WAN unified and legacy specs changed schemas only, with no
-endpoint changes. Compliance Center dropped the `product` filter from the
-`benchmark-monitoring` request body; we don't send it by default. The Prisma
-Browser spec moved to its own `openapi-specs/prisma-browser` tree, and the
-generator now follows it. The NGTS (TLS Protect Cloud) spec moved its paths
-from `/ngts/outagedetection/v1/*` to `/ngts/v1/*`, which affects no current
-code. New candidates are listed below._
+_Last pan.dev check: 2026-10-15. The endpoint catalog was regenerated
+(pan.dev `45052ce5` → `6f2acabe`, 3,999 paths, 31 families). pan.dev added
+the Secure Agentless Access spec (`scm/config/secure_agentless_access`, 24
+operations), now covered read-only by `scm_saa_list` and AS-BUILT §5.4. It
+also deleted two duplicate `network-services _R3_v1.2.yaml` specs. There
+were no AIRS spec changes. `pan-scm-sdk` 0.15.1 and `prisma-sase` 6.8.1b1
+are still the latest. `mcp` 2.3.0 is out, and we stay capped below 2 until
+the migration blockers are dealt with. New candidates are listed below._
+
+- **SAA writes** — create, update and delete for applications, groups,
+  profiles and policies, plus `active-sessions:disconnect` and
+  `:disconnect-all`. Session disconnect is the useful one for incident
+  response; it would sit behind the usual approval step.
 
 - **Prisma Browser policy & integrations** — the moved spec doubled to 66
   paths. New: browser policy rulebases (`policy/access-and-data`,

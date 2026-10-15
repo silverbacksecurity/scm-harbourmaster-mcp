@@ -8,6 +8,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`scm_saa_list` reports Secure Agentless Access (SAA)** status,
+  inventory, active sessions and risks, from the SAA API pan.dev added on
+  2026-10-14 (`/secure-agentless-access/v1`). AS-BUILT §5.4 renders the same
+  data from the same code.
+  - SAA routes every request by `x-panw-region`. Without it, or with the
+    wrong region, applications and groups answer 404 "tenant not found",
+    while profiles, policies and sessions answer 200 in any region with the
+    system default profile and empty lists. So the region is established
+    first: an explicit `region=`, else a cached probe, else the tenant's
+    configured or detected region, else every region the spec lists,
+    probed concurrently. Either list answering 200 establishes it. The
+    region is cached per tenant inside the SAA module only, so it never
+    steers Insights or Compliance, and is printed in the output.
+  - A wrong explicit region is reported, not replaced. A 403 is reported as
+    a missing role and a 5xx as an error, never as "not provisioned".
+  - It covers applications (type, destinations, groups, whether credentials
+    are stored), groups, profiles (clipboard, file transfer and recording
+    per protocol), policies, and active sessions (user, app, source IP,
+    start, heartbeat).
+  - Stored credentials (`password`, `private_key`, `passphrase` and the VNC
+    `sftp_*` fields) are dropped at any depth on fetch. The
+    `has_credentials` flags are kept.
+  - Risk checks cover:
+    - policies pointing at missing profiles, apps or groups;
+    - disabled policies, and policies with no targets or no users;
+    - file transfer allowed, or session recording off, for the protocols
+      an enabled policy actually reaches;
+    - apps no enabled policy reaches;
+    - SSH apps with no pinned host key, and RDP apps without NLA;
+    - empty or unused groups;
+    - sessions running over 12 hours.
+  - AS-BUILT §5.4 replaces its manual-input table with the live tables when
+    SAA answers. It says "licensed but not onboarded" when the licence
+    exists but SAA doesn't know the tenant. Active sessions are never stored
+    in the snapshot, so they stay out of the config index and drift
+    baselines.
+  - No dashboard column or capability probe: either would need the
+    multi-region probe for every tenant.
+  - Shared logic lives in `utils/saa.py`.
 - **Prisma AIRS coverage beyond a config list.** `scm_airs_list` now reports
   licence status, inventory, change history and risks, and the same data
   feeds the AS-BUILT report, the tenant dashboards and the estate check.
@@ -950,6 +989,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `list-tenants` show the default folder where they showed the tier.
 
 ### Changed
+- **Endpoint catalog regenerated** from pan.dev `6f2acabe` (2026-10-14):
+  3,999 paths across 31 families. It adds the SAA spec and drops the two
+  duplicate `network-services _R3_v1.2.yaml` specs pan.dev deleted.
 - **The snippet tools share one create path.** `scm_create_ncsc_snippet` and
   `scm_create_nist_snippet` now run through `build_and_create_snippet()`
   (`tools/snippet_builder.py`, new file), driven by a `SnippetSpec`

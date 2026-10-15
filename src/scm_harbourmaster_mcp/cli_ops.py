@@ -334,6 +334,7 @@ def run_asbuilt(
         extract_enterprise_dlp,
         extract_licenses,
         extract_ngfw_devices,
+        extract_saa,
         extract_sdwan_snapshot,
         extract_snapshot,
         extract_ztna_connectors,
@@ -359,13 +360,16 @@ def run_asbuilt(
     extract_licenses(client, snap)
     extract_allocated_ips(client, snap)
 
-    _progress(on_progress, "Extracting CASB/DLP, ZTNA, Browser, CDL, NGFW, AIRS, Enterprise DLP...")
+    _progress(
+        on_progress, "Extracting CASB/DLP, ZTNA, Browser, CDL, NGFW, AIRS, SAA, Enterprise DLP..."
+    )
     extract_casb_dlp(client, snap, folder=folder)
     extract_ztna_connectors(client, snap)
     extract_browser(client, snap)
     extract_cdl(client, snap)
     extract_ngfw_devices(client, snap)
     extract_airs(client, snap)
+    extract_saa(client, snap)
     extract_enterprise_dlp(client, snap)
 
     sdwan_summary: str | None = None

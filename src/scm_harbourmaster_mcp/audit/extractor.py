@@ -2399,6 +2399,46 @@ def extract_airs(client: Any, snap: Any) -> Any:
     return snap
 
 
+def extract_saa(client: Any, snap: Any) -> Any:
+    """
+    Fetch Secure Agentless Access config (apps, groups, profiles, policies).
+
+    Delegates to :func:`utils.saa.fetch_saa` (region probe, pagination,
+    credential stripping) so AS-BUILT and ``scm_saa_list`` agree. Active
+    sessions are not fetched. An unprovisioned tenant is non-fatal and
+    leaves ``snap.saa_region`` empty.
+
+    Ref: https://pan.dev/scm/api/config/secure_agentless_access/
+    """
+    from ..utils.saa import fetch_saa
+
+    if getattr(client, "session", None) is None:
+        snap.extraction_errors.append("saa: Scm client has no .session")
+        return snap
+
+    inv = fetch_saa(_bearer_session_for(client), snap.tenant_id, include_sessions=False)
+    snap.saa_checked = True
+    snap.saa_region = inv.region
+    snap.saa_region_source = inv.region_source
+    snap.saa_applications = inv.applications
+    snap.saa_groups = inv.groups
+    snap.saa_profiles = inv.profiles
+    snap.saa_policies = inv.policies
+    snap.saa_refused = dict(inv.refused)
+    snap.saa_errors = dict(inv.errors)
+    snap.saa_truncated = sorted(inv.truncated)
+    snap.saa_probe_failures = dict(inv.probe_failures)
+    for resource, err in inv.errors.items():
+        snap.extraction_errors.append(f"saa_{resource}: {err}")
+    logger.info(
+        "saa_extracted",
+        region=inv.region,
+        applications=len(inv.applications),
+        policies=len(inv.policies),
+    )
+    return snap
+
+
 _SSPM_BASE = "https://api.strata.paloaltonetworks.com/sspm/api/v1"
 
 

@@ -76,6 +76,7 @@ from ..audit.extractor import (
     extract_ngfw_interface_ips,
     extract_ngfw_routing,
     extract_pab_tenant,
+    extract_saa,
     extract_sdwan_snapshot,
     extract_snapshot,
     extract_sspm,
@@ -1662,6 +1663,7 @@ def register_audit_tools(mcp: FastMCP, get_client: Any) -> None:
                     extract_ngfw_routing(client, snap)
                     extract_ngfw_interface_ips(client, snap)
                     extract_airs(client, snap)
+                    extract_saa(client, snap)
                     if _cap_ok("enterprise_dlp"):
                         extract_enterprise_dlp(client, snap)
                     extract_iot_security(client, snap)

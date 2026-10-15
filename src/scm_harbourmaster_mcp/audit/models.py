@@ -241,6 +241,21 @@ class AuditSnapshot:
     airs_errors: dict[str, str] = field(default_factory=dict)  # resource -> error text
     airs_truncated: list[str] = field(default_factory=list)  # lists cut at the page limit
 
+    # Secure Agentless Access (via /secure-agentless-access/v1, region-routed).
+    # Active sessions are deliberately not stored: live state naming users
+    # would churn drift baselines and the config index.
+    saa_checked: bool = False  # extract_saa ran
+    saa_region: str = ""  # "" = not provisioned (or unreadable — see saa_probe_failures)
+    saa_region_source: str = ""
+    saa_applications: list[dict[str, Any]] = field(default_factory=list)
+    saa_groups: list[dict[str, Any]] = field(default_factory=list)
+    saa_profiles: list[dict[str, Any]] = field(default_factory=list)
+    saa_policies: list[dict[str, Any]] = field(default_factory=list)
+    saa_refused: dict[str, int] = field(default_factory=dict)
+    saa_errors: dict[str, str] = field(default_factory=dict)
+    saa_truncated: list[str] = field(default_factory=list)
+    saa_probe_failures: dict[str, str] = field(default_factory=dict)  # region -> failure
+
     # IoT Security / Enterprise IoT / OT Security (formerly Zingbox)
     # via api.strata.paloaltonetworks.com/iot/pub/v1+v2 — same SASE OAuth token
     iot_devices: list[dict[str, Any]] = field(default_factory=list)

@@ -4,7 +4,7 @@
 
 All tools authenticate via Bearer-token OAuth (SASE client credentials) configured in `settings.toml` / `.secrets.toml`.
 
-**<!-- tool-count -->186<!-- /tool-count --> tools** across <!-- module-count -->44<!-- /module-count --> modules.
+**<!-- tool-count -->187<!-- /tool-count --> tools** across <!-- module-count -->44<!-- /module-count --> modules.
 
 ## Table of Contents
 
@@ -2460,6 +2460,48 @@ Returns:
 | Parameter | Type | Default |
 |-----------|------|---------|
 | `tenant_id` | `str` | `''` |
+
+### `scm_saa_list`
+
+Secure Agentless Access (SAA) status, inventory, active sessions and risks.
+
+```
+Use this to answer "is Secure Agentless Access set up for this tenant?",
+"which private RDP/SSH/VNC/web apps are published?", "who can reach
+them?", "who is connected right now?" and "are there SAA risks to
+report?". Reads the SAA API:
+- Applications (type, destinations, groups, whether credentials are
+  stored — never the credentials themselves)
+- Application groups, application profiles (clipboard/file
+  transfer/recording permissions per protocol), access policies
+- Active sessions (user, app, source IP, start, last heartbeat)
+- Recent changes — applications and groups, newest first
+- Risks — dangling policy references, file transfer allowed, no
+  session recording, unreachable apps, unpinned SSH host keys, RDP
+  without NLA, unused/empty groups, long-running sessions
+
+SAA routes every request by data region. The region is found by
+probing (the tenant's configured region first), cached for the
+session, and shown in the output. A tenant unknown in every region
+reports "not provisioned" in one line.
+
+Args:
+    tenant_id: Tenant ID. Omit to use the default tenant.
+    region: x-panw-region to use (uk, europe, americas, ...). Omit to
+        probe. A wrong value is reported, not replaced.
+    include_sessions: Include the live active-session list (default True).
+
+Returns:
+    Markdown report.
+
+Ref: https://pan.dev/scm/api/config/secure_agentless_access/
+```
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `tenant_id` | `str` | `''` |
+| `region` | `str` | `''` |
+| `include_sessions` | `bool` | `True` |
 
 ### `scm_ngfw_device_list`
 

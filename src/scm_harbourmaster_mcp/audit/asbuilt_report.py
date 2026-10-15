@@ -132,6 +132,18 @@ class AsBuiltReportBuilder:
         self._p(f"> ⚠️ **Manual input required:** {text}")
         self._p()
 
+    def _saa_placeholder(self) -> None:
+        self._table(
+            [
+                "Application Name",
+                "Target Protocol",
+                "Target Host / IP",
+                "Auth Method",
+                "Session Recording",
+            ],
+            [[_NA, _NA, _NA, _NA, _NA]],
+        )
+
     def _refs(self, section_tag: str) -> None:
         """Emit a 'Reference Architecture Docs' callout for a given section."""
         refs = get_refs_for_section(section_tag)
@@ -3752,6 +3764,29 @@ class AsBuiltReportBuilder:
         # Check licence table for add_pra
         pra_lic = next((lic for lic in all_lics if lic.get("app_id") == "add_pra"), None)
 
+        from ..utils.airs import render_sections_markdown
+        from ..utils.saa import (
+            SaaInventory,
+            assess_saa,
+            not_provisioned_text,
+            region_line,
+            saa_sections,
+        )
+        from ..utils.saa import risk_headline as saa_risk_headline
+
+        saa = SaaInventory(
+            region=snap.saa_region,
+            region_source=snap.saa_region_source,
+            applications=snap.saa_applications,
+            groups=snap.saa_groups,
+            profiles=snap.saa_profiles,
+            policies=snap.saa_policies,
+            refused=snap.saa_refused,
+            errors=snap.saa_errors,
+            truncated=set(snap.saa_truncated),
+            probe_failures=snap.saa_probe_failures,
+        )
+
         if pra_lic:
             self._table(
                 ["Item", "Detail"],
@@ -3770,26 +3805,42 @@ class AsBuiltReportBuilder:
                 ],
             )
             self._p()
-            self._note(
-                "PRA application targets, access policies, and session-recording settings are "
-                "configured in the SCM portal. Populate the table below with deployed application "
-                "definitions once confirmed with the customer."
-            )
-            self._table(
-                [
-                    "Application Name",
-                    "Target Protocol",
-                    "Target Host / IP",
-                    "Auth Method",
-                    "Session Recording",
-                ],
-                [[_NA, _NA, _NA, _NA, _NA]],
-            )
+
+        if saa.provisioned:
+            risks = assess_saa(saa)
+            self._p(saa_risk_headline(risks))
+            self._p()
+            self._p(region_line(saa))
+            self._p()
+            # Active sessions are live state and are not part of the snapshot.
+            for line in render_sections_markdown(
+                saa_sections(saa, risks, include_sessions=False), level=5
+            ):
+                self._p(line)
+        elif snap.saa_checked and (saa.forbidden or saa.probe_failures):
+            self._warn(not_provisioned_text(saa) + " Complete the table below manually.")
+            self._saa_placeholder()
+        elif pra_lic:
+            if snap.saa_checked:
+                self._note(
+                    "Secure Agentless Access is licensed, but the SAA API does not know this "
+                    'tenant in any region ("tenant not found") — it has not been onboarded '
+                    "yet. Populate the table below once applications are published."
+                )
+            else:
+                self._note(
+                    "PRA application targets, access policies, and session-recording settings "
+                    "are configured in the SCM portal. Populate the table below with deployed "
+                    "application definitions once confirmed with the customer."
+                )
+            self._saa_placeholder()
         else:
             self._warn(
                 "Secure Agentless Access (PRA) does not appear to be licensed for this tenant. "
                 "Enable via Prisma Access → Remote Access → Secure Agentless Access if required."
             )
+        self._p("> **📎 Reference:** <https://pan.dev/scm/api/config/secure_agentless_access/>")
+        self._p()
 
         self._h(4, "ZTNA Connector (App Connector VMs)")
         self._p(

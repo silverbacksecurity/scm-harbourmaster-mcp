@@ -923,6 +923,12 @@ scm_rule_shadow_audit:
     fall back to literal-name comparison. ~1-2 min full extraction.
   retry_policy: retry
   scope: tenant
+scm_saa_list:
+  access: read
+  domain: deployment
+  idempotent: true
+  retry_policy: retry
+  scope: tenant
 scm_saas_posture:
   access: read
   domain: posture_compliance
