@@ -18,6 +18,7 @@ import json
 import threading
 import time
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
@@ -35,8 +36,12 @@ from .audit import write_config_backup
 logger = get_logger(__name__)
 
 
-def _write_plan(conv: Conversion) -> str:
-    """Write the translated backup under backups/migrations/; returns its path."""
+def _write_plan(conv: Conversion, migration: dict[str, Any]) -> str:
+    """Write the translated backup under backups/migrations/; returns its path.
+
+    *migration* records how the plan was run (target, tenant, prefix, ...),
+    so scm_migration_report can rebuild the picture from the file alone.
+    """
     out = backup_dir() / "migrations"
     out.mkdir(parents=True, exist_ok=True)
     now = datetime.now(UTC)
@@ -46,9 +51,21 @@ def _write_plan(conv: Conversion) -> str:
         **conv.backup,
         "generated_at": now.isoformat(),
         "plan_items": [i.__dict__ for i in conv.items],
+        "migration": {**migration, "scopes": conv.scopes},
     }
     path.write_text(json.dumps(data, indent=2, default=str))
     return str(path)
+
+
+def _record(plan_path: str, **fields: Any) -> None:
+    """Add *fields* to the plan file's ``migration`` block (best effort)."""
+    try:
+        path = Path(plan_path)
+        data = json.loads(path.read_text())
+        data.setdefault("migration", {}).update(fields)
+        path.write_text(json.dumps(data, indent=2, default=str))
+    except (OSError, ValueError) as exc:
+        logger.warning("migration_plan_update_failed", plan=plan_path, error=str(exc))
 
 
 _FIX_REFERENCES = (
@@ -203,7 +220,17 @@ def register_panorama_migrate_tools(mcp: FastMCP, get_client: Any) -> None:
             )
         except PanosImportError as exc:
             return f"Error: {exc}"
-        plan_path = _write_plan(conv)
+        plan_path = _write_plan(
+            conv,
+            {
+                "mode": "dry_run" if dry_run else "apply",
+                "target_folder": target_folder,
+                "tenant_id": tenant_id,
+                "name_prefix": name_prefix,
+                "on_conflict": on_conflict,
+                "ticket_ref": ticket_ref,
+            },
+        )
         logger.info(
             "panos_migration_translated",
             source=conv.source,
@@ -278,6 +305,7 @@ def register_panorama_migrate_tools(mcp: FastMCP, get_client: Any) -> None:
         def _run() -> None:
             try:
                 backup_path, _ = write_config_backup(client, tenant_id, target_folder)
+                _record(plan_path, pre_backup_file=str(backup_path))
                 MIGRATE_JOBS.update(job_id, stage="pushing")
                 applied = _clone(client, False)
                 if _blocked(applied):
@@ -339,3 +367,157 @@ def register_panorama_migrate_tools(mcp: FastMCP, get_client: Any) -> None:
         if job["status"] == "error":
             return f"Migration job `{job_id}` failed after {mins}m {secs}s: {job['error']}"
         return str(job["result"])
+
+    @mcp.tool()
+    def scm_migration_report(
+        plan_file: str,
+        pre_backup_file: str = "",
+        post_backup_file: str = "",
+        target_folder: str = "",
+        tenant_id: str = "",
+        name_prefix: str = "",
+        output_format: str = "markdown",
+        save_to: str = "",
+    ) -> str:
+        """Migration report for a Panorama → SCM migration: before, after, and impact.
+
+        Use this after scm_panorama_migrate(dry_run=False) for the customer
+        sign-off pack. It compares three files: the migration plan (what was
+        translated from Panorama, with every gap the converter recorded), the
+        pre-migration backup of the target folder, and a backup taken now.
+        Sections: Panorama as-is, SCM as-is (before/after counts), a change
+        audit with a status per object, rule-order check, an impact register
+        (users, security, integrations, operations; who is affected, action,
+        owner), the areas an export can't show, and a sign-off table.
+
+        Plans written by scm_panorama_migrate record their target folder,
+        tenant, name prefix and pre-migration backup, so plan_file alone is
+        usually enough; the other arguments are for older plan files and must
+        agree with what the plan recorded.
+
+        Args:
+            plan_file: The translated-backup JSON scm_panorama_migrate wrote
+                (backups/migrations/panos_migration_*.json).
+            pre_backup_file: Pre-migration backup of the target. Defaults to
+                the one the apply recorded in the plan.
+            post_backup_file: A backup of the target after the push. Omit to
+                take a fresh one now (it is saved under backups/).
+            target_folder: SCM folder migrated into (default: from the plan).
+            tenant_id: Tenant migrated into (default: from the plan).
+            name_prefix: Prefix the migration used (default: from the plan).
+            output_format: 'markdown' (default) or 'docx'.
+            save_to: Output path. Default: backups/migrations/.
+
+        Returns:
+            The report (Markdown), and where it was saved.
+        """
+        from ..audit.migration_report import build_report, render_markdown
+        from .audit import _md_to_docx
+
+        def _load(path: str, what: str) -> dict[str, Any]:
+            try:
+                data = json.loads(Path(path).read_text())
+            except (OSError, ValueError) as exc:
+                raise ValueError(f"{what} `{path}` could not be read: {exc}") from exc
+            if not isinstance(data, dict) or not isinstance(data.get("resources"), dict):
+                raise ValueError(f"{what} `{path}` is not a backup file")
+            return data
+
+        try:
+            plan = _load(plan_file, "plan_file")
+            if not plan.get("migrated_from"):
+                return f"Error: `{plan_file}` is not a scm_panorama_migrate plan file."
+            recorded: dict[str, Any] = dict(plan.get("migration") or {})
+
+            settings: dict[str, str] = {}
+            for key, given in (
+                ("target_folder", target_folder),
+                ("tenant_id", tenant_id),
+                ("name_prefix", name_prefix),
+            ):
+                saved = str(recorded.get(key) or "")
+                if given and saved and given != saved:
+                    return (
+                        f"Error: {key} `{given}` doesn't match the plan, which recorded "
+                        f"`{saved}`. Omit {key} to use the plan's."
+                    )
+                settings[key] = given or saved
+            folder, tenant = settings["target_folder"], settings["tenant_id"]
+            if not folder:
+                return "Error: target_folder is required (this plan file doesn't record it)."
+
+            warnings: list[str] = []
+            if recorded.get("mode") == "dry_run":
+                warnings.append(
+                    "This plan was written by a dry run, which pushed nothing. Objects show "
+                    "as missing unless a later apply created them."
+                )
+
+            pre_path = pre_backup_file or str(recorded.get("pre_backup_file") or "")
+            pre = _load(pre_path, "pre_backup_file") if pre_path else None
+            if pre is None:
+                warnings.append(
+                    "No pre-migration backup, so objects already in SCM can't be told apart "
+                    "from created ones."
+                )
+
+            if post_backup_file:
+                post_path, post = post_backup_file, _load(post_backup_file, "post_backup_file")
+            else:
+                client = get_client(tenant)
+                path, post = write_config_backup(client, tenant, folder, fresh=True)
+                post_path = str(path)
+
+            for label, data in (("pre_backup_file", pre), ("post backup", post)):
+                if data is None:
+                    continue
+                if str(data.get("folder") or "") != folder:
+                    return (
+                        f"Error: the {label} is of folder `{data.get('folder')}`, not `{folder}`."
+                    )
+                got = str(data.get("tenant_id") or "")
+                if tenant and got not in ("", "default") and got != tenant:
+                    return f"Error: the {label} belongs to another tenant (`{got}`)."
+
+            rep = build_report(
+                plan,
+                pre,
+                post,
+                target_folder=folder,
+                tenant_id=tenant,
+                name_prefix=settings["name_prefix"],
+            )
+            rep.settings = {**recorded, **{k: v for k, v in settings.items() if v}}
+            rep.warnings = warnings
+            now = datetime.now(UTC)
+            md = render_markdown(
+                rep,
+                {
+                    "Plan file": plan_file,
+                    "Pre-migration backup": pre_path,
+                    "Post-migration backup": post_path,
+                },
+                now.strftime("%Y-%m-%d %H:%M UTC"),
+            )
+
+            fmt = output_format.lower()
+            if save_to:
+                out = Path(save_to)
+            else:
+                out_dir = backup_dir() / "migrations"
+                out_dir.mkdir(parents=True, exist_ok=True)
+                label = folder.replace("/", "_").replace(" ", "-")
+                ext = "docx" if fmt == "docx" else "md"
+                out = out_dir / f"migration_report_{label}_{now:%Y%m%dT%H%M%SZ}.{ext}"
+            if fmt == "docx":
+                result = _md_to_docx(md, out)
+                if out.exists():
+                    return f"Migration report saved as Word document: {out}\n\n{md}"
+                return f"{result}\n\n{md}"
+            out.write_text(md)
+            logger.info("migration_report_saved", path=str(out), folder=folder)
+            return f"Migration report saved to: {out}\n\n{md}"
+        except ValueError as exc:
+            return f"Error: {exc}"
+        except Exception as exc:
+            return f"Error: {handle_scm_exception(exc, tool='scm_migration_report')}"

@@ -90,6 +90,7 @@ _RELOAD_ORDER = [
     "scm_harbourmaster_mcp.audit.clone_preflight",
     "scm_harbourmaster_mcp.audit.cloner",
     "scm_harbourmaster_mcp.audit.panos_import",
+    "scm_harbourmaster_mcp.audit.migration_report",
     "scm_harbourmaster_mcp.audit.asbuilt_verify",
     "scm_harbourmaster_mcp.audit.config_index",
     "scm_harbourmaster_mcp.tools.ssr",

@@ -497,6 +497,14 @@ _Agentless RDP/SSH/VNC and web app access: apps, groups, profiles, policies, liv
 263. "Are there any SAA risks for Acme Corp? I want to know about profiles that allow file transfer, apps no policy reaches and SSH apps without a pinned host key."
 264. "Incident INC-4471: show me every SAA session user@example.com has open on Acme Corp, then disconnect them once I confirm."
 
+## 37. Panorama → SCM Migration
+
+_Translate a Panorama device group into an SCM folder, then document what changed._
+
+265. "Do a dry run of migrating device group dg-branch from /exports/panorama.xml into the Lab folder for Acme Corp, ticket CHG-2001, and show me what won't migrate."
+266. "Build the migration report for that migration: Panorama before, SCM after, every object's status and the impact register, as a Word document for sign-off."
+267. "From the migration report, list the HIGH-impact items and who owns each one."
+
 ---
 
 *Generated against the 163-tool surface documented in [`TOOL_REFERENCE.md`](TOOL_REFERENCE.md). If a prompt references a feature your tenant isn't licensed for (AIRS, Secure Agentless Access, ZTNA Connector, Compliance Center, ADNSR, NGFW Operations, Posture Management, SPI, PAB), the tool reports that clearly instead of failing silently.*

@@ -54,6 +54,9 @@ PATH_PARAMS: frozenset[str] = frozenset(
         "backup_file_b",
         "source_backup_file",
         "xml_path",
+        "plan_file",
+        "pre_backup_file",
+        "post_backup_file",
     }
 )
 

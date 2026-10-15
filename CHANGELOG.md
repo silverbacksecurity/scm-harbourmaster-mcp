@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`scm_migration_report` builds the sign-off document for a Panorama → SCM
+  migration.** It compares three files: the migration plan (what was
+  translated, with every gap the converter recorded), the pre-migration
+  backup of the target folder, and a backup taken after the push.
+  - **Sections:** Panorama as-is, SCM as-is (before/after counts), a
+    per-object change audit, a rule-order check, an impact register, the
+    areas the export can't show, and a sign-off table. Output is Markdown or
+    DOCX under `backups/migrations/`.
+  - **Status comes from the plan first.** A field the converter dropped is
+    already missing from the translated object, so "matches SCM" doesn't
+    mean "matches Panorama". Dropped, review and manual items mark an object
+    as migrated with changes. A difference left between the translation and
+    SCM is reported as SCM changing the object on push. Name conflicts show
+    whether the existing object was kept or overwritten.
+  - **Name prefixes:** references are renamed the way the cloner renames
+    them, so a prefixed migration compares cleanly.
+  - **Impact register:** rule-driven. Every unsupported section and rulebase
+    the importer knows maps to a severity, area, audience, action and owner,
+    and a test enforces that. Logging destination, identity, automation and
+    GlobalProtect are listed as "not assessed from the export".
+  - **Settings come from the plan.** `scm_panorama_migrate` now records the
+    target folder, tenant, name prefix, conflict mode and scopes in the plan
+    file, plus the pre-migration backup once an apply writes it. So the
+    plan file alone is usually enough. Arguments that contradict the plan,
+    and backups of another folder or tenant, are refused.
+  - **The after-snapshot is always fresh.** `write_config_backup(fresh=True)`
+    bypasses the 2-minute snapshot cache, which could otherwise serve the
+    apply's pre-push extraction as "after".
+
 ### Fixed
 - **Job result tools no longer list other jobs' IDs.** On an unknown job ID,
   `scm_asbuilt_result`, `scm_asbuilt_verify`, `scm_drift_result` and

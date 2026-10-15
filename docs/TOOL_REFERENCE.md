@@ -4,7 +4,7 @@
 
 All tools authenticate via Bearer-token OAuth (SASE client credentials) configured in `settings.toml` / `.secrets.toml`.
 
-**<!-- tool-count -->188<!-- /tool-count --> tools** across <!-- module-count -->44<!-- /module-count --> modules.
+**<!-- tool-count -->189<!-- /tool-count --> tools** across <!-- module-count -->44<!-- /module-count --> modules.
 
 ## Table of Contents
 
@@ -5767,6 +5767,53 @@ Returns:
 | Parameter | Type | Default |
 |-----------|------|---------|
 | `job_id` | `str` | `—` |
+
+### `scm_migration_report`
+
+Migration report for a Panorama → SCM migration: before, after, and impact.
+
+```
+Use this after scm_panorama_migrate(dry_run=False) for the customer
+sign-off pack. It compares three files: the migration plan (what was
+translated from Panorama, with every gap the converter recorded), the
+pre-migration backup of the target folder, and a backup taken now.
+Sections: Panorama as-is, SCM as-is (before/after counts), a change
+audit with a status per object, rule-order check, an impact register
+(users, security, integrations, operations; who is affected, action,
+owner), the areas an export can't show, and a sign-off table.
+
+Plans written by scm_panorama_migrate record their target folder,
+tenant, name prefix and pre-migration backup, so plan_file alone is
+usually enough; the other arguments are for older plan files and must
+agree with what the plan recorded.
+
+Args:
+    plan_file: The translated-backup JSON scm_panorama_migrate wrote
+        (backups/migrations/panos_migration_*.json).
+    pre_backup_file: Pre-migration backup of the target. Defaults to
+        the one the apply recorded in the plan.
+    post_backup_file: A backup of the target after the push. Omit to
+        take a fresh one now (it is saved under backups/).
+    target_folder: SCM folder migrated into (default: from the plan).
+    tenant_id: Tenant migrated into (default: from the plan).
+    name_prefix: Prefix the migration used (default: from the plan).
+    output_format: 'markdown' (default) or 'docx'.
+    save_to: Output path. Default: backups/migrations/.
+
+Returns:
+    The report (Markdown), and where it was saved.
+```
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `plan_file` | `str` | `—` |
+| `pre_backup_file` | `str` | `''` |
+| `post_backup_file` | `str` | `''` |
+| `target_folder` | `str` | `''` |
+| `tenant_id` | `str` | `''` |
+| `name_prefix` | `str` | `''` |
+| `output_format` | `str` | `'markdown'` |
+| `save_to` | `str` | `''` |
 
 ---
 

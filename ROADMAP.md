@@ -304,9 +304,10 @@ the migration blockers are dealt with. New candidates are listed below._
       applications and threat signatures aren't migrated. DoS, PBF, QoS and
       SD-WAN rulebases need separate redesign.
   - **Phasing:**
-    1. Change audit and impact register from what we already have: the
-       importer's `PlanItem`s, the migrate job's push report, and the
-       pre/post snapshots. No new parsing.
+    1. ✅ Change audit and impact register from what we already have: the
+       importer's `PlanItem`s and the pre/post snapshots. No new parsing.
+       Built 2026-10-15 as `scm_migration_report`. Not yet run after a live
+       apply.
     2. A read-only Panorama template parser, which fills in the source
        AS-BUILT and the integration and user rows.
     3. Optionally, a live pull from the Panorama API instead of an exported

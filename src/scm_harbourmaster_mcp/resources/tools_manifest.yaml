@@ -670,6 +670,17 @@ scm_list_jobs:
   idempotent: true
   retry_policy: retry
   scope: tenant
+scm_migration_report:
+  access: read
+  domain: config_change
+  idempotent: true
+  known_failure_modes: Needs the plan file scm_panorama_migrate wrote.  Without a
+    pre-migration backup, created and pre-existing objects can't be told apart.  Without
+    post_backup_file it takes a fresh backup of the target (bypassing the 2-minute
+    snapshot cache).  Template-side settings (GlobalProtect, logging, User-ID) are listed
+    as not assessed.
+  retry_policy: retry
+  scope: tenant
 scm_mobile_user_stats:
   access: read
   domain: operational_health

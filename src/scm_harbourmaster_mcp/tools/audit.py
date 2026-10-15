@@ -327,13 +327,15 @@ def _md_to_docx(md: str, out_path: Path) -> str:
 
 
 def write_config_backup(
-    client: Any, tenant_id: str, folder: str, output_dir: str = ""
+    client: Any, tenant_id: str, folder: str, output_dir: str = "", fresh: bool = False
 ) -> tuple[Path, dict[str, Any]]:
     """Back up *folder* to a timestamped JSON file; returns (path, data).
 
-    The file format scm_config_diff and scm_config_clone read.
+    The file format scm_config_diff and scm_config_clone read. *fresh* skips
+    the 2-minute snapshot cache: a backup taken to compare with an earlier
+    one (before/after a push) must not be served the earlier extraction.
     """
-    snap = extract_snapshot(client, folder=folder, tenant_id=tenant_id or "default")
+    snap = extract_snapshot(client, folder=folder, tenant_id=tenant_id or "default", fresh=fresh)
     snap = backup_snapshot(client, snap, folder)
 
     backup_dir = Path(output_dir) if output_dir else _DEFAULT_BACKUP_DIR
