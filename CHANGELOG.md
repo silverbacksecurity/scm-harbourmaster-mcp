@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-10-15
+
 ### Added
 - **`scm_saa_session_disconnect` ends live Secure Agentless Access sessions**
   for incident response. Pick one target: `session_ids`, a `user_id` and/or
