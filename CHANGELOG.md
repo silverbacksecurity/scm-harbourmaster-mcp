@@ -8,6 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`scm_saa_session_disconnect` ends live Secure Agentless Access sessions**
+  for incident response. Pick one target: `session_ids`, a `user_id` and/or
+  `app_id` filter resolved from the live session list, or
+  `all_sessions=True` (`:disconnect-all`, asynchronous).
+  - It follows the SSR write pattern: `dry_run` by default, which lists the
+    matching sessions and the exact request, and a mandatory `ticket_ref`
+    that is audit-logged before each POST and never sent to the API.
+  - Session calls answer in any region, so a disconnect sent to the wrong
+    region would "succeed" against nothing. The region is established by
+    the applications/groups probe first, and nothing is sent without one.
+  - Results are per session: 207 → disconnected or not found. A top-level
+    404 means none were active. 403 is reported as a missing role, and ids
+    in a refused or failed chunk as not sent. Ids go in chunks of 1,000.
+  - A filter is applied again on our side, so a filter the API ignores
+    can't widen the target set. A filter whose session list is incomplete
+    is refused rather than guessed at.
+  - Disconnecting doesn't block the user; they can reconnect unless their
+    access policy changes.
 - **`scm_saa_list` reports Secure Agentless Access (SAA)** status,
   inventory, active sessions and risks, from the SAA API pan.dev added on
   2026-10-14 (`/secure-agentless-access/v1`). AS-BUILT §5.4 renders the same

@@ -522,6 +522,158 @@ class TestSaa:
         assert out.startswith("Error:") and "connection reset" in out
 
 
+class TestSaaSessionDisconnect:
+    TICKET = "CHG-1"
+    S1 = "11111111-1111-1111-1111-111111111111"
+    S2 = "22222222-2222-2222-2222-222222222222"
+    S3 = "33333333-3333-3333-3333-333333333333"
+
+    @pytest.fixture(autouse=True)
+    def _isolated(self):  # type: ignore[no-untyped-def]
+        from scm_harbourmaster_mcp.utils import saa
+
+        saa.clear_region_cache()
+        with (
+            patch.object(mssp, "_bearer_session", side_effect=lambda c: c.session),
+            patch.object(saa, "resolve_region_with_source", return_value=("", "none")),
+        ):
+            yield
+        saa.clear_region_cache()
+
+    def _client(self, sessions: Any = None, post: Any = None, region: str = "uk") -> Any:
+        """SAA known only in *region*; *sessions* is the active-session list (or a response)."""
+        if sessions is None:
+            sessions = [
+                {"session_id": self.S1, "user_id": "user@example.com", "app_id": "a1"},
+                {"session_id": self.S2, "user_id": "other@example.com", "app_id": "a2"},
+            ]
+        listing = sessions if isinstance(sessions, MagicMock) else _resp(200, {"data": sessions})
+
+        def get(url: str, params: Any = None, headers: Any = None, timeout: Any = None) -> Any:
+            if (headers or {}).get("x-panw-region") != region:
+                return _resp(404, {"_errors": [{"code": "SAA_12008"}]})
+            if url.endswith("/active-sessions"):
+                return listing
+            return _resp(200, {"data": []})
+
+        client = MagicMock()
+        client.session.get.side_effect = get
+        client.session.post.return_value = post if post is not None else _resp(207, {"data": []})
+        return client
+
+    def _run(self, client: Any, **kwargs: Any) -> str:
+        kwargs.setdefault("ticket_ref", self.TICKET)
+        return _all_tools(client)["scm_saa_session_disconnect"](tenant_id=TENANT, **kwargs)
+
+    def test_ticket_ref_required(self) -> None:
+        client = self._client()
+        out = self._run(client, ticket_ref="", session_ids=[self.S1])
+        assert out.startswith("Error: ticket_ref is mandatory")
+        client.session.get.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {},
+            {"session_ids": ["  "]},
+            {"session_ids": ["x"], "user_id": "user@example.com"},
+            {"app_id": "a1", "all_sessions": True},
+        ],
+    )
+    def test_exactly_one_target(self, kwargs: dict[str, Any]) -> None:
+        client = self._client()
+        assert self._run(client, **kwargs).startswith("Error: pick exactly one target")
+        client.session.post.assert_not_called()
+
+    def test_no_region_sends_nothing(self) -> None:
+        client = self._client(region="nowhere")
+        out = self._run(client, all_sessions=True, dry_run=False)
+        assert out.startswith("Nothing was disconnected.") and "not provisioned" in out
+        client.session.post.assert_not_called()
+
+    def test_dry_run_by_ids(self) -> None:
+        client = self._client()
+        out = self._run(client, session_ids=[self.S1, self.S3, self.S1])
+        assert "**Ticket:** `CHG-1` · **Region:** `uk` (probed) · **Mode:** dry run" in out
+        assert "### Matching active sessions (1)" in out and f"| {self.S1} |" in out
+        assert f"`{self.S3}`" in out and "404" in out
+        assert "[...2 id(s)]" in out and "x-panw-region: uk" in out
+        assert "Dry run only" in out
+        client.session.post.assert_not_called()
+
+    def test_apply_by_ids_reports_each_session(self) -> None:
+        post = _resp(
+            207,
+            {
+                "data": [
+                    {"session_id": self.S1, "status": 202},
+                    {"session_id": self.S3, "status": 404},
+                ]
+            },
+        )
+        client = self._client(post=post)
+        with patch("scm_harbourmaster_mcp.utils.write_safety.logger") as log:
+            out = self._run(client, session_ids=[self.S1, self.S3], dry_run=False)
+        args, kw = client.session.post.call_args
+        assert args[0].endswith("/secure-agentless-access/v1/active-sessions:disconnect")
+        assert kw["json"] == {"session_ids": [self.S1, self.S3]}
+        assert kw["headers"] == {"x-panw-region": "uk"}
+        assert "CHG-1" not in str(kw["json"])
+        assert "✅ Disconnected: 1 · not found / already gone: 1" in out
+        assert f"| {self.S1} | disconnected |" in out and f"| {self.S3} | not found |" in out
+        event = log.info.call_args
+        assert event.args[0] == "write_applied" and event.kwargs["ticket_ref"] == self.TICKET
+        assert event.kwargs["session_ids"] == [self.S1, self.S3]
+
+    def test_filter_resolves_and_ignores_other_users(self) -> None:
+        # The API returned another user's session despite the filter: never sent.
+        client = self._client(post=_resp(207, {"data": [{"session_id": self.S1, "status": 202}]}))
+        out = self._run(client, user_id="USER@example.com", dry_run=False)
+        list_params = client.session.get.call_args_list[-1].kwargs["params"]
+        assert list_params["user_id"] == "USER@example.com"
+        assert client.session.post.call_args.kwargs["json"] == {"session_ids": [self.S1]}
+        assert self.S2 not in out and "✅ Disconnected: 1" in out
+
+    def test_filter_without_matches_sends_nothing(self) -> None:
+        client = self._client()
+        out = self._run(client, app_id="a9", dry_run=False)
+        assert "Nothing to disconnect" in out
+        client.session.post.assert_not_called()
+
+    def test_filter_refused_when_list_incomplete(self) -> None:
+        client = self._client(sessions=_resp(500, None))
+        out = self._run(client, user_id="user@example.com", dry_run=False)
+        assert "could not be listed in full" in out and "Nothing was sent" in out
+        client.session.post.assert_not_called()
+
+    def test_top_level_404_means_none_active(self) -> None:
+        client = self._client(post=_resp(404, {"_errors": [{"message": "none active"}]}))
+        out = self._run(client, session_ids=[self.S3], dry_run=False)
+        assert "not found / already gone: 1" in out and "❌" not in out
+
+    def test_forbidden_is_reported_as_rbac(self) -> None:
+        client = self._client(post=_resp(403, {"_errors": [{"message": "forbidden"}]}))
+        out = self._run(client, session_ids=[self.S1], dry_run=False)
+        assert "❌ HTTP 403" in out and "RBAC" in out and "forbidden" in out
+        assert f"| {self.S1} | not sent / failed |" in out
+
+    def test_disconnect_all(self) -> None:
+        client = self._client(post=_resp(202, None))
+        dry = self._run(client, all_sessions=True)
+        assert ":disconnect-all` (no body)" in dry and "### Matching active sessions (2)" in dry
+        client.session.post.assert_not_called()
+        out = self._run(client, all_sessions=True, dry_run=False)
+        args, kw = client.session.post.call_args
+        assert args[0].endswith("/active-sessions:disconnect-all") and kw["json"] is None
+        assert "✅ Accepted" in out
+
+    def test_disconnect_all_skipped_when_nothing_active(self) -> None:
+        client = self._client(sessions=[])
+        out = self._run(client, all_sessions=True, dry_run=False)
+        assert "Nothing to disconnect" in out
+        client.session.post.assert_not_called()
+
+
 # ── NGFW / AIRS ────────────────────────────────────────────────────────────
 
 

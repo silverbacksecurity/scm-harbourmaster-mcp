@@ -371,6 +371,165 @@ def fetch_saa(
     return inv
 
 
+# ── Session disconnect ───────────────────────────────────────────────────────
+#
+# POST /active-sessions:disconnect     {"session_ids": [...]} (1–1000 ids)
+#   207 → {"data": [{"session_id", "status"}]}, per session 202 = disconnected
+#         by this request, 404 = not found or already gone
+#   404 → none of the ids were active (an outcome, not an error)
+# POST /active-sessions:disconnect-all (no body) → 202, asynchronous, no body
+#
+# Sessions answer 200 in any region, so a disconnect sent to the wrong region
+# would "succeed" against nothing: callers establish the region with
+# find_region first and refuse to write without one.
+
+DISCONNECT_PATH = "/active-sessions:disconnect"
+DISCONNECT_ALL_PATH = "/active-sessions:disconnect-all"
+_DISCONNECT_CHUNK = 1000
+
+
+@dataclass
+class DisconnectOutcome:
+    """What the API said about each session id sent to :disconnect."""
+
+    disconnected: list[str] = field(default_factory=list)
+    not_found: list[str] = field(default_factory=list)
+    # session id -> per-session status other than 202/404
+    other: dict[str, int] = field(default_factory=dict)
+    # ids sent in a chunk the API accepted without per-session results
+    unconfirmed: list[str] = field(default_factory=list)
+    # ids never confirmed because their request failed (or was not sent)
+    failed: list[str] = field(default_factory=list)
+    error: str = ""
+
+
+def _post(
+    session: Any,
+    path: str,
+    region: str,
+    body: dict[str, Any] | None,
+    timeout: tuple[float, float] = _TIMEOUT,
+) -> tuple[int, Any, str]:
+    """POST one path → (status, json or None, error text). Never raises on HTTP status."""
+    resp = session.post(
+        f"{SAA_BASE}{path}",
+        json=body,
+        headers={"x-panw-region": region},
+        timeout=timeout,
+    )
+    try:
+        data = resp.json() if resp.content else None
+    except ValueError:
+        data = None
+    text = "" if data is not None else (resp.text or "")[:300]
+    return resp.status_code, data, text
+
+
+def _error_text(status: int, data: Any, text: str) -> str:
+    """One line for a refused or failed POST, with the API's own message when present."""
+    detail = text
+    if isinstance(data, dict):
+        errs = data.get("_errors") or []
+        msgs = [str(e.get("message") or e.get("code") or e) for e in errs if isinstance(e, dict)]
+        detail = "; ".join(msgs) or detail
+    if status in (401, 403):
+        label = f"HTTP {status} — the service account's role lacks SAA session permissions (RBAC)"
+    elif status >= 500:
+        label = f"HTTP {status} — SAA service error"
+    else:
+        label = f"HTTP {status}"
+    return f"{label}: {detail}" if detail else label
+
+
+def list_active_sessions(
+    session: Any,
+    region: str,
+    user_id: str = "",
+    app_id: str = "",
+    timeout: tuple[float, float] = _TIMEOUT,
+) -> tuple[list[dict[str, Any]], str]:
+    """(active sessions, problem) in an established region; problem is "" when listed in full."""
+    inv = SaaInventory(region=region)
+    extra = {k: v for k, v in (("user_id", user_id), ("app_id", app_id)) if v}
+    _fetch_list(inv, session, "sessions", "/active-sessions", extra, _MAX_PAGES, timeout)
+    # Filtered here too: a filter the API ignored must not widen the target set.
+    inv.sessions = [
+        s
+        for s in inv.sessions
+        if (not user_id or str(s.get("user_id", "")).lower() == user_id.lower())
+        and (not app_id or str(s.get("app_id", "")) == app_id)
+    ]
+    if "sessions" in inv.refused:
+        return inv.sessions, f"the session list was refused (HTTP {inv.refused['sessions']})"
+    if "sessions" in inv.errors:
+        return inv.sessions, f"the session list failed ({inv.errors['sessions']})"
+    if "sessions" in inv.truncated:
+        return inv.sessions, f"the session list stopped after {_MAX_PAGES} pages"
+    return inv.sessions, ""
+
+
+def disconnect_sessions(
+    session: Any,
+    region: str,
+    session_ids: list[str],
+    timeout: tuple[float, float] = _TIMEOUT,
+    before_post: Any = None,
+) -> DisconnectOutcome:
+    """Send *session_ids* to :disconnect in chunks; stop at the first refused or failed chunk.
+
+    *before_post*, when given, is called with each chunk just before it is
+    sent (the audit-log hook).
+    """
+    out = DisconnectOutcome()
+    chunks = [
+        session_ids[i : i + _DISCONNECT_CHUNK]
+        for i in range(0, len(session_ids), _DISCONNECT_CHUNK)
+    ]
+    for n, chunk in enumerate(chunks):
+        if before_post is not None:
+            before_post(chunk)
+        try:
+            status, data, text = _post(
+                session, DISCONNECT_PATH, region, {"session_ids": chunk}, timeout
+            )
+        except Exception as exc:
+            out.error = f"request failed: {exc}"
+            out.failed += [i for c in chunks[n:] for i in c]
+            break
+        if status == 207 or (200 <= status < 300 and isinstance(data, dict) and "data" in data):
+            seen: set[str] = set()
+            for row in _dicts(data.get("data") if isinstance(data, dict) else None):
+                sid = str(row.get("session_id") or "")
+                code = row.get("status")
+                seen.add(sid)
+                if code == 202:
+                    out.disconnected.append(sid)
+                elif code == 404:
+                    out.not_found.append(sid)
+                else:
+                    out.other[sid] = code if isinstance(code, int) else -1
+            out.unconfirmed += [i for i in chunk if i not in seen]
+        elif 200 <= status < 300:
+            out.unconfirmed += chunk
+        elif status == 404:
+            out.not_found += chunk
+        else:
+            out.error = _error_text(status, data, text)
+            out.failed += [i for c in chunks[n:] for i in c]
+            break
+    return out
+
+
+def disconnect_all_sessions(
+    session: Any, region: str, timeout: tuple[float, float] = _TIMEOUT
+) -> tuple[bool, str]:
+    """(accepted, error text) for :disconnect-all. Accepted means queued, not done."""
+    status, data, text = _post(session, DISCONNECT_ALL_PATH, region, None, timeout)
+    if 200 <= status < 300:
+        return True, ""
+    return False, _error_text(status, data, text)
+
+
 # ── Risk assessment ──────────────────────────────────────────────────────────
 
 

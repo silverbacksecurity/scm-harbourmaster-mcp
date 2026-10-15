@@ -4,7 +4,7 @@
 
 All tools authenticate via Bearer-token OAuth (SASE client credentials) configured in `settings.toml` / `.secrets.toml`.
 
-**<!-- tool-count -->187<!-- /tool-count --> tools** across <!-- module-count -->44<!-- /module-count --> modules.
+**<!-- tool-count -->188<!-- /tool-count --> tools** across <!-- module-count -->44<!-- /module-count --> modules.
 
 ## Table of Contents
 
@@ -2502,6 +2502,57 @@ Ref: https://pan.dev/scm/api/config/secure_agentless_access/
 | `tenant_id` | `str` | `''` |
 | `region` | `str` | `''` |
 | `include_sessions` | `bool` | `True` |
+
+### `scm_saa_session_disconnect`
+
+Disconnect live Secure Agentless Access (SAA) sessions — incident response.
+
+```
+Use this to answer "kick this user off SAA", "end every session to
+this app" or "disconnect everyone now". Pick exactly one target:
+- session_ids: the sessions to end (from scm_saa_list)
+- user_id and/or app_id: every active session for that user (email)
+  and/or application id, resolved from the live session list
+- all_sessions=True: every active session in the tenant
+  (``:disconnect-all``, asynchronous)
+
+Write-safety (SSR pattern): dry_run defaults to True and only lists
+the sessions that would be ended plus the exact request. ticket_ref
+is mandatory on every call and is never sent to the API. Sessions
+are re-listed at apply time, so the ids sent may differ from the
+dry run's. Disconnecting does not block the user: they can reconnect
+unless their access policy is changed too.
+
+SAA routes by data region and answers session calls in ANY region, so
+the region is established by probing applications and groups first;
+without one, nothing is sent.
+
+Args:
+    tenant_id: Tenant ID. Omit to use the default tenant.
+    ticket_ref: Change/incident reference (required).
+    session_ids: Session ids to disconnect.
+    user_id: Disconnect every session of this user (email).
+    app_id: Disconnect every session to this application id.
+    all_sessions: Disconnect every active session in the tenant.
+    region: x-panw-region (uk, europe, americas, ...). Omit to probe.
+    dry_run: Preview only (default True). False sends the disconnect.
+
+Returns:
+    Markdown: the matched sessions, the request, and per-session results.
+
+Ref: https://pan.dev/scm/api/config/secure_agentless_access/
+```
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `tenant_id` | `str` | `''` |
+| `ticket_ref` | `str` | `''` |
+| `session_ids` | `list[str] \| None` | `None` |
+| `user_id` | `str` | `''` |
+| `app_id` | `str` | `''` |
+| `all_sessions` | `bool` | `False` |
+| `region` | `str` | `''` |
+| `dry_run` | `bool` | `True` |
 
 ### `scm_ngfw_device_list`
 

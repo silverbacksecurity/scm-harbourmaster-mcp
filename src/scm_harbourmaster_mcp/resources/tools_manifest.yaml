@@ -929,6 +929,18 @@ scm_saa_list:
   idempotent: true
   retry_policy: retry
   scope: tenant
+scm_saa_session_disconnect:
+  access: write
+  domain: operational_health
+  idempotent: false
+  known_failure_modes: SSR pattern — dry_run default, mandatory ticket_ref (never sent).
+    Sessions answer in any region, so the region is probed via applications/groups
+    first and nothing is sent without one.  :disconnect answers 207 per session (202
+    disconnected, 404 gone); a top-level 404 means none were active.  :disconnect-all
+    is asynchronous (202).  403 = role lacks SAA permissions.  Users can reconnect
+    unless their policy changes.
+  retry_policy: fail_fast
+  scope: tenant
 scm_saas_posture:
   access: read
   domain: posture_compliance

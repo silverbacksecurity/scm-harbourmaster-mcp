@@ -904,6 +904,251 @@ def register_casb_dlp_tools(mcp: FastMCP, get_client: Any) -> None:
 
             return f"Error: {handle_scm_exception(exc)}"
 
+    @mcp.tool()
+    @tool
+    def scm_saa_session_disconnect(
+        client: Any,
+        tenant_id: str,
+        ticket_ref: str = "",
+        session_ids: list[str] | None = None,
+        user_id: str = "",
+        app_id: str = "",
+        all_sessions: bool = False,
+        region: str = "",
+        dry_run: bool = True,
+    ) -> str:
+        """Disconnect live Secure Agentless Access (SAA) sessions — incident response.
+
+        Use this to answer "kick this user off SAA", "end every session to
+        this app" or "disconnect everyone now". Pick exactly one target:
+        - session_ids: the sessions to end (from scm_saa_list)
+        - user_id and/or app_id: every active session for that user (email)
+          and/or application id, resolved from the live session list
+        - all_sessions=True: every active session in the tenant
+          (``:disconnect-all``, asynchronous)
+
+        Write-safety (SSR pattern): dry_run defaults to True and only lists
+        the sessions that would be ended plus the exact request. ticket_ref
+        is mandatory on every call and is never sent to the API. Sessions
+        are re-listed at apply time, so the ids sent may differ from the
+        dry run's. Disconnecting does not block the user: they can reconnect
+        unless their access policy is changed too.
+
+        SAA routes by data region and answers session calls in ANY region, so
+        the region is established by probing applications and groups first;
+        without one, nothing is sent.
+
+        Args:
+            tenant_id: Tenant ID. Omit to use the default tenant.
+            ticket_ref: Change/incident reference (required).
+            session_ids: Session ids to disconnect.
+            user_id: Disconnect every session of this user (email).
+            app_id: Disconnect every session to this application id.
+            all_sessions: Disconnect every active session in the tenant.
+            region: x-panw-region (uk, europe, americas, ...). Omit to probe.
+            dry_run: Preview only (default True). False sends the disconnect.
+
+        Returns:
+            Markdown: the matched sessions, the request, and per-session results.
+
+        Ref: https://pan.dev/scm/api/config/secure_agentless_access/
+        """
+        from ..utils.airs import cell
+        from ..utils.saa import (
+            DISCONNECT_ALL_PATH,
+            DISCONNECT_PATH,
+            SAA_BASE,
+            SaaInventory,
+            disconnect_all_sessions,
+            disconnect_sessions,
+            find_region,
+            list_active_sessions,
+            not_provisioned_text,
+        )
+        from ..utils.write_safety import (
+            DRY_RUN_HINT,
+            audit_write,
+            normalize_ticket_ref,
+            ticket_ref_error,
+        )
+
+        err = ticket_ref_error(ticket_ref)
+        if err:
+            return f"Error: {err}"
+        ticket = normalize_ticket_ref(ticket_ref)
+        ids = list(dict.fromkeys(s.strip() for s in (session_ids or []) if s and s.strip()))
+        user_id, app_id = user_id.strip(), app_id.strip()
+        modes = [bool(ids), bool(user_id or app_id), bool(all_sessions)]
+        if sum(modes) != 1:
+            return (
+                "Error: pick exactly one target — session_ids, user_id/app_id, or "
+                "all_sessions=True."
+            )
+        mode = "ids" if ids else ("filter" if modes[1] else "all")
+
+        try:
+            if getattr(client, "session", None) is None:
+                return "Error: client has no .session attribute"
+            session = _bearer_session(client)
+            found, source, failures = find_region(session, tenant_id, region)
+            if not found:
+                reason = not_provisioned_text(SaaInventory(probe_failures=failures), region)
+                return f"Nothing was disconnected. {reason}"
+
+            live, problem = list_active_sessions(
+                session,
+                found,
+                user_id if mode == "filter" else "",
+                app_id if mode == "filter" else "",
+            )
+            live_ids = [str(s.get("session_id")) for s in live if s.get("session_id")]
+
+            lines = [
+                "## Secure Agentless Access — Session Disconnect\n",
+                f"**Ticket:** `{ticket}` · **Region:** `{found}` ({source}) · "
+                f"**Mode:** {'dry run' if dry_run else 'apply'}",
+                "",
+            ]
+            if problem:
+                lines += [f"> ⚠️ Active sessions could not be listed in full: {problem}.", ""]
+
+            if mode == "ids":
+                targets = ids
+                matched = [s for s in live if str(s.get("session_id")) in set(ids)]
+                unknown = [i for i in ids if i not in set(live_ids)]
+            else:
+                targets, matched, unknown = live_ids, live, []
+
+            what = {
+                "ids": f"{len(ids)} session id(s)",
+                "filter": " and ".join(
+                    f"{k} `{v}`" for k, v in (("user", user_id), ("app", app_id)) if v
+                ),
+                "all": "every active session",
+            }[mode]
+            lines.append(f"**Target:** {what}")
+            lines.append("")
+            lines.append(f"### Matching active sessions ({len(matched)})")
+            lines.append("")
+            if matched:
+                lines.append(
+                    "| Session ID | User | App ID | Type | Source IP | Started | Last Heartbeat |"
+                )
+                lines.append("|---|---|---|---|---|---|---|")
+                for s in matched:
+                    lines.append(
+                        "| "
+                        + " | ".join(
+                            cell(s.get(k))
+                            for k in (
+                                "session_id",
+                                "user_id",
+                                "app_id",
+                                "app_type",
+                                "source_ip",
+                                "start_time",
+                                "last_heartbeat",
+                            )
+                        )
+                        + " |"
+                    )
+            else:
+                lines.append("_No matching active sessions._")
+            lines.append("")
+            if unknown and not problem:
+                lines += [
+                    f"> {len(unknown)} id(s) are not active now and will be reported "
+                    f"404 by the API: {', '.join(f'`{u}`' for u in unknown)}",
+                    "",
+                ]
+
+            if mode == "filter" and problem:
+                lines.append(
+                    "Nothing was sent: the session list is incomplete, so the sessions "
+                    "matching this filter cannot be resolved safely. Pass session_ids instead."
+                )
+                return "\n".join(lines).rstrip()
+            if mode != "ids" and not targets and not problem:
+                lines.append("Nothing to disconnect — no active sessions match.")
+                return "\n".join(lines).rstrip()
+
+            lines.append("### Request")
+            lines.append("")
+            if mode == "all":
+                lines.append(f"`POST {SAA_BASE}{DISCONNECT_ALL_PATH}` (no body)")
+            else:
+                lines.append(
+                    f"`POST {SAA_BASE}{DISCONNECT_PATH}` with "
+                    f'`{{"session_ids": [...{len(targets)} id(s)]}}`'
+                )
+            lines.append(f"Header `x-panw-region: {found}`")
+            lines.append("")
+
+            if dry_run:
+                lines.append(DRY_RUN_HINT)
+                return "\n".join(lines).rstrip()
+
+            if mode == "all":
+                audit_write(
+                    "scm_saa_session_disconnect",
+                    ticket,
+                    tenant_id,
+                    action="disconnect-all",
+                    region=found,
+                    active_sessions=len(live_ids),
+                )
+                accepted, error = disconnect_all_sessions(session, found)
+                lines.append("### Result")
+                lines.append("")
+                if accepted:
+                    lines.append(
+                        "✅ Accepted — SAA is disconnecting every active session "
+                        "asynchronously. Re-run scm_saa_list to confirm."
+                    )
+                else:
+                    lines.append(f"❌ Refused: {error}")
+                return "\n".join(lines).rstrip()
+
+            outcome = disconnect_sessions(
+                session,
+                found,
+                targets,
+                before_post=lambda chunk: audit_write(
+                    "scm_saa_session_disconnect",
+                    ticket,
+                    tenant_id,
+                    action="disconnect",
+                    region=found,
+                    session_ids=chunk,
+                ),
+            )
+            lines.append("### Result")
+            lines.append("")
+            lines.append(
+                f"{'✅' if outcome.disconnected else 'ℹ️'} Disconnected: {len(outcome.disconnected)} · "
+                f"not found / already gone: {len(outcome.not_found)}"
+                + (f" · other: {len(outcome.other)}" if outcome.other else "")
+                + (f" · unconfirmed: {len(outcome.unconfirmed)}" if outcome.unconfirmed else "")
+                + (f" · not sent: {len(outcome.failed)}" if outcome.failed else "")
+            )
+            if outcome.error:
+                lines += ["", f"❌ {outcome.error}"]
+            rows = (
+                [(i, "disconnected") for i in outcome.disconnected]
+                + [(i, "not found") for i in outcome.not_found]
+                + [(i, f"HTTP {c}") for i, c in outcome.other.items()]
+                + [(i, "accepted, no per-session result") for i in outcome.unconfirmed]
+                + [(i, "not sent / failed") for i in outcome.failed]
+            )
+            if rows:
+                lines += ["", "| Session ID | Result |", "|---|---|"]
+                lines += [f"| {cell(i)} | {r} |" for i, r in rows]
+            return "\n".join(lines).rstrip()
+        except Exception as exc:
+            from ..utils.errors import handle_scm_exception
+
+            return f"Error: {handle_scm_exception(exc)}"
+
 
 def register_ngfw_airs_tools(mcp: FastMCP, get_client: Any) -> None:
     """Register MCP tools for NGFW device inventory and Prisma AIRS."""

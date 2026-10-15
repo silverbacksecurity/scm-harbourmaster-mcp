@@ -254,9 +254,8 @@ are still the latest. `mcp` 2.3.0 is out, and we stay capped below 2 until
 the migration blockers are dealt with. New candidates are listed below._
 
 - **SAA writes** — create, update and delete for applications, groups,
-  profiles and policies, plus `active-sessions:disconnect` and
-  `:disconnect-all`. Session disconnect is the useful one for incident
-  response; it would sit behind the usual approval step.
+  profiles and policies. Session disconnect (`:disconnect` and
+  `:disconnect-all`) is done: `scm_saa_session_disconnect`.
 
 - **Prisma Browser policy & integrations** — the moved spec doubled to 66
   paths. New: browser policy rulebases (`policy/access-and-data`,

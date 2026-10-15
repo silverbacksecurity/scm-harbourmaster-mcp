@@ -495,6 +495,7 @@ _Agentless RDP/SSH/VNC and web app access: apps, groups, profiles, policies, liv
 261. "Is Secure Agentless Access set up for Acme Corp? Which private apps are published, and which data region does SAA answer in?"
 262. "Who is connected to Contoso Ltd's agentless apps right now, and have any sessions been running for more than 12 hours?"
 263. "Are there any SAA risks for Acme Corp? I want to know about profiles that allow file transfer, apps no policy reaches and SSH apps without a pinned host key."
+264. "Incident INC-4471: show me every SAA session user@example.com has open on Acme Corp, then disconnect them once I confirm."
 
 ---
 

@@ -62,6 +62,8 @@ EXPECTED_WRITE_TOOLS = {
     "scm_site_management",
     # NGFW software-upgrade schedule/rule writes (can queue reboots).
     "scm_software_upgrade_manage",
+    # SAA live-session disconnect (incident response).
+    "scm_saa_session_disconnect",
     # Compliance Center framework CRUD (create/update/delete/clone/benchmark).
     "scm_compliance_framework",
     # Phase 3b: the conversational planner run can orchestrate approved

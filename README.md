@@ -7,7 +7,7 @@
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 
-MCP (Model Context Protocol) server for **Palo Alto Networks Strata Cloud Manager (SCM)**, built for Managed Security Service Providers. Exposes <!-- tool-count -->187<!-- /tool-count --> SCM operations as MCP tools consumable by Claude Desktop, Cursor, Copilot Studio, or any MCP-compatible AI assistant.
+MCP (Model Context Protocol) server for **Palo Alto Networks Strata Cloud Manager (SCM)**, built for Managed Security Service Providers. Exposes <!-- tool-count -->188<!-- /tool-count --> SCM operations as MCP tools consumable by Claude Desktop, Cursor, Copilot Studio, or any MCP-compatible AI assistant.
 
 ---
 
@@ -178,7 +178,7 @@ Add to `~/.config/Claude/claude_desktop_config.json`:
 }
 ```
 
-Restart Claude Desktop. The server registers as <!-- tool-count -->187<!-- /tool-count --> tools in Cowork mode.
+Restart Claude Desktop. The server registers as <!-- tool-count -->188<!-- /tool-count --> tools in Cowork mode.
 
 ### Cursor / VS Code
 
@@ -700,6 +700,8 @@ List all tenants, their auth status, and which licences are expiring soonest.
 | `scm_software_upgrade` | NGFW software-upgrade schedules and rules, per-device upgrade progress with failure reasons, and the firewalls a rule matches (read-only) |
 | `scm_software_upgrade_manage` | Create, update or delete NGFW software-upgrade schedules and rules; dry run by default (exact request, diff, firewalls matched), mandatory `ticket_ref`, past start times and missing rules rejected |
 | `scm_airs_list` | List Prisma AIRS (AI Runtime Security) configuration and profiles |
+| `scm_saa_list` | Secure Agentless Access status, apps, groups, profiles, policies, live sessions and risks; probes the data region |
+| `scm_saa_session_disconnect` | Disconnect live SAA sessions by id, by user/app, or all; dry run by default, mandatory `ticket_ref`, region established before any write |
 
 ### Operational visibility
 

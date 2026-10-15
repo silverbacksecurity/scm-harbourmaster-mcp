@@ -395,3 +395,52 @@ class TestSections:
         )
         rows = saa_changes(inv)
         assert [(r["name"], r["action"]) for r in rows] == [("new", "updated"), ("old", "created")]
+
+
+class TestDisconnect:
+    @staticmethod
+    def _post_resp(status: int, data: Any = None, text: str = "") -> MagicMock:
+        r = MagicMock()
+        r.status_code = status
+        r.content = b"x" if (data is not None or text) else b""
+        r.json.side_effect = None if data is not None else ValueError("no json")
+        r.json.return_value = data
+        r.text = text
+        return r
+
+    def test_chunks_of_1000_and_stops_on_failure(self) -> None:
+        ids = [f"s{i}" for i in range(2500)]
+        session = MagicMock()
+        session.post.side_effect = [
+            self._post_resp(207, {"data": [{"session_id": i, "status": 202} for i in ids[:1000]]}),
+            self._post_resp(500, text="boom"),
+        ]
+        sent: list[int] = []
+        out = saa.disconnect_sessions(session, "uk", ids, before_post=lambda c: sent.append(len(c)))
+        assert sent == [1000, 1000]
+        assert len(out.disconnected) == 1000 and len(out.failed) == 1500
+        assert out.error == "HTTP 500 — SAA service error: boom"
+
+    def test_2xx_without_results_is_unconfirmed(self) -> None:
+        session = MagicMock()
+        session.post.return_value = self._post_resp(
+            207, {"data": [{"session_id": "s1", "status": 409}]}
+        )
+        out = saa.disconnect_sessions(session, "uk", ["s1", "s2"])
+        assert out.other == {"s1": 409} and out.unconfirmed == ["s2"]
+        session.post.return_value = self._post_resp(202)
+        assert saa.disconnect_sessions(session, "uk", ["s3"]).unconfirmed == ["s3"]
+
+    def test_exception_marks_everything_failed(self) -> None:
+        session = MagicMock()
+        session.post.side_effect = ConnectionError("reset")
+        out = saa.disconnect_sessions(session, "uk", ["s1"])
+        assert out.failed == ["s1"] and "reset" in out.error
+
+    def test_disconnect_all(self) -> None:
+        session = MagicMock()
+        session.post.return_value = self._post_resp(202)
+        assert saa.disconnect_all_sessions(session, "uk") == (True, "")
+        session.post.return_value = self._post_resp(403, {"_errors": [{"code": "E403"}]})
+        ok, err = saa.disconnect_all_sessions(session, "uk")
+        assert not ok and "RBAC" in err and "E403" in err
