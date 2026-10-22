@@ -20,7 +20,7 @@ repos:
       - id: check-merge-conflict
       - id: detect-private-key
       - id: no-commit-to-branch
-        args: [--branch, main]
+        args: [--branch, master, --branch, develop]
 
   # Secret scanning — catches credentials before they hit git history
   - repo: https://github.com/gitleaks/gitleaks
@@ -49,8 +49,9 @@ repos:
         # PYSEC-2026-3721). Not a project dependency — pip is not in
         # pyproject.toml or uv.lock. Same for urllib3, which pip-audit pulls
         # in through requests: < 2.8.0 hits PYSEC-2026-4175/4176/4177 (the
-        # project's own urllib3 is pinned in uv.lock).
-        additional_dependencies: ["pip>=26.2", "urllib3>=2.8.0"]
+        # project's own urllib3 is pinned in uv.lock). Same for certifi:
+        # < 2026.10.19 hits PYSEC-2026-4320.
+        additional_dependencies: ["pip>=26.2", "urllib3>=2.8.0", "certifi>=2026.10.19"]
 
   # Block pushes to the public mirror (`pub` remote) that contain
   # tenant-identifying content — gitleaks catches secrets, not customer
