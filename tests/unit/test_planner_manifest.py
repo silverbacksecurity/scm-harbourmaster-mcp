@@ -51,6 +51,7 @@ EXPECTED_WRITE_TOOLS = {
     "scm_create_dns_security_snippet",
     "scm_create_decryption_snippet",
     "scm_create_ransomware_snippet",
+    "scm_create_genai_snippet",
     "scm_reload",
     "scm_restart",
     "scm_ssr_execute",

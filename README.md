@@ -7,7 +7,7 @@
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 
-MCP (Model Context Protocol) server for **Palo Alto Networks Strata Cloud Manager (SCM)**, built for Managed Security Service Providers. Exposes <!-- tool-count -->189<!-- /tool-count --> SCM operations as MCP tools consumable by Claude Desktop, Cursor, Copilot Studio, or any MCP-compatible AI assistant.
+MCP (Model Context Protocol) server for **Palo Alto Networks Strata Cloud Manager (SCM)**, built for Managed Security Service Providers. Exposes <!-- tool-count -->190<!-- /tool-count --> SCM operations as MCP tools consumable by Claude Desktop, Cursor, Copilot Studio, or any MCP-compatible AI assistant.
 
 ---
 
@@ -178,7 +178,7 @@ Add to `~/.config/Claude/claude_desktop_config.json`:
 }
 ```
 
-Restart Claude Desktop. The server registers as <!-- tool-count -->189<!-- /tool-count --> tools in Cowork mode.
+Restart Claude Desktop. The server registers as <!-- tool-count -->190<!-- /tool-count --> tools in Cowork mode.
 
 ### Cursor / VS Code
 
@@ -570,6 +570,7 @@ List all tenants, their auth status, and which licences are expiring soonest.
 | `scm_create_dns_security_snippet` | Create a standalone DNS Security sinkhole snippet (shared building block) |
 | `scm_create_decryption_snippet` | Create an SSL/TLS decryption best-practice snippet: decrypt + no-decrypt profiles and exclusion category |
 | `scm_create_ransomware_snippet` | Create a ransomware-readiness snippet (NIST IR 8374): C2, DNS sinkhole, exploit, WildFire, file blocking, logging |
+| `scm_create_genai_snippet` | Create a GenAI access-control snippet: tag-based app filters, profile groups, AI URL categories, 5 ordered rules, optional custom App-ID |
 | `scm_attach_ncsc_profiles` | Create NCSC-Baseline profile group and attach it to all allow rules |
 
 **NCSC baseline objects created** (`scm_apply_ncsc_baseline` / `scm_create_ncsc_snippet`):
@@ -644,6 +645,24 @@ List all tenants, their auth status, and which licences are expiring soonest.
 | `Ransomware-URL` | URL access profile | Delivery — SC-7 |
 | `Ransomware-Logging` | Log forwarding profile | Response — AU-2 / AU-12 |
 | `Ransomware-Ready` | Tag | Inventory tagging |
+
+**GenAI access-control objects created** (`scm_create_genai_snippet`):
+
+Filters match the `[Generative AI]` tag Palo Alto puts on every GenAI App-ID plus the
+sanction tag you set per app (`scm_application_tags`), so new AI App-IDs are covered by
+content updates. Rules are created disabled unless `enable_rules=True`: rule 5 blocks
+every GenAI app not yet tagged.
+
+| Object | Type | Purpose |
+|--------|------|---------|
+| `GenAI-AntiSpyware` / `-Vulnerability` / `-WildFire` | Threat profiles | Inspection on GenAI allow rules |
+| `GenAI-URL-Allowed` | URL access profile | Threat categories blocked, `artificial-intelligence` alerted (GenAI allow rules) |
+| `GenAI-URL-Enforce` | URL access profile | `artificial-intelligence` blocked (general internet rules; AI sites without an App-ID) |
+| `GenAI-FileBlocking` / `-ReadOnly` | File blocking profiles | High-risk types blocked; read-only also blocks every upload |
+| `GenAI-Sanctioned` / `-Tolerated` / `-Web-Enforce` | Profile groups | Optional Enterprise DLP profile on the first two (`dlp_profile`) |
+| `GenAI-Sanctioned-Apps` / `-Tolerated-Apps` / `-Unsanctioned-Apps` / `-High-Risk-Apps` / `-All-Apps` | Application filters | Sanction tag, risk 4-5, or every GenAI app |
+| `GenAI-Internal` | Custom application | Optional: TLS SNI / HTTP Host signature for internal AI endpoints (`internal_ai_endpoints`) |
+| `GenAI-01-Allow-Sanctioned` … `GenAI-05-Block-Other-GenAI` | Security rules | Allow sanctioned → block unsanctioned → block risk 4-5 → allow tolerated read-only → block the rest |
 
 ### SD-WAN
 

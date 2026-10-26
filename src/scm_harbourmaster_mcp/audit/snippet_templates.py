@@ -17,7 +17,9 @@ NIST IR 8374 (the CSF ransomware profile) and the SP 800-53 control behind each
 kill-chain stage it breaks.
 
 Security rules are excluded — these snippets hold reusable profiles/objects
-only; rules stay in the folder rulebase.
+only; rules stay in the folder rulebase. The GenAI snippet is the exception:
+its value is the rule order (sanctioned → unsanctioned → high risk → tolerated
+→ catch-all), so it carries its rules, disabled unless asked otherwise.
 """
 
 from __future__ import annotations
@@ -473,5 +475,230 @@ def build_ransomware_snippet(snippet_name: str, syslog_profile: str | None = Non
             "Isolate backup traffic: put backup servers in their own zone and allow only "
             "the backup applications between them and protected hosts — deny SMB/RDP from "
             "user zones to backup repositories",
+        ),
+    )
+
+
+# ─── GenAI access control ─────────────────────────────────────────────────────
+
+GENAI_ANTI_SPYWARE_NAME = "GenAI-AntiSpyware"
+GENAI_VULN_PROTECTION_NAME = "GenAI-Vulnerability"
+GENAI_WILDFIRE_NAME = "GenAI-WildFire"
+GENAI_URL_ALLOWED_NAME = "GenAI-URL-Allowed"
+GENAI_URL_ENFORCE_NAME = "GenAI-URL-Enforce"
+GENAI_FILE_BLOCKING_NAME = "GenAI-FileBlocking"
+GENAI_READ_ONLY_NAME = "GenAI-FileBlocking-ReadOnly"
+GENAI_GROUP_SANCTIONED = "GenAI-Sanctioned"
+GENAI_GROUP_TOLERATED = "GenAI-Tolerated"
+GENAI_GROUP_WEB_ENFORCE = "GenAI-Web-Enforce"
+GENAI_FILTER_SANCTIONED = "GenAI-Sanctioned-Apps"
+GENAI_FILTER_TOLERATED = "GenAI-Tolerated-Apps"
+GENAI_FILTER_UNSANCTIONED = "GenAI-Unsanctioned-Apps"
+GENAI_FILTER_HIGH_RISK = "GenAI-High-Risk-Apps"
+GENAI_FILTER_ALL = "GenAI-All-Apps"
+GENAI_CUSTOM_APP_NAME = "GenAI-Internal"
+GENAI_TAG_NAME = "GenAI-Managed"
+GENAI_RULE_SANCTIONED = "GenAI-01-Allow-Sanctioned"
+GENAI_RULE_UNSANCTIONED = "GenAI-02-Block-Unsanctioned"
+GENAI_RULE_HIGH_RISK = "GenAI-03-Block-High-Risk"
+GENAI_RULE_TOLERATED = "GenAI-04-Allow-Tolerated-ReadOnly"
+GENAI_RULE_CATCH_ALL = "GenAI-05-Block-Other-GenAI"
+
+
+def build_genai_snippet(
+    snippet_name: str,
+    *,
+    dlp_profile: str = "",
+    internal_ai_endpoints: tuple[str, ...] = (),
+    enable_rules: bool = False,
+) -> SnippetSpec:
+    """
+    Return the GenAI access-control snippet scoped to *snippet_name*.
+
+    Builds on the tags Palo Alto puts on every generative-AI App-ID
+    (``[Generative AI]``) and the sanction tags the operator sets per app. Rule
+    order is the policy:
+
+      1. allow Sanctioned      — threat profiles, DLP, URL alerting
+      2. block Unsanctioned    — explicit, so logs and BPA show intent
+      3. block risk 4-5        — after sanctioned: an approved app is a
+                                 deliberate decision that beats a risk score
+      4. allow Tolerated       — read-only: every upload blocked
+      5. block all other GenAI — new and untagged AI apps
+
+    Unlike PAN's predefined Gen-AI-Best-Practice snippet it does not depend on
+    that snippet being present, uses standard security rules (NGFW and Prisma
+    Access), handles Tolerated apps and adds a URL profile for AI sites with no
+    App-ID. Per PAN's docs, tagging GenAI apps needs an AI Access Security,
+    CASB-PA or CASB-X licence plus Strata Logging Service.
+
+    Args:
+        snippet_name: Target SCM snippet name (e.g. ``"GenAI-Security"``).
+        dlp_profile: Optional Enterprise DLP data-filtering profile for the
+            sanctioned and tolerated profile groups.
+        internal_ai_endpoints: FQDNs of internal AI services (LLM gateways,
+            self-hosted models) for a custom App-ID allowed by rule 1. Must
+            pass ``snippet_blocks.validate_ai_endpoints``.
+        enable_rules: Create the rules enabled. Off by default — rule 5 blocks
+            every GenAI app that is not yet tagged Sanctioned or Tolerated.
+    """
+    s = snippet_name
+    profiles = (
+        b.anti_spyware(GENAI_ANTI_SPYWARE_NAME, "GenAI — blocks critical+high spyware, C2", s),
+        b.vulnerability(GENAI_VULN_PROTECTION_NAME, "GenAI — reset-both on critical+high CVEs", s),
+        b.wildfire(GENAI_WILDFIRE_NAME, "GenAI — WildFire analysis of AI-generated files", s),
+        b.genai_url_access(
+            GENAI_URL_ALLOWED_NAME,
+            "GenAI allow rules — threat categories blocked, AI categories alerted",
+            s,
+            block_ai=False,
+        ),
+        b.genai_url_access(
+            GENAI_URL_ENFORCE_NAME,
+            "General internet rules — blocks AI sites that have no App-ID",
+            s,
+            block_ai=True,
+        ),
+        b.file_blocking(
+            GENAI_FILE_BLOCKING_NAME, "Sanctioned GenAI — blocks high-risk file types", s
+        ),
+        b.upload_blocking(GENAI_READ_ONLY_NAME, "Tolerated GenAI — read-only, uploads blocked", s),
+    )
+    threat = {
+        "spyware": GENAI_ANTI_SPYWARE_NAME,
+        "vulnerability": GENAI_VULN_PROTECTION_NAME,
+        "wildfire": GENAI_WILDFIRE_NAME,
+    }
+    groups = (
+        b.profile_group(
+            GENAI_GROUP_SANCTIONED,
+            s,
+            **threat,
+            url_filtering=GENAI_URL_ALLOWED_NAME,
+            file_blocking=GENAI_FILE_BLOCKING_NAME,
+            dlp_profile=dlp_profile,
+        ),
+        b.profile_group(
+            GENAI_GROUP_TOLERATED,
+            s,
+            **threat,
+            url_filtering=GENAI_URL_ALLOWED_NAME,
+            file_blocking=GENAI_READ_ONLY_NAME,
+            dlp_profile=dlp_profile,
+        ),
+        b.profile_group(
+            GENAI_GROUP_WEB_ENFORCE,
+            s,
+            **threat,
+            url_filtering=GENAI_URL_ENFORCE_NAME,
+            file_blocking=GENAI_FILE_BLOCKING_NAME,
+        ),
+    )
+    filters = (
+        b.app_filter(GENAI_FILTER_SANCTIONED, s, (b.GENAI_TAG, b.SANCTIONED_TAG)),
+        b.app_filter(GENAI_FILTER_TOLERATED, s, (b.GENAI_TAG, b.TOLERATED_TAG)),
+        b.app_filter(GENAI_FILTER_UNSANCTIONED, s, (b.GENAI_TAG, b.UNSANCTIONED_TAG)),
+        b.app_filter(GENAI_FILTER_HIGH_RISK, s, (b.GENAI_TAG,), risk=(4, 5)),
+        b.app_filter(GENAI_FILTER_ALL, s, (b.GENAI_TAG,)),
+    )
+    sanctioned_apps = [GENAI_FILTER_SANCTIONED]
+    sections: list[tuple[str, tuple[b.SnippetObject, ...]]] = [
+        ("Security Profiles", profiles),
+        ("Profile Groups", groups),
+        ("Application Filters", filters),
+    ]
+    if internal_ai_endpoints:
+        sections.append(
+            (
+                "Custom App-ID",
+                (
+                    b.custom_ai_app(
+                        GENAI_CUSTOM_APP_NAME,
+                        "Internal AI endpoints: " + ", ".join(internal_ai_endpoints),
+                        s,
+                        internal_ai_endpoints,
+                    ),
+                ),
+            )
+        )
+        sanctioned_apps.append(GENAI_CUSTOM_APP_NAME)
+
+    def _rule(
+        name: str, desc: str, apps: list[str], action: str, group: str = ""
+    ) -> b.SnippetObject:
+        return b.security_rule(
+            name,
+            desc,
+            s,
+            applications=apps,
+            action=action,
+            tag_name=GENAI_TAG_NAME,
+            disabled=not enable_rules,
+            profile_group_name=group,
+        )
+
+    rules = (
+        _rule(
+            GENAI_RULE_SANCTIONED,
+            "Sanctioned GenAI — allowed with threat, file, URL and DLP inspection",
+            sanctioned_apps,
+            "allow",
+            GENAI_GROUP_SANCTIONED,
+        ),
+        _rule(
+            GENAI_RULE_UNSANCTIONED,
+            "Unsanctioned GenAI — blocked",
+            [GENAI_FILTER_UNSANCTIONED],
+            "deny",
+        ),
+        _rule(
+            GENAI_RULE_HIGH_RISK,
+            "GenAI apps with risk 4-5 that are not sanctioned — blocked",
+            [GENAI_FILTER_HIGH_RISK],
+            "deny",
+        ),
+        _rule(
+            GENAI_RULE_TOLERATED,
+            "Tolerated GenAI — read-only, every upload blocked",
+            [GENAI_FILTER_TOLERATED],
+            "allow",
+            GENAI_GROUP_TOLERATED,
+        ),
+        _rule(
+            GENAI_RULE_CATCH_ALL,
+            "Every other GenAI app, including new and untagged ones — blocked",
+            [GENAI_FILTER_ALL],
+            "deny",
+        ),
+    )
+    sections += [
+        (
+            "Tag",
+            (b.tag(GENAI_TAG_NAME, s, "Purple", "Managed by scm-harbourmaster-mcp GenAI snippet"),),
+        ),
+        ("Security Rules (in evaluation order)", rules),
+    ]
+    state, when = ("enabled", "applying") if enable_rules else ("disabled", "enabling")
+    return SnippetSpec(
+        label="GenAI",
+        snippet=s,
+        sections=tuple(sections),
+        log_event="genai_snippet_create_failed",
+        ordered_rules=tuple(p["name"] for _, p in rules),
+        dry_run_note=(
+            f"The 5 GenAI rules are created {state}. Rule 5 blocks every GenAI app not "
+            f"tagged {b.SANCTIONED_TAG} or {b.TOLERATED_TAG} — tag apps before {when}."
+        ),
+        next_steps=(
+            f"Tag the apps you approve {b.SANCTIONED_TAG}, {b.TOLERATED_TAG} or "
+            f"{b.UNSANCTIONED_TAG} with `scm_application_tags` — tag each child App-ID "
+            "(e.g. openai-chatgpt), container apps cannot be tagged",
+            "Check each filter's Matching Applications in the SCM UI before enabling rules",
+            "Deploy decryption first (`scm_create_decryption_snippet`) — file blocking, DLP "
+            "and URL inspection see nothing in undecrypted TLS",
+            f"Swap `{GENAI_GROUP_WEB_ENFORCE}` onto your general internet allow rules so AI "
+            "sites without an App-ID are blocked there",
+            f"Keep the `{GENAI_TAG_NAME}` rules above general internet allow rules, then "
+            "enable them in order 1 → 5",
         ),
     )

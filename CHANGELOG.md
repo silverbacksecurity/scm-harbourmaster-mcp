@@ -8,6 +8,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **GenAI access-control snippet.** `scm_create_genai_snippet` builds a snippet
+  from the `[Generative AI]` tag Palo Alto puts on every GenAI App-ID and the
+  Sanctioned / Tolerated / Unsanctioned tags set per app.
+  - **Rules, in order:** allow sanctioned apps with threat, file, URL and
+    optional DLP inspection; block unsanctioned apps; block risk 4-5 apps; allow
+    tolerated apps read-only (every upload blocked); block every other GenAI
+    app. They are created disabled unless `enable_rules=True`, because the last
+    rule blocks every app not yet tagged.
+  - **URL filtering:** one profile alerts the `artificial-intelligence`
+    category on GenAI allow rules; a second blocks it for general internet
+    rules, where AI sites with no App-ID would otherwise pass. SCM's category
+    catalogue doesn't offer PAN-DB's granular `ai-*` sub-categories; it rejects
+    them as invalid references.
+  - **Custom App-ID:** `internal_ai_endpoints` creates `GenAI-Internal`, which
+    matches TLS SNI or the HTTP Host header, for internal LLM gateways and
+    self-hosted models. It is not meant for public AI services, because a custom
+    App-ID overrides Palo Alto's and loses the GenAI tag.
+  - **Rule order is enforced.** After a clean apply the rules are moved to the
+    bottom of the snippet in order 1-5, because create doesn't guarantee where a
+    rule lands and a re-run appends any rule it creates late.
+  - Compared with Palo Alto's predefined Gen-AI-Best-Practice snippet, it uses
+    standard security rules and covers tolerated apps. Tagging GenAI apps still
+    needs an AI Access Security, CASB-PA or CASB-X licence plus Strata Logging
+    Service, per Palo Alto's docs.
+- Snippet tools now create profile groups, application filters and custom
+  applications over REST, because pan-scm-sdk has no wrapper for profile groups
+  and its models drop the filter `tagging` and the application `signature`.
 - **`scm_migration_report` builds the sign-off document for a Panorama → SCM
   migration.** It compares three files: the migration plan (what was
   translated, with every gap the converter recorded), the pre-migration

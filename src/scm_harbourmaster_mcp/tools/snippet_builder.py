@@ -7,21 +7,36 @@ write-safety flow the NCSC/NIST snippet tools established: mandatory
 one is reused), then each object in order — "already exists" is a skip, any
 other error is a failure that does not stop the run.
 
+A spec with ``ordered_rules`` has those rules moved to the bottom of the
+snippet's pre-rulebase, in order, after a clean apply — create does not
+guarantee placement, and a re-run appends rules it creates late.
+
 With ``associate_folder`` set (off by default) a clean apply also associates
 the snippet with that folder through ``PUT /config/setup/v1/folders/{id}``,
 the same call the config cloner uses (``audit.cloner._associate_snippets``).
+
+Objects pan-scm-sdk cannot create faithfully go over raw REST through the
+cloner's adapter: profile groups (no wrapper), application filters (the model
+has no ``tagging``) and custom applications (the model has no ``signature``).
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from ..audit.cloner import _associate_snippets
+from ..audit.cloner import _associate_snippets, _RestResource
 from ..audit.snippet_blocks import SnippetSpec
 from ..utils.logging import get_logger
 from ..utils.write_safety import audit_write, normalize_ticket_ref, ticket_ref_error
 
 logger = get_logger(__name__)
+
+# sdk_attr → API path under client.api_base_url, for objects created over REST
+_REST_PATHS: dict[str, str] = {
+    "profile_group": "/config/security/v1/profile-groups",
+    "application_filter": "/config/objects/v1/application-filters",
+    "application": "/config/objects/v1/applications",
+}
 
 
 def _is_duplicate(msg: str) -> bool:
@@ -102,7 +117,12 @@ def build_and_create_snippet(
             created += 1
             return
 
-        resource = getattr(client, sdk_attr, None)
+        if sdk_attr in _REST_PATHS:
+            resource: Any = _RestResource(
+                client.session, f"{client.api_base_url}{_REST_PATHS[sdk_attr]}"
+            )
+        else:
+            resource = getattr(client, sdk_attr, None)
         if resource is None:
             results.append(f"  [SKIP] {display_name} — SDK attr '{sdk_attr}' not available")
             skipped += 1
@@ -110,7 +130,8 @@ def build_and_create_snippet(
 
         try:
             obj = resource.create(payload)
-            results.append(f"  [OK] Created {display_name} (id={getattr(obj, 'id', '?')})")
+            obj_id = obj.get("id", "?") if isinstance(obj, dict) else getattr(obj, "id", "?")
+            results.append(f"  [OK] Created {display_name} (id={obj_id})")
             created += 1
         except Exception as exc:
             msg = str(exc)
@@ -128,6 +149,30 @@ def build_and_create_snippet(
         results.append(f"\n### Step {step}: {heading}")
         for sdk_attr, payload in objects:
             _apply(sdk_attr, payload, payload["name"])
+
+    # ── Rule order ────────────────────────────────────────────────────────────
+    if spec.ordered_rules:
+        step += 1
+        results.append(f"\n### Step {step}: Rule Order")
+        if dry_run:
+            results.append(
+                "  [DRY-RUN] would move to the bottom, in order: " + " → ".join(spec.ordered_rules)
+            )
+        elif failed:
+            results.append(f"  [SKIP] Not reordering — {failed} object(s) failed")
+        else:
+            for rule in spec.ordered_rules:
+                try:
+                    existing = client.security_rule.fetch(name=rule, snippet=snippet_name)
+                    client.security_rule.move(
+                        existing.id, {"destination": "bottom", "rulebase": "pre"}
+                    )
+                    results.append(f"  [OK] {rule} moved to the bottom")
+                except Exception as exc:
+                    failed += 1
+                    msg = str(exc)
+                    results.append(f"  [FAIL] Could not move {rule}: {msg}")
+                    logger.warning(spec.log_event, object=rule, error=msg)
 
     # ── Optional: associate with a folder ─────────────────────────────────────
     # None = not requested; True = associated (or already was); False = failed

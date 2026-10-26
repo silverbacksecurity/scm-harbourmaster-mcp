@@ -19,12 +19,13 @@ from scm.models.security.anti_spyware_profiles import AntiSpywareProfileCreateMo
 from scm.models.security.decryption_profiles import DecryptionProfileCreateModel
 from scm.models.security.dns_security_profiles import DNSSecurityProfileCreateModel
 from scm.models.security.file_blocking_profiles import FileBlockingProfileCreateModel
+from scm.models.security.security_rules import SecurityRuleCreateModel
 from scm.models.security.url_access_profiles import URLAccessProfileCreateModel
 from scm.models.security.url_categories import URLCategoriesCreateModel
 from scm.models.security.vulnerability_protection_profiles import VulnerabilityProfileCreateModel
 from scm.models.security.wildfire_antivirus_profiles import WildfireAvProfileCreateModel
 
-from scm_harbourmaster_mcp.audit import nist_templates, snippet_templates
+from scm_harbourmaster_mcp.audit import nist_templates, snippet_blocks, snippet_templates
 from scm_harbourmaster_mcp.audit.dspt_controls import DSPT_ASSERTIONS
 from scm_harbourmaster_mcp.audit.iso27001_controls import ISO27001_CONTROLS
 from scm_harbourmaster_mcp.audit.ncsc_templates import build_snippet_templates
@@ -46,6 +47,15 @@ CREATE_MODELS: dict[str, type[BaseModel]] = {
     "decryption_profile": DecryptionProfileCreateModel,
     "url_category": URLCategoriesCreateModel,
     "tag": TagCreateModel,
+    "security_rule": SecurityRuleCreateModel,
+}
+# Created over raw REST by the builder (no SDK model, or one that drops fields)
+REST_ATTRS = {"profile_group", "application_filter", "application"}
+# Security rules serialise by_alias (from_/to_ → from/to); everything else
+# without, so only the vulnerability rules' vendor_id differs
+EXPECTED_ALIAS_RENAMES = {
+    "vulnerability_protection_profile": {"vendor_id", "vendor-id"},
+    "security_rule": {"from_", "from", "to_", "to"},
 }
 
 
@@ -61,6 +71,9 @@ SPECS: dict[str, SnippetSpec] = {
     "dns_security": snippet_templates.build_dns_security_snippet(SNIPPET),
     "decryption": snippet_templates.build_decryption_snippet(SNIPPET),
     "ransomware": snippet_templates.build_ransomware_snippet(SNIPPET, "siem"),
+    "genai": snippet_templates.build_genai_snippet(
+        SNIPPET, dlp_profile="Corp-DLP", internal_ai_endpoints=("llm.corp.example",)
+    ),
 }
 # The tool that creates each spec, and whether it takes syslog_profile
 SPEC_TOOLS: dict[str, tuple[str, bool]] = {
@@ -69,6 +82,11 @@ SPEC_TOOLS: dict[str, tuple[str, bool]] = {
     "dns_security": ("scm_create_dns_security_snippet", False),
     "decryption": ("scm_create_decryption_snippet", False),
     "ransomware": ("scm_create_ransomware_snippet", True),
+    "genai": ("scm_create_genai_snippet", False),
+}
+# Extra tool kwargs that make each spec's tool output match SPECS
+SPEC_TOOL_KWARGS: dict[str, dict[str, Any]] = {
+    "genai": {"dlp_profile": "Corp-DLP", "internal_ai_endpoints": " LLM.corp.example "},
 }
 ALL_OBJECTS: dict[str, list[SnippetObject]] = {
     "ncsc": _legacy_objects(build_snippet_templates(SNIPPET, "siem")),
@@ -90,6 +108,19 @@ def _key_paths(value: Any, prefix: str = "") -> set[str]:
     return set()
 
 
+REST_URL_ATTRS = {
+    "https://api.example/config/security/v1/profile-groups": "profile_group",
+    "https://api.example/config/objects/v1/application-filters": "application_filter",
+    "https://api.example/config/objects/v1/applications": "application",
+}
+
+
+def _resp(data: dict[str, Any]) -> MagicMock:
+    resp = MagicMock(ok=True, status_code=201, content=b"x")
+    resp.json.return_value = data
+    return resp
+
+
 def _tools(client: Any) -> dict[str, Any]:
     mcp = FastMCP("test")
     register_ncsc_tools(mcp, lambda tenant_id="": client)
@@ -103,6 +134,8 @@ class TestSdkModels:
     @pytest.mark.parametrize("key", sorted(ALL_OBJECTS))
     def test_payloads_validate_against_create_models(self, key: str) -> None:
         for sdk_attr, payload in ALL_OBJECTS[key]:
+            if sdk_attr in REST_ATTRS:
+                continue
             assert sdk_attr in CREATE_MODELS, f"no create model mapped for {sdk_attr}"
             model = CREATE_MODELS[sdk_attr](**payload)
             # create() sends model_dump(exclude_unset=True): nothing we set may
@@ -118,22 +151,24 @@ class TestSdkModels:
         # an SDK quirk inherited from the NCSC/NIST payloads — always ["any"],
         # which is also the API default.
         for sdk_attr, payload in ALL_OBJECTS[key]:
+            if sdk_attr in REST_ATTRS:
+                continue
             model = CREATE_MODELS[sdk_attr](**payload)
             plain = _key_paths(model.model_dump(exclude_unset=True))
             aliased = _key_paths(model.model_dump(exclude_unset=True, by_alias=True))
             renamed = {p.rsplit(".", 1)[-1] for p in plain ^ aliased}
-            expected = {"vendor_id", "vendor-id"} if sdk_attr.startswith("vuln") else set()
-            assert renamed == expected, (sdk_attr, renamed)
+            assert renamed == EXPECTED_ALIAS_RENAMES.get(sdk_attr, set()), (sdk_attr, renamed)
 
     @pytest.mark.parametrize("key", sorted(ALL_OBJECTS))
     def test_objects_are_scoped_to_the_snippet(self, key: str) -> None:
         names = [p["name"] for _, p in ALL_OBJECTS[key]]
         assert len(names) == len(set(names))
-        for _, payload in ALL_OBJECTS[key]:
+        for sdk_attr, payload in ALL_OBJECTS[key]:
             assert payload["snippet"] == SNIPPET
             assert "folder" not in payload
-            # PAN-OS profile names are capped at 31 characters
-            assert len(payload["name"]) <= 31, payload["name"]
+            # PAN-OS caps rule names at 63 characters, everything else at 31
+            cap = 63 if sdk_attr == "security_rule" else 31
+            assert len(payload["name"]) <= cap, payload["name"]
 
     def test_every_sdk_attr_is_a_real_client_service(self) -> None:
         source = inspect.getsource(scm.client)
@@ -197,6 +232,7 @@ class TestTools:
                 "Ransomware-Readiness",
                 8,
             ),
+            ("scm_create_genai_snippet", "GenAI", "GenAI-Security", 21),
         ],
     )
     def test_dry_run_writes_nothing(self, tool: str, label: str, default_name: str, count: int):
@@ -212,7 +248,10 @@ class TestTools:
         tool, takes_syslog = SPEC_TOOLS[spec_key]
         client = MagicMock()
         client.snippet.create.return_value = SimpleNamespace(id="snip-1")
+        client.api_base_url = "https://api.example"
+        client.session.post.return_value = _resp({"id": "rest-1"})
         extra = {"syslog_profile": "siem"} if takes_syslog else {}
+        extra |= SPEC_TOOL_KWARGS.get(spec_key, {})
         out = _tools(client)[tool](tenant_id=TENANT, snippet_name=SNIPPET, dry_run=False, **extra)
         assert "Created snippet 'Test-Snippet' (id=snip-1)" in out
         assert "Failed: 0" in out and "created.**" in out
@@ -220,6 +259,9 @@ class TestTools:
             (attr, call.args[0])
             for attr in CREATE_MODELS
             for call in getattr(client, attr).create.call_args_list
+        ] + [
+            (REST_URL_ATTRS[call.args[0]], call.kwargs["json"])
+            for call in client.session.post.call_args_list
         ]
         expected = SPECS[spec_key].objects
         assert sorted(sent, key=lambda o: o[1]["name"]) == sorted(
@@ -274,3 +316,167 @@ class TestTools:
         out = _tools(client)["scm_create_ransomware_snippet"](tenant_id=TENANT, dry_run=False)
         assert "Isolate backup traffic" in out
         assert "east-west and intrazone allow rules" in out
+
+
+class TestGenAiSnippet:
+    def _objs(self) -> dict[str, tuple[str, dict[str, Any]]]:
+        return {p["name"]: (a, p) for a, p in SPECS["genai"].objects}
+
+    def test_rules_are_ordered_and_disabled_by_default(self) -> None:
+        rules = [p for a, p in SPECS["genai"].objects if a == "security_rule"]
+        assert [(r["name"], r["action"], r["application"]) for r in rules] == [
+            (
+                snippet_templates.GENAI_RULE_SANCTIONED,
+                "allow",
+                [
+                    snippet_templates.GENAI_FILTER_SANCTIONED,
+                    snippet_templates.GENAI_CUSTOM_APP_NAME,
+                ],
+            ),
+            (
+                snippet_templates.GENAI_RULE_UNSANCTIONED,
+                "deny",
+                [snippet_templates.GENAI_FILTER_UNSANCTIONED],
+            ),
+            (
+                snippet_templates.GENAI_RULE_HIGH_RISK,
+                "deny",
+                [snippet_templates.GENAI_FILTER_HIGH_RISK],
+            ),
+            (
+                snippet_templates.GENAI_RULE_TOLERATED,
+                "allow",
+                [snippet_templates.GENAI_FILTER_TOLERATED],
+            ),
+            (snippet_templates.GENAI_RULE_CATCH_ALL, "deny", [snippet_templates.GENAI_FILTER_ALL]),
+        ]
+        assert all(r["disabled"] for r in rules)
+        enabled = snippet_templates.build_genai_snippet(SNIPPET, enable_rules=True)
+        assert not any(p["disabled"] for a, p in enabled.objects if a == "security_rule")
+
+    def test_every_reference_is_created_first(self) -> None:
+        created: set[str] = set()
+        for attr, p in SPECS["genai"].objects:
+            if attr == "profile_group":
+                refs = {v[0] for k, v in p.items() if k not in ("name", "snippet")}
+            elif attr == "security_rule":
+                refs = {
+                    *p["application"],
+                    *p["tag"],
+                    *p.get("profile_setting", {}).get("group", []),
+                }
+            else:
+                refs = set()
+            refs.discard("Corp-DLP")  # operator-supplied, lives outside the snippet
+            assert refs <= created, (p["name"], refs - created)
+            created.add(p["name"])
+
+    def test_allow_rules_inspect_and_tolerated_is_read_only(self) -> None:
+        objs = self._objs()
+        _, sanctioned = objs[snippet_templates.GENAI_GROUP_SANCTIONED]
+        _, tolerated = objs[snippet_templates.GENAI_GROUP_TOLERATED]
+        assert sanctioned["data_filtering"] == tolerated["data_filtering"] == ["Corp-DLP"]
+        assert tolerated["file_blocking"] == [snippet_templates.GENAI_READ_ONLY_NAME]
+        _, ro = objs[snippet_templates.GENAI_READ_ONLY_NAME]
+        assert {
+            "name": "block-all-uploads",
+            "action": "block",
+            "application": ["any"],
+            "direction": "upload",
+            "file_type": ["any"],
+        } in ro["rules"]
+        _, web = objs[snippet_templates.GENAI_GROUP_WEB_ENFORCE]
+        assert "data_filtering" not in web
+        no_dlp = snippet_templates.build_genai_snippet(SNIPPET)
+        assert not any("data_filtering" in p for _, p in no_dlp.objects)
+
+    def test_url_profiles_alert_or_block_ai_categories(self) -> None:
+        objs = self._objs()
+        _, allowed = objs[snippet_templates.GENAI_URL_ALLOWED_NAME]
+        _, enforce = objs[snippet_templates.GENAI_URL_ENFORCE_NAME]
+        ai = snippet_blocks.AI_URL_CATEGORY
+        assert ai in allowed["alert"] and ai not in allowed["block"]
+        assert ai in enforce["block"] and ai not in enforce["alert"]
+        # SCM rejects PAN-DB's granular sub-categories as invalid references
+        assert not any(c.startswith("ai-") for c in allowed["alert"] + enforce["block"])
+        assert "malware" in allowed["block"] and "malware" in enforce["block"]
+
+    def test_filters_match_on_tagging(self) -> None:
+        objs = self._objs()
+        _, high = objs[snippet_templates.GENAI_FILTER_HIGH_RISK]
+        assert high["tagging"] == {"tag": ["[Generative AI]"]} and high["risk"] == [4, 5]
+        _, sanc = objs[snippet_templates.GENAI_FILTER_SANCTIONED]
+        assert sanc["tagging"] == {"tag": ["[Generative AI]", "Sanctioned"]}
+        assert "tag" not in sanc
+
+    def test_custom_app_matches_sni_and_host(self) -> None:
+        attr, app = self._objs()[snippet_templates.GENAI_CUSTOM_APP_NAME]
+        assert attr == "application"
+        conds = app["signature"][0]["and_condition"][0]["or_condition"]
+        assert [c["operator"]["pattern_match"] for c in conds] == [
+            {"context": "ssl-req-chello-sni", "pattern": r"llm\.corp\.example"},
+            {"context": "http-req-host-header", "pattern": r"llm\.corp\.example"},
+        ]
+        without = snippet_templates.build_genai_snippet(SNIPPET)
+        assert not any(a == "application" for a, _ in without.objects)
+
+    @pytest.mark.parametrize(
+        "endpoints",
+        ["https://llm.corp.example", "*.corp.example", "llm.corp.example:443", "a.io", "local"],
+    )
+    def test_bad_endpoints_are_rejected_before_any_write(self, endpoints: str) -> None:
+        client = MagicMock()
+        out = _tools(client)["scm_create_genai_snippet"](
+            tenant_id=TENANT, internal_ai_endpoints=endpoints, dry_run=False
+        )
+        assert out.startswith("Error: internal_ai_endpoints")
+        assert client.mock_calls == []
+
+    def test_dry_run_counts_custom_app_and_notes_disabled_rules(self) -> None:
+        out = _tools(MagicMock())["scm_create_genai_snippet"](
+            tenant_id=TENANT, internal_ai_endpoints="llm.corp.example, llm.corp.example"
+        )
+        assert "Created: 22 | Skipped: 0 | Failed: 0" in out
+        assert "The 5 GenAI rules are created disabled" in out
+
+    def test_apply_moves_rules_to_the_bottom_in_order(self) -> None:
+        client = MagicMock()
+        client.api_base_url = "https://api.example"
+        client.session.post.return_value = _resp({"id": "rest-1"})
+        client.security_rule.fetch.side_effect = lambda name, snippet: SimpleNamespace(
+            id=f"id-{name}"
+        )
+        out = _tools(client)["scm_create_genai_snippet"](
+            tenant_id=TENANT, snippet_name=SNIPPET, dry_run=False
+        )
+        order = list(SPECS["genai"].ordered_rules)
+        assert order[0] == snippet_templates.GENAI_RULE_SANCTIONED
+        assert order[-1] == snippet_templates.GENAI_RULE_CATCH_ALL
+        assert [c.kwargs for c in client.security_rule.fetch.call_args_list] == [
+            {"name": r, "snippet": SNIPPET} for r in order
+        ]
+        assert [c.args for c in client.security_rule.move.call_args_list] == [
+            (f"id-{r}", {"destination": "bottom", "rulebase": "pre"}) for r in order
+        ]
+        assert "Failed: 0" in out and f"[OK] {order[-1]} moved to the bottom" in out
+
+    def test_reorder_skipped_after_a_failure_and_shown_in_dry_run(self) -> None:
+        client = MagicMock()
+        client.api_base_url = "https://api.example"
+        client.session.post.return_value = MagicMock(ok=False, status_code=400, text="bad")
+        out = _tools(client)["scm_create_genai_snippet"](tenant_id=TENANT, dry_run=False)
+        assert "[SKIP] Not reordering" in out
+        client.security_rule.move.assert_not_called()
+        dry = _tools(MagicMock())["scm_create_genai_snippet"](tenant_id=TENANT)
+        assert "would move to the bottom, in order: GenAI-01-Allow-Sanctioned →" in dry
+
+    def test_failed_move_counts_as_failure(self) -> None:
+        client = MagicMock()
+        client.api_base_url = "https://api.example"
+        client.session.post.return_value = _resp({"id": "rest-1"})
+        client.security_rule.move.side_effect = RuntimeError("move refused")
+        out = _tools(client)["scm_create_genai_snippet"](
+            tenant_id=TENANT, dry_run=False, associate_folder="Branch"
+        )
+        assert "Could not move GenAI-01-Allow-Sanctioned: move refused" in out
+        assert "Not associating with 'Branch'" in out

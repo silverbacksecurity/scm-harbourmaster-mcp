@@ -11,6 +11,7 @@ MCP tools for NCSC/NIST baseline, compliance snippets and gap analysis.
   scm_create_dns_security_snippet — create a standalone DNS Security sinkhole snippet
   scm_create_decryption_snippet   — create an SSL/TLS decryption best-practice snippet
   scm_create_ransomware_snippet   — create a ransomware-readiness (NIST IR 8374) snippet
+  scm_create_genai_snippet        — create a GenAI access-control snippet (tags, rules, App-ID)
   scm_nist_gap                 — compare live config against NIST baseline (CSF/SP 800-53/800-171)
 """
 
@@ -38,11 +39,12 @@ from ..audit.ncsc_templates import (
     check_log_forwarding,
     check_security_rules,
 )
-from ..audit.snippet_blocks import SnippetSpec
+from ..audit.snippet_blocks import SnippetSpec, validate_ai_endpoints
 from ..audit.snippet_templates import (
     build_decryption_snippet,
     build_dns_security_snippet,
     build_dspt_snippet,
+    build_genai_snippet,
     build_iso27001_snippet,
     build_ransomware_snippet,
 )
@@ -602,6 +604,93 @@ def register_ncsc_tools(mcp: FastMCP, get_client: Callable[..., Any]) -> None:
             client,
             build_ransomware_snippet(snippet_name, syslog_profile=syslog_profile or None),
             tool_name="scm_create_ransomware_snippet",
+            tenant_id=tenant_id,
+            description=description,
+            dry_run=dry_run,
+            ticket_ref=ticket_ref,
+            associate_folder=associate_folder,
+        )
+
+    # ── Create GenAI access-control snippet ───────────────────────────────────
+
+    @mcp.tool()
+    @tool
+    def scm_create_genai_snippet(
+        client: Any,
+        tenant_id: str,
+        snippet_name: str = "GenAI-Security",
+        dry_run: bool = True,
+        ticket_ref: str = "",
+        dlp_profile: str = "",
+        internal_ai_endpoints: str = "",
+        enable_rules: bool = False,
+        description: str = "GenAI access control — managed by scm-harbourmaster-mcp",
+        associate_folder: str = "",
+    ) -> str:
+        """
+        Create an SCM snippet that controls access to generative-AI apps.
+
+        Built on the [Generative AI] tag Palo Alto puts on every GenAI App-ID and
+        the Sanctioned / Tolerated / Unsanctioned tags you set per app, so new
+        AI App-IDs are covered by content updates. Creates:
+          - Threat profiles (anti-spyware, vulnerability, WildFire)
+          - URL profiles: GenAI-URL-Allowed alerts the artificial-intelligence
+            category (for GenAI allow rules); GenAI-URL-Enforce blocks it (for
+            general internet rules, where AI sites lack an App-ID)
+          - File blocking: standard, and read-only (every upload blocked)
+          - Profile groups GenAI-Sanctioned, GenAI-Tolerated, GenAI-Web-Enforce
+          - App filters for sanctioned, tolerated, unsanctioned, risk 4-5 and
+            all GenAI apps
+          - Optional custom App-ID for internal AI endpoints
+          - GenAI-Managed tag and 5 security rules, in evaluation order:
+              1 allow Sanctioned (threat, file, URL, DLP inspection)
+              2 block Unsanctioned
+              3 block risk 4-5 (sanctioned apps already matched rule 1)
+              4 allow Tolerated read-only (uploads blocked)
+              5 block every other GenAI app (new or untagged)
+
+        Rules are created DISABLED by default: rule 5 blocks every GenAI app not
+        yet tagged Sanctioned or Tolerated. Tag apps with scm_application_tags
+        (child App-IDs — containers cannot be tagged) and deploy decryption
+        first. Unlike PAN's predefined Gen-AI-Best-Practice snippet it uses
+        standard security rules (NGFW and Prisma Access) and covers Tolerated
+        apps. Per PAN's docs, tagging GenAI apps needs an AI Access Security,
+        CASB-PA or CASB-X licence plus Strata Logging Service. After a clean
+        apply the rules are moved to the bottom of the snippet in order 1-5.
+
+        Args:
+            snippet_name: Name of the SCM snippet to create (default: "GenAI-Security").
+            dry_run: If True (default) show what WOULD be created without writing.
+            ticket_ref: Mandatory change-ticket reference (never sent to SCM).
+            dlp_profile: Optional Enterprise DLP data-filtering profile name to add to
+                the sanctioned and tolerated profile groups.
+            internal_ai_endpoints: Optional comma-separated FQDNs of internal AI
+                services (LLM gateways, self-hosted models) — creates custom App-ID
+                GenAI-Internal (TLS SNI / HTTP Host match), allowed by rule 1. Do
+                not list public AI services: a custom App-ID overrides PAN's own
+                and loses the [Generative AI] tag.
+            enable_rules: Create the 5 rules enabled (default False).
+            description: Description for the snippet container.
+            associate_folder: Optional folder to associate the snippet with once every
+                object is created (off by default — assign it in the portal instead).
+            tenant_id: Tenant to target (default: first loaded tenant).
+        """
+        endpoints = tuple(
+            dict.fromkeys(e.strip().lower() for e in internal_ai_endpoints.split(",") if e.strip())
+        )
+        if endpoints:
+            err = validate_ai_endpoints(endpoints)
+            if err:
+                return f"Error: internal_ai_endpoints — {err}"
+        return build_and_create_snippet(
+            client,
+            build_genai_snippet(
+                snippet_name,
+                dlp_profile=dlp_profile.strip(),
+                internal_ai_endpoints=endpoints,
+                enable_rules=enable_rules,
+            ),
+            tool_name="scm_create_genai_snippet",
             tenant_id=tenant_id,
             description=description,
             dry_run=dry_run,

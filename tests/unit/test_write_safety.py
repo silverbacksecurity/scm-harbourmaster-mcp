@@ -454,6 +454,7 @@ class TestExistingDryRunTools:
             ("scm_create_dns_security_snippet", {}),
             ("scm_create_decryption_snippet", {}),
             ("scm_create_ransomware_snippet", {}),
+            ("scm_create_genai_snippet", {}),
         ],
     )
     def test_ncsc_tools_require_ticket_ref(self, tool_name: str, kwargs: dict[str, Any]) -> None:

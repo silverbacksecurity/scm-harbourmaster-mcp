@@ -213,6 +213,7 @@ NOT_PATHS = {
     "cert_profile",
     "destination_addresses",
     "destination_zones",
+    "dlp_profile",  # scm_create_genai_snippet: an Enterprise DLP profile name
     "max_paths",
     "profile_group_name",
     "profile_id",

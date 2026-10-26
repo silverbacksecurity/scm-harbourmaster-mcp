@@ -9,6 +9,7 @@ any of them with one create / dry-run / error-handling path.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -30,6 +31,10 @@ class SnippetSpec:
     # Follow-ups after a clean apply; "assign/associate the snippet" is always
     # step 1 and is added by the builder
     next_steps: tuple[str, ...] = ()
+    # Security rules whose order is the policy: after a clean apply each is
+    # moved to the bottom of the snippet's pre-rulebase in this order, since
+    # create does not guarantee placement and a re-run appends late creates
+    ordered_rules: tuple[str, ...] = ()
 
     @property
     def objects(self) -> list[SnippetObject]:
@@ -396,3 +401,204 @@ def no_decrypt_category(name: str, description: str, snippet: str) -> SnippetObj
 def tag(name: str, snippet: str, color: str, comments: str) -> SnippetObject:
     """Marker tag for the objects and rules a framework baseline covers."""
     return ("tag", {"name": name, "snippet": snippet, "color": color, "comments": comments})
+
+
+# ─── GenAI access control ─────────────────────────────────────────────────────
+#
+# Palo Alto tags every generative-AI App-ID with the system tag below; the
+# sanction tags are set per app by the operator (scm_application_tags, or
+# AI Access Security). Filters and rules built from these tags pick up new
+# GenAI App-IDs from content updates without edits.
+
+GENAI_TAG = "[Generative AI]"
+SANCTIONED_TAG = "Sanctioned"
+TOLERATED_TAG = "Tolerated"
+UNSANCTIONED_TAG = "Unsanctioned"
+
+# SCM's URL category catalogue (url-filtering-categories) offers only this AI
+# category: PAN-DB's granular ai-* sub-categories are rejected as invalid
+# references (live, 2026-10-26).
+AI_URL_CATEGORY = "artificial-intelligence"
+
+# PAN-OS needs at least 7 contiguous fixed bytes in a custom signature pattern
+_MIN_PATTERN_BYTES = 7
+_SIGNATURE_PATTERN_MAX = 127
+
+
+def genai_url_access(name: str, description: str, snippet: str, *, block_ai: bool) -> SnippetObject:
+    """Threat URL baseline plus the AI category, blocked or alerted.
+
+    *block_ai* False is the profile for GenAI allow rules: the AI category is
+    alerted so sanctioned-app traffic stays visible. True is for general
+    internet rules, where AI sites without an App-ID would otherwise pass.
+    """
+    _, payload = url_access(name, description, snippet)
+    key = "block" if block_ai else "alert"
+    payload[key] = [*payload[key], AI_URL_CATEGORY]
+    return ("url_access_profile", payload)
+
+
+def upload_blocking(name: str, description: str, snippet: str) -> SnippetObject:
+    """Read-only access: block every upload, high-risk types both ways, alert the rest."""
+    _, payload = file_blocking(name, description, snippet)
+    payload["rules"] = [
+        payload["rules"][0],
+        {
+            "name": "block-all-uploads",
+            "action": "block",
+            "application": ["any"],
+            "direction": "upload",
+            "file_type": ["any"],
+        },
+        payload["rules"][1],
+    ]
+    return ("file_blocking_profile", payload)
+
+
+def profile_group(
+    name: str,
+    snippet: str,
+    *,
+    spyware: str,
+    vulnerability: str,
+    wildfire: str,
+    url_filtering: str,
+    file_blocking: str,
+    dlp_profile: str = "",
+) -> SnippetObject:
+    """Profile group over REST (pan-scm-sdk 0.15.1 has no wrapper).
+
+    Profile groups have no description field. *dlp_profile* is an Enterprise
+    DLP data-filtering profile name, added when given.
+    """
+    payload: dict[str, Any] = {
+        "name": name,
+        "snippet": snippet,
+        "spyware": [spyware],
+        "vulnerability": [vulnerability],
+        "virus_and_wildfire_analysis": [wildfire],
+        "url_filtering": [url_filtering],
+        "file_blocking": [file_blocking],
+    }
+    if dlp_profile:
+        payload["data_filtering"] = [dlp_profile]
+    return ("profile_group", payload)
+
+
+def app_filter(
+    name: str, snippet: str, tags: tuple[str, ...], *, risk: tuple[int, ...] = ()
+) -> SnippetObject:
+    """Tag-based application filter over REST.
+
+    The SDK model sends ``tag``; the API matches on ``tagging.tag``.
+    """
+    payload: dict[str, Any] = {"name": name, "snippet": snippet, "tagging": {"tag": list(tags)}}
+    if risk:
+        payload["risk"] = list(risk)
+    return ("application_filter", payload)
+
+
+def _fqdn_pattern(fqdn: str) -> str:
+    return fqdn.strip().lower().replace(".", r"\.")
+
+
+def validate_ai_endpoints(fqdns: tuple[str, ...]) -> str:
+    """Return an error for FQDNs a custom App-ID signature cannot match, else ''."""
+    if not fqdns:
+        return "no endpoints given"
+    for fqdn in fqdns:
+        if not re.fullmatch(
+            r"[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+", fqdn
+        ):
+            return f"{fqdn!r} is not a hostname (no scheme, path, port or wildcard)"
+        if len(fqdn) < _MIN_PATTERN_BYTES:
+            return f"{fqdn!r} is shorter than the {_MIN_PATTERN_BYTES} bytes a signature needs"
+        if len(_fqdn_pattern(fqdn)) > _SIGNATURE_PATTERN_MAX:
+            return f"{fqdn!r} is too long for a signature pattern"
+    return ""
+
+
+def custom_ai_app(
+    name: str, description: str, snippet: str, fqdns: tuple[str, ...]
+) -> SnippetObject:
+    """Custom App-ID for AI endpoints PAN cannot know about (internal LLMs, gateways).
+
+    Matches the TLS SNI (``ssl-req-chello-sni``) or the HTTP Host header of any
+    listed FQDN, over REST — the SDK application model has no ``signature``.
+    Never use it for public AI services: a custom App-ID wins over the
+    predefined one and drops the ``[Generative AI]`` tag and AI Access
+    visibility. Caller validates *fqdns* with ``validate_ai_endpoints``.
+    """
+    or_conditions = []
+    for i, fqdn in enumerate(fqdns, start=1):
+        pattern = _fqdn_pattern(fqdn)
+        or_conditions += [
+            {
+                "name": f"sni-{i}",
+                "operator": {
+                    "pattern_match": {"context": "ssl-req-chello-sni", "pattern": pattern}
+                },
+            },
+            {
+                "name": f"host-{i}",
+                "operator": {
+                    "pattern_match": {"context": "http-req-host-header", "pattern": pattern}
+                },
+            },
+        ]
+    return (
+        "application",
+        {
+            "name": name,
+            "description": description,
+            "snippet": snippet,
+            "category": "business-systems",
+            "subcategory": "general-business",
+            "technology": "browser-based",
+            "risk": 3,
+            "able_to_transfer_file": True,
+            "default": {"port": ["tcp/80,443"]},
+            "signature": [
+                {
+                    "name": "endpoints",
+                    "scope": "session",
+                    "order_free": True,
+                    "and_condition": [{"name": "endpoint", "or_condition": or_conditions}],
+                }
+            ],
+        },
+    )
+
+
+def security_rule(
+    name: str,
+    description: str,
+    snippet: str,
+    *,
+    applications: list[str],
+    action: str,
+    tag_name: str,
+    disabled: bool,
+    profile_group_name: str = "",
+) -> SnippetObject:
+    """Any-to-any internet rule on *applications*, logged at session end."""
+    payload: dict[str, Any] = {
+        "name": name,
+        "description": description,
+        "snippet": snippet,
+        "from_": ["any"],
+        "to_": ["any"],
+        "source": ["any"],
+        "source_user": ["any"],
+        "destination": ["any"],
+        "application": applications,
+        "service": ["application-default"],
+        "category": ["any"],
+        "action": action,
+        "tag": [tag_name],
+        "log_end": True,
+        "disabled": disabled,
+    }
+    if profile_group_name:
+        payload["profile_setting"] = {"group": [profile_group_name]}
+    return ("security_rule", payload)

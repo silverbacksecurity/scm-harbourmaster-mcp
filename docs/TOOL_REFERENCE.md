@@ -4,7 +4,7 @@
 
 All tools authenticate via Bearer-token OAuth (SASE client credentials) configured in `settings.toml` / `.secrets.toml`.
 
-**<!-- tool-count -->189<!-- /tool-count --> tools** across <!-- module-count -->44<!-- /module-count --> modules.
+**<!-- tool-count -->190<!-- /tool-count --> tools** across <!-- module-count -->44<!-- /module-count --> modules.
 
 ## Table of Contents
 
@@ -2028,6 +2028,69 @@ Args:
 | `ticket_ref` | `str` | `''` |
 | `syslog_profile` | `str` | `''` |
 | `description` | `str` | `'Ransomware-readiness baseline (NIST IR 8374) — managed by scm-harbourmaster-mcp'` |
+| `associate_folder` | `str` | `''` |
+
+### `scm_create_genai_snippet`
+
+Create an SCM snippet that controls access to generative-AI apps.
+
+```
+Built on the [Generative AI] tag Palo Alto puts on every GenAI App-ID and
+the Sanctioned / Tolerated / Unsanctioned tags you set per app, so new
+AI App-IDs are covered by content updates. Creates:
+  - Threat profiles (anti-spyware, vulnerability, WildFire)
+  - URL profiles: GenAI-URL-Allowed alerts the artificial-intelligence
+    category (for GenAI allow rules); GenAI-URL-Enforce blocks it (for
+    general internet rules, where AI sites lack an App-ID)
+  - File blocking: standard, and read-only (every upload blocked)
+  - Profile groups GenAI-Sanctioned, GenAI-Tolerated, GenAI-Web-Enforce
+  - App filters for sanctioned, tolerated, unsanctioned, risk 4-5 and
+    all GenAI apps
+  - Optional custom App-ID for internal AI endpoints
+  - GenAI-Managed tag and 5 security rules, in evaluation order:
+      1 allow Sanctioned (threat, file, URL, DLP inspection)
+      2 block Unsanctioned
+      3 block risk 4-5 (sanctioned apps already matched rule 1)
+      4 allow Tolerated read-only (uploads blocked)
+      5 block every other GenAI app (new or untagged)
+
+Rules are created DISABLED by default: rule 5 blocks every GenAI app not
+yet tagged Sanctioned or Tolerated. Tag apps with scm_application_tags
+(child App-IDs — containers cannot be tagged) and deploy decryption
+first. Unlike PAN's predefined Gen-AI-Best-Practice snippet it uses
+standard security rules (NGFW and Prisma Access) and covers Tolerated
+apps. Per PAN's docs, tagging GenAI apps needs an AI Access Security,
+CASB-PA or CASB-X licence plus Strata Logging Service. After a clean
+apply the rules are moved to the bottom of the snippet in order 1-5.
+
+Args:
+    snippet_name: Name of the SCM snippet to create (default: "GenAI-Security").
+    dry_run: If True (default) show what WOULD be created without writing.
+    ticket_ref: Mandatory change-ticket reference (never sent to SCM).
+    dlp_profile: Optional Enterprise DLP data-filtering profile name to add to
+        the sanctioned and tolerated profile groups.
+    internal_ai_endpoints: Optional comma-separated FQDNs of internal AI
+        services (LLM gateways, self-hosted models) — creates custom App-ID
+        GenAI-Internal (TLS SNI / HTTP Host match), allowed by rule 1. Do
+        not list public AI services: a custom App-ID overrides PAN's own
+        and loses the [Generative AI] tag.
+    enable_rules: Create the 5 rules enabled (default False).
+    description: Description for the snippet container.
+    associate_folder: Optional folder to associate the snippet with once every
+        object is created (off by default — assign it in the portal instead).
+    tenant_id: Tenant to target (default: first loaded tenant).
+```
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `tenant_id` | `str` | `''` |
+| `snippet_name` | `str` | `'GenAI-Security'` |
+| `dry_run` | `bool` | `True` |
+| `ticket_ref` | `str` | `''` |
+| `dlp_profile` | `str` | `''` |
+| `internal_ai_endpoints` | `str` | `''` |
+| `enable_rules` | `bool` | `False` |
+| `description` | `str` | `'GenAI access control — managed by scm-harbourmaster-mcp'` |
 | `associate_folder` | `str` | `''` |
 
 ### `scm_attach_ncsc_profiles`

@@ -713,6 +713,7 @@ def _menu_remediation(
                     ),
                     ("11", "Create Decryption Snippet", "SSL/TLS decryption best-practice snippet"),
                     ("12", "Create Ransomware Snippet", "Ransomware-readiness profiles as snippet"),
+                    ("13", "Create GenAI Snippet", "GenAI app filters, profiles and ordered rules"),
                 ]
             )
         )
@@ -779,6 +780,10 @@ def _menu_remediation(
         elif choice == "12":
             _op_create_framework_snippet(
                 tenant, console, _pause, "scm_create_ransomware_snippet", "ransomware"
+            )
+        elif choice == "13":
+            _op_create_framework_snippet(
+                tenant, console, _pause, "scm_create_genai_snippet", "GenAI"
             )
 
 

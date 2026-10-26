@@ -99,6 +99,7 @@ Everything not listed here is `read`.
 | `scm_create_dns_security_snippet` | |
 | `scm_create_decryption_snippet` | |
 | `scm_create_ransomware_snippet` | |
+| `scm_create_genai_snippet` | |
 | `scm_reload` | also a Planner recovery action (with approval) |
 | `scm_restart` | also a Planner recovery action (with approval) |
 | `scm_ssr_execute` | the one idempotent write (already_present semantics; dry_run default) |
