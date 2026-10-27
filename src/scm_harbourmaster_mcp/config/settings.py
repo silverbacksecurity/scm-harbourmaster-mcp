@@ -110,6 +110,12 @@ class TenantConfig(BaseSettings):
         ),
     )
 
+    @field_validator("tenant_id", mode="before")
+    @classmethod
+    def tenant_id_to_str(cls, v: Any) -> Any:
+        """TSG IDs are numeric, so dynaconf casts an unquoted value to int."""
+        return str(v) if isinstance(v, int) and not isinstance(v, bool) else v
+
     @field_validator("tenant_id", "client_id")
     @classmethod
     def not_empty(cls, v: str) -> str:
@@ -244,6 +250,12 @@ class Settings(BaseSettings):
             "dispatchers). Env: SCM_MCP_READ_ONLY=true. Overridden by --read-only."
         ),
     )
+
+    @field_validator("scm_tenant_id", mode="before")
+    @classmethod
+    def scm_tenant_id_to_str(cls, v: Any) -> Any:
+        """TSG IDs are numeric, so dynaconf casts SCM_MCP_SCM_TENANT_ID to int."""
+        return str(v) if isinstance(v, int) and not isinstance(v, bool) else v
 
     @field_validator("enabled_toolsets", mode="before")
     @classmethod

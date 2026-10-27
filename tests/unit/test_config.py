@@ -36,6 +36,15 @@ class TestTenantConfig:
         )
         assert "super-secret" not in repr(tc)
 
+    def test_numeric_tenant_id_coerced_to_str(self) -> None:
+        # An unquoted TSG ID in settings.toml reaches the model as an int.
+        tc = TenantConfig(
+            tenant_id=1234567890,  # type: ignore[arg-type]
+            client_id="svc@iam.panserviceaccount.com",
+            client_secret="s3cr3t",
+        )
+        assert tc.tenant_id == "1234567890"
+
 
 class TestSettings:
     def test_defaults(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -53,3 +62,13 @@ class TestSettings:
         s = Settings()
         assert s.log_level == "DEBUG"
         assert s.mssp_mode is True
+
+    def test_numeric_tenant_id_env_var(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Regression: dynaconf casts a numeric env value to int, which the
+        # str field used to reject at startup.
+        monkeypatch.setenv("SCM_MCP_SCM_TENANT_ID", "1234567890")
+        monkeypatch.setenv("SCM_MCP_SCM_CLIENT_ID", "svc@iam.panserviceaccount.com")
+        monkeypatch.setenv("SCM_MCP_SCM_CLIENT_SECRET", "s3cr3t")
+        s = Settings.from_dynaconf()
+        assert s.scm_tenant_id == "1234567890"
+        assert s.default_tenant().tenant_id == "1234567890"
