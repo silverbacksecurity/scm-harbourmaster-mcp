@@ -4,7 +4,7 @@
 
 All tools authenticate via Bearer-token OAuth (SASE client credentials) configured in `settings.toml` / `.secrets.toml`.
 
-**<!-- tool-count -->190<!-- /tool-count --> tools** across <!-- module-count -->44<!-- /module-count --> modules.
+**<!-- tool-count -->191<!-- /tool-count --> tools** across <!-- module-count -->44<!-- /module-count --> modules.
 
 ## Table of Contents
 
@@ -5660,6 +5660,64 @@ Returns:
 | `name` | `str` | `''` |
 | `mode` | `str` | `''` |
 | `include_details` | `bool` | `False` |
+| `limit` | `int` | `500` |
+
+### `scm_pab_url_drift`
+
+Drift check: custom URL categories vs Prisma Browser app URL lists.
+
+```
+NGFW / Prisma Access policy uses custom URL categories; Prisma
+Browser's own rules use browser application objects that carry
+their own URL lists, and nothing keeps the two aligned. This
+compares them read-only.
+
+Category source (exactly one):
+- folder: SCM custom URL categories in that folder.
+- panorama_xml: a Panorama or firewall config export (offline, no
+  Panorama access needed). Pass device_group for Panorama (its
+  parent device groups and shared are included, nearest scope
+  wins, as PAN-OS resolves them) or vsys for a firewall
+  (default vsys1).
+
+Pairing: by default each "URL List" category is paired with the
+custom or private PAB app of the same name (case and punctuation
+ignored). Set category + pab_app to compare one explicit pair
+whose names differ.
+
+URLs are normalised before comparing (scheme, trailing "/" and
+"/*" dropped, lower-cased), so "*.example.com" matches
+"*://*.example.com/*" in PAB. An entry missing on one side but
+matched by a wildcard on the other is reported separately, not as
+drift. Matching is exact otherwise: PAN-OS prefix-match semantics
+for entries without a trailing "/" are not modelled.
+
+Args:
+    tenant_id: SCM tenant ID (MSSP mode) — the Prisma Browser tenant.
+    folder: SCM folder holding the custom URL categories (e.g.
+        "Prisma Access", "All Firewalls", or a snippet's folder).
+    panorama_xml: Path to a Panorama / firewall config export XML
+        on the server, instead of folder.
+    device_group: panorama_xml — Panorama device group.
+    vsys: panorama_xml — firewall vsys (default vsys1).
+    category: Custom URL category for an explicit pair.
+    pab_app: PAB application name for an explicit pair.
+    limit: Max PAB apps read per type (custom, private; default 500).
+
+Returns:
+    JSON with per-pair drift (only_in_category / only_in_pab), plus
+    the categories and custom PAB apps that have no counterpart.
+```
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `tenant_id` | `str` | `''` |
+| `folder` | `str` | `''` |
+| `panorama_xml` | `str` | `''` |
+| `device_group` | `str` | `''` |
+| `vsys` | `str` | `''` |
+| `category` | `str` | `''` |
+| `pab_app` | `str` | `''` |
 | `limit` | `int` | `500` |
 
 ---

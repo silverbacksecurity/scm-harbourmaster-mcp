@@ -22,11 +22,14 @@ detected from the API itself: unprovisioned tenants return empty lists from
 
 from __future__ import annotations
 
+import fnmatch
+import re
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
 from ..audit.extractor import _bearer_session_for
+from ..audit.panos_import import PanosImportError, convert, load_xml
 from ..utils.formatting import format_result as _fmt
 from ..utils.logging import get_logger
 from ..utils.tool_decorator import scm_tool
@@ -191,6 +194,49 @@ def _rulebase(
 
 def _posture_ok(value: str | None) -> bool:
     return bool(value) and str(value).endswith(_ENABLED_SUFFIX)
+
+
+_URL_APP_TYPES = ("custom", "private")  # admin-defined apps that carry URL lists
+_SCHEME_RE = re.compile(r"^[a-z*]+://")
+
+
+def _norm_url(entry: str) -> str:
+    """Reduce SCM ("*.example.com/path") and PAB ("*://*.example.com/*") forms to host[/path]."""
+    s = _SCHEME_RE.sub("", entry.strip().lower())
+    while s.endswith("/*") or s.endswith("/"):
+        s = s[:-2] if s.endswith("/*") else s[:-1]
+    return s
+
+
+def _pair_key(name: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", name.lower())
+
+
+def _url_drift(scm_urls: list[str], pab_urls: list[str]) -> dict[str, Any]:
+    """Compare one custom URL category (SCM or PAN-OS) with one PAB app's URL list."""
+    scm = {_norm_url(u) for u in scm_urls if u.strip()}
+    pab = {_norm_url(u) for u in pab_urls if u.strip()}
+    pab_wild = [p for p in pab if "*" in p]
+    scm_wild = [s for s in scm if "*" in s]
+    only_scm: list[str] = []
+    covered_pab: list[str] = []
+    for u in sorted(scm - pab):
+        (covered_pab if any(fnmatch.fnmatchcase(u, w) for w in pab_wild) else only_scm).append(u)
+    only_pab: list[str] = []
+    covered_scm: list[str] = []
+    for u in sorted(pab - scm):
+        (covered_scm if any(fnmatch.fnmatchcase(u, w) for w in scm_wild) else only_pab).append(u)
+    out: dict[str, Any] = {
+        "in_sync": not only_scm and not only_pab,
+        "matching": len(scm & pab),
+        "only_in_category": only_scm,
+        "only_in_pab": only_pab,
+    }
+    if covered_pab:
+        out["category_only_but_covered_by_pab_wildcard"] = covered_pab
+    if covered_scm:
+        out["pab_only_but_covered_by_category_wildcard"] = covered_scm
+    return out
 
 
 def register_pab_tools(mcp: FastMCP, get_client: Any) -> None:
@@ -548,5 +594,154 @@ def register_pab_tools(mcp: FastMCP, get_client: Any) -> None:
                     result["warnings"] = warnings
                 return _fmt(result)
             return "Error: view must be one of rulebase, rule, pending_changes, integrations"
+        except Exception as exc:
+            return f"Error: {exc}"
+
+    @mcp.tool()
+    @tool
+    def scm_pab_url_drift(
+        client: Any,
+        folder: str = "",
+        panorama_xml: str = "",
+        device_group: str = "",
+        vsys: str = "",
+        category: str = "",
+        pab_app: str = "",
+        limit: int = 500,
+    ) -> str:
+        """Drift check: custom URL categories vs Prisma Browser app URL lists.
+
+        NGFW / Prisma Access policy uses custom URL categories; Prisma
+        Browser's own rules use browser application objects that carry
+        their own URL lists, and nothing keeps the two aligned. This
+        compares them read-only.
+
+        Category source (exactly one):
+        - folder: SCM custom URL categories in that folder.
+        - panorama_xml: a Panorama or firewall config export (offline, no
+          Panorama access needed). Pass device_group for Panorama (its
+          parent device groups and shared are included, nearest scope
+          wins, as PAN-OS resolves them) or vsys for a firewall
+          (default vsys1).
+
+        Pairing: by default each "URL List" category is paired with the
+        custom or private PAB app of the same name (case and punctuation
+        ignored). Set category + pab_app to compare one explicit pair
+        whose names differ.
+
+        URLs are normalised before comparing (scheme, trailing "/" and
+        "/*" dropped, lower-cased), so "*.example.com" matches
+        "*://*.example.com/*" in PAB. An entry missing on one side but
+        matched by a wildcard on the other is reported separately, not as
+        drift. Matching is exact otherwise: PAN-OS prefix-match semantics
+        for entries without a trailing "/" are not modelled.
+
+        Args:
+            tenant_id: SCM tenant ID (MSSP mode) — the Prisma Browser tenant.
+            folder: SCM folder holding the custom URL categories (e.g.
+                "Prisma Access", "All Firewalls", or a snippet's folder).
+            panorama_xml: Path to a Panorama / firewall config export XML
+                on the server, instead of folder.
+            device_group: panorama_xml — Panorama device group.
+            vsys: panorama_xml — firewall vsys (default vsys1).
+            category: Custom URL category for an explicit pair.
+            pab_app: PAB application name for an explicit pair.
+            limit: Max PAB apps read per type (custom, private; default 500).
+
+        Returns:
+            JSON with per-pair drift (only_in_category / only_in_pab), plus
+            the categories and custom PAB apps that have no counterpart.
+        """
+        try:
+            if bool(folder) == bool(panorama_xml):
+                return "Error: set exactly one of folder or panorama_xml"
+            if bool(category) != bool(pab_app):
+                return "Error: set both category and pab_app for an explicit pair, or neither"
+            if panorama_xml:
+                try:
+                    conv = convert(
+                        load_xml(panorama_xml),
+                        device_group=device_group,
+                        vsys=vsys,
+                        include_rules=False,
+                    )
+                except PanosImportError as exc:
+                    return f"Error: {exc}"
+                source = conv.source
+                raw = conv.backup["resources"].get("url_categories", [])
+                cats = [
+                    (c["name"], list(c.get("list") or []))
+                    for c in raw
+                    if c.get("type") in (None, "URL List")  # skip Category Match
+                ]
+            else:
+                source = f"SCM folder `{folder}`"
+                cats = []
+                for c in client.url_category.list(folder=folder):
+                    kind = getattr(c, "type", None)
+                    if getattr(kind, "value", kind) in (None, "URL List"):
+                        cats.append((c.name, list(c.list or [])))
+            # Admin-defined URL apps only: the catalog runs to 1000+ entries
+            # and is Palo Alto's own definitions, never a sync target.
+            apps: list[dict] = []
+            warnings: list[str] = []
+            for app_type in _URL_APP_TYPES:
+                found, err = _paginate(client, "applications", {"type": app_type}, limit)
+                apps += found
+                if err:
+                    warnings.append(err)
+            if warnings and not apps:
+                if any("not provisioned" in w for w in warnings):
+                    return _fmt({"source": source, "pairs": [], "note": warnings[0]})
+                return f"Error: {warnings[0]}"
+
+            if category:
+                cat = next((c for c in cats if c[0] == category), None)
+                app = next((a for a in apps if a.get("name") == pab_app), None)
+                if cat is None:
+                    return f"Error: no URL List category '{category}' in {source}"
+                if app is None:
+                    return f"Error: no custom or private Prisma Browser app named '{pab_app}'"
+                pairs = [(cat, app)]
+                unpaired_cats: list[str] = []
+                unpaired_apps: list[str] = []
+            else:
+                by_key = {_pair_key(a.get("name") or ""): a for a in apps}
+                pairs, unpaired_cats = [], []
+                for c in cats:
+                    app = by_key.get(_pair_key(c[0]))
+                    if app is None:
+                        unpaired_cats.append(c[0])
+                    else:
+                        pairs.append((c, app))
+                paired = {id(a) for _c, a in pairs}
+                unpaired_apps = sorted(
+                    a.get("name") or "" for a in apps if id(a) not in paired and a.get("urls")
+                )
+
+            results = []
+            for (name, urls), app in pairs:
+                pab_urls = list(app.get("urls") or [])
+                results.append(
+                    {
+                        "category": name,
+                        "pab_app": app.get("name"),
+                        "category_entries": len(urls),
+                        "pab_entries": len(pab_urls),
+                        **_url_drift(urls, pab_urls),
+                    }
+                )
+            result: dict[str, Any] = {
+                "source": source,
+                "pairs_compared": len(results),
+                "pairs_in_sync": sum(r["in_sync"] for r in results),
+                "pairs": results,
+            }
+            if not category:
+                result["categories_without_pab_app"] = sorted(unpaired_cats)
+                result["pab_custom_apps_without_category"] = unpaired_apps
+            if warnings:
+                result["warnings"] = warnings
+            return _fmt(result)
         except Exception as exc:
             return f"Error: {exc}"

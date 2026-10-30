@@ -8,6 +8,7 @@ provisioned lab tenant).
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -416,3 +417,154 @@ def test_integrations_providers_shape(tools: Any) -> None:
     ]
     assert data["cloud_storage"] == []
     assert "not enabled it yet" in data["warnings"][0]
+
+
+# --- scm_pab_url_drift ------------------------------------------------------
+
+
+class FakeCategory:
+    def __init__(self, name: str, urls: list[str], kind: str = "URL List"):
+        self.name = name
+        self.list = urls
+        self.type = kind
+
+
+DRIFT_APPS = {
+    "pageInfo": {"hasNextPage": False, "cursor": ""},
+    "data": [
+        {
+            "name": "Blocked Sites",
+            "type": "custom",
+            "urls": ["*://bad.example.com/*", "*://*.evil.example/*", "*://pab-only.example/*"],
+        },
+        {"name": "Partner Portal", "type": "custom", "urls": ["*://portal.example.org/*"]},
+        {"name": "GitHub", "type": "catalog", "urls": ["*://github.com/*"]},
+    ],
+}
+
+
+def drift_apps(params: dict) -> Any:
+    """Honour the server-side ?type= filter the drift tool relies on."""
+    data = [a for a in DRIFT_APPS["data"] if a["type"] == params.get("type")]
+    return {**DRIFT_APPS, "data": data}
+
+
+@pytest.fixture
+def drift_tool(monkeypatch: pytest.MonkeyPatch) -> Any:
+    def _make(categories: list[FakeCategory], routes: dict[str, Any]) -> Any:
+        class Client:
+            class url_category:  # noqa: N801 - mirrors the SDK attribute
+                @staticmethod
+                def list(folder: str) -> list[FakeCategory]:
+                    return categories
+
+        monkeypatch.setattr(pab_mod, "_bearer_session_for", lambda c: make_session(routes))
+        mcp = FastMCP("test")
+        pab_mod.register_pab_tools(mcp, lambda tenant_id="": Client())
+        return mcp._tool_manager._tools["scm_pab_url_drift"].fn
+
+    return _make
+
+
+def test_norm_url_reduces_both_forms() -> None:
+    assert pab_mod._norm_url("*://*.Example.com/*") == "*.example.com"
+    assert pab_mod._norm_url("https://example.com/path/") == "example.com/path"
+    assert pab_mod._norm_url("*.example.com") == "*.example.com"
+
+
+def test_url_drift_pairs_by_name_and_reports_differences(drift_tool: Any) -> None:
+    cats = [
+        FakeCategory("blocked-sites", ["bad.example.com", "a.evil.example", "scm-only.example"]),
+        FakeCategory("Unmatched Cat", ["x.example"]),
+        FakeCategory("pan-db-match", ["gambling"], kind="Category Match"),
+    ]
+    t = drift_tool(cats, {"applications": drift_apps})
+    data = json.loads(t(folder="Prisma Access"))
+    assert data["pairs_compared"] == 1 and data["pairs_in_sync"] == 0
+    pair = data["pairs"][0]
+    assert pair["pab_app"] == "Blocked Sites"
+    assert pair["matching"] == 1
+    assert pair["only_in_category"] == ["scm-only.example"]
+    assert pair["category_only_but_covered_by_pab_wildcard"] == ["a.evil.example"]
+    assert pair["only_in_pab"] == ["*.evil.example", "pab-only.example"]
+    assert data["categories_without_pab_app"] == ["Unmatched Cat"]
+    # catalog apps are never fetched
+    assert data["pab_custom_apps_without_category"] == ["Partner Portal"]
+
+
+def test_url_drift_explicit_pair_in_sync(drift_tool: Any) -> None:
+    cats = [FakeCategory("Partners", ["portal.example.org/"])]
+    t = drift_tool(cats, {"applications": drift_apps})
+    data = json.loads(t(folder="Shared", category="Partners", pab_app="Partner Portal"))
+    assert data["pairs_in_sync"] == 1
+    assert "categories_without_pab_app" not in data
+
+
+def test_url_drift_validates_pair_args(drift_tool: Any) -> None:
+    t = drift_tool([], {"applications": drift_apps})
+    assert t(folder="x", category="only-one").startswith("Error:")
+    assert "exactly one of folder or panorama_xml" in t()
+    assert "exactly one of folder or panorama_xml" in t(folder="x", panorama_xml="y.xml")
+    assert "no URL List category" in t(folder="x", category="a", pab_app="Partner Portal")
+
+
+def test_url_drift_unprovisioned(drift_tool: Any) -> None:
+    t = drift_tool([], {"applications": (500, {"error_message": "tenant not found"})})
+    data = json.loads(t(folder="x"))
+    assert data["pairs"] == [] and "not provisioned" in data["note"]
+
+
+PANORAMA_FIXTURE = str(Path(__file__).parent.parent / "fixtures" / "panos" / "panorama.xml")
+
+PANORAMA_DRIFT_XML = """<config>
+  <shared>
+    <profiles><custom-url-category>
+      <entry name="Blocked Sites"><list><member>old.example.com</member></list><type>URL List</type></entry>
+      <entry name="pan-db-match"><list><member>gambling</member></list><type>Category Match</type></entry>
+    </custom-url-category></profiles>
+  </shared>
+  <devices><entry name="localhost.localdomain"><device-group>
+    <entry name="dg-a">
+      <profiles><custom-url-category>
+        <entry name="Blocked Sites"><list><member>bad.example.com</member><member>pab-only.example</member></list><type>URL List</type></entry>
+      </custom-url-category></profiles>
+    </entry>
+  </device-group></entry></devices>
+</config>
+"""
+
+
+def test_url_drift_from_panorama_export_nearest_scope_wins(drift_tool: Any, tmp_path: Path) -> None:
+    xml = tmp_path / "panorama.xml"
+    xml.write_text(PANORAMA_DRIFT_XML)
+    t = drift_tool([], {"applications": drift_apps})
+    data = json.loads(t(panorama_xml=str(xml), device_group="dg-a"))
+    assert data["source"] == "Panorama device group `dg-a`"
+    pair = data["pairs"][0]
+    # the device-group copy hides the shared one; Category Match is skipped
+    assert pair["category"] == "Blocked Sites" and pair["category_entries"] == 2
+    assert pair["only_in_category"] == []
+    assert pair["only_in_pab"] == ["*.evil.example"]
+    assert data["categories_without_pab_app"] == []
+
+
+def test_url_drift_panorama_fixture_explicit_pair(drift_tool: Any) -> None:
+    t = drift_tool([], {"applications": drift_apps})
+    data = json.loads(
+        t(
+            panorama_xml=PANORAMA_FIXTURE,
+            device_group="dg-branch",
+            category="url-allow",
+            pab_app="Partner Portal",
+        )
+    )
+    pair = data["pairs"][0]
+    assert pair["only_in_category"] == ["*.example.org", "www.example.com"]
+    assert pair["only_in_pab"] == []
+    assert pair["pab_only_but_covered_by_category_wildcard"] == ["portal.example.org"]
+
+
+def test_url_drift_panorama_errors(drift_tool: Any, tmp_path: Path) -> None:
+    t = drift_tool([], {"applications": drift_apps})
+    assert "not a file" in t(panorama_xml=str(tmp_path / "missing.xml"))
+    assert "pass device_group" in t(panorama_xml=PANORAMA_FIXTURE)

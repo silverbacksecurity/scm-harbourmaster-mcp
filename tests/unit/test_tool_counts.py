@@ -15,7 +15,7 @@ assert _SPEC and _SPEC.loader
 check_tool_counts = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(check_tool_counts)
 
-COUNTS = check_tool_counts.Counts(tools=164, modules=36)
+COUNTS = check_tool_counts.Counts(tools=165, modules=36)
 
 
 def test_readme_and_docs_counts_match_registered_tools() -> None:
@@ -32,7 +32,7 @@ def test_registered_tools_include_reload_tools() -> None:
 
 
 def test_matching_markers_pass() -> None:
-    text = "Exposes <!-- tool-count -->164<!-- /tool-count --> tools in <!-- module-count -->36<!-- /module-count --> modules"
+    text = "Exposes <!-- tool-count -->165<!-- /tool-count --> tools in <!-- module-count -->36<!-- /module-count --> modules"
     assert check_tool_counts.check_text(text, COUNTS) == []
 
 
@@ -41,7 +41,7 @@ def test_stale_marker_is_flagged_and_fixed() -> None:
     problems = check_tool_counts.check_text(text, COUNTS)
     assert len(problems) == 2
     fixed = check_tool_counts.fix_text(text, COUNTS)
-    assert "<!-- tool-count -->164<!-- /tool-count -->" in fixed
+    assert "<!-- tool-count -->165<!-- /tool-count -->" in fixed
     assert "<!-- module-count -->36<!-- /module-count -->" in fixed
     assert check_tool_counts.check_text(fixed, COUNTS) == []
 

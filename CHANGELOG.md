@@ -8,6 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **URL drift check between custom URL categories and Prisma Browser.**
+  `scm_pab_url_drift` compares the custom URL categories that NGFW and Prisma
+  Access policy use with the URL lists on Prisma Browser application objects,
+  which nothing keeps aligned. It is read-only.
+  - **Sources:** categories come from an SCM `folder`, or from a Panorama or
+    firewall config export (`panorama_xml` + `device_group` or `vsys`) for
+    customers whose NGFWs are still managed by Panorama. The export is read
+    offline with the `scm_panorama_migrate` parser, so parent device groups and
+    `shared` resolve nearest scope first, as PAN-OS does.
+  - **Pairing:** each `URL List` category is paired with the custom or private
+    PAB app of the same name, ignoring case and punctuation. `category` +
+    `pab_app` compares one explicit pair whose names differ.
+  - **Output:** per pair, the entries only in the category and only in PAB.
+    Entries that a wildcard on the other side already matches are listed
+    separately rather than as drift. Categories with no PAB app, and custom PAB
+    apps with no category, are listed too. PAB catalog apps are never fetched.
+  - **Matching:** URLs are normalised (scheme, trailing `/` and `/*` dropped,
+    lower-cased) so `*.example.com` matches `*://*.example.com/*`. PAN-OS
+    prefix matching for entries without a trailing `/` is not modelled.
 - **GenAI access-control snippet.** `scm_create_genai_snippet` builds a snippet
   from the `[Generative AI]` tag Palo Alto puts on every GenAI App-ID and the
   Sanctioned / Tolerated / Unsanctioned tags set per app.

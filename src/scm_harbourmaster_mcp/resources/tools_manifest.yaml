@@ -826,6 +826,16 @@ scm_pab_restore:
   known_failure_modes: Never overwrites — same-name objects are skipped. Browser policy rules, data controls and customisation have no API and are not restored. User-group members not enrolled in the target are dropped.
   retry_policy: fail_fast
   scope: tenant
+scm_pab_url_drift:
+  access: read
+  domain: pab
+  idempotent: true
+  known_failure_modes: Name-based pairing only finds categories and PAB apps with
+    the same name; use category + pab_app for differently named pairs. Exact match
+    after normalisation, so PAN-OS prefix matching is not modelled. A Panorama
+    export is as current as the file, not the live Panorama.
+  retry_policy: retry
+  scope: tenant
 scm_pab_user_requests:
   access: read
   domain: pab
