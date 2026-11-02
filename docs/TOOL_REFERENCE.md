@@ -4,7 +4,7 @@
 
 All tools authenticate via Bearer-token OAuth (SASE client credentials) configured in `settings.toml` / `.secrets.toml`.
 
-**<!-- tool-count -->191<!-- /tool-count --> tools** across <!-- module-count -->44<!-- /module-count --> modules.
+**<!-- tool-count -->192<!-- /tool-count --> tools** across <!-- module-count -->44<!-- /module-count --> modules.
 
 ## Table of Contents
 
@@ -828,6 +828,36 @@ Args:
 | `tenant_id` | `str` | `''` |
 | `folder` | `str` | `—` |
 | `limit` | `int` | `200` |
+
+### `scm_device_find`
+
+Find a firewall or Panorama by serial number, name or hostname.
+
+```
+Searches each tenant's full SCM device inventory (every folder, not
+just ngfw-shared) for devices whose serial number, name, display name
+or hostname contains *query* (case-insensitive). Use it to answer
+"which tenant is this serial onboarded to?" and to confirm a newly
+associated firewall has reached SCM.
+
+A device missing from every tenant has not reached SCM yet: check its
+device association to the right TSG, device certificate, licence and
+cloud-management connection.
+
+Args:
+    query: Serial number (e.g. "012345678901") or part of a device name.
+    tenant_id: Search only this tenant when all_tenants is False.
+    all_tenants: Search every configured tenant (default True).
+
+Returns:
+    Markdown table of matches plus per-tenant search coverage.
+```
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `query` | `str` | `—` |
+| `tenant_id` | `str` | `''` |
+| `all_tenants` | `bool` | `True` |
 
 ### `scm_snippet_list`
 

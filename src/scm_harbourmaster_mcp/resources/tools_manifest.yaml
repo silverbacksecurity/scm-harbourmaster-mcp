@@ -6,7 +6,7 @@
 #
 # Regenerate/verify coverage: tests/unit/test_planner_manifest.py fails
 # whenever a registered tool lacks an entry here (or vice versa).
-# Tools: 172 | write: 32 | domains: 11
+# Tools: 173 | write: 32 | domains: 11
 
 dlp_backup:
   access: read
@@ -455,6 +455,15 @@ scm_decrypt_policy_audit:
   idempotent: true
   retry_policy: retry
   scope: tenant
+scm_device_find:
+  access: read
+  domain: operational_health
+  idempotent: true
+  known_failure_modes: Substring match on serial, name, display name and hostname across every
+    folder of each tenant's SCM device inventory. Tenants that fail auth or have no SCM config
+    are listed as not searched rather than failing the call.
+  retry_policy: retry
+  scope: cross_tenant
 scm_device_list:
   access: read
   domain: deployment
