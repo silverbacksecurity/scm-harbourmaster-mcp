@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 from pydantic import SecretStr
 from scm.client import Scm
 
-from ..utils.errors import AuthenticationError, TenantNotFoundError
+from ..utils.errors import AuthenticationError, TenantNotFoundError, exception_text
 from ..utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -27,6 +27,7 @@ _lock = threading.Lock()
 _clients: dict[str, Scm] = {}
 _tenant_configs: dict[str, TenantConfig] = {}  # mirrors _clients; stores config metadata
 _tenant_keys: dict[str, str] = {}  # settings.toml [tenants.<key>] section name -> TSG ID
+_auth_failures: dict[str, str] = {}  # TSG ID -> last client-creation error, for lookup errors
 
 
 class TenantCredentials:
@@ -54,11 +55,14 @@ def get_scm_client(config: TenantConfig) -> Scm:
                     tsg_id=tenant_id,
                 )
             except Exception as exc:
+                reason = exception_text(exc)
+                _auth_failures[tenant_id] = reason
                 raise AuthenticationError(
-                    f"Failed to authenticate tenant {tenant_id!r}: {exc}"
+                    f"Failed to authenticate tenant {tenant_id!r}: {reason}"
                 ) from exc
             _clients[tenant_id] = client
             _tenant_configs[tenant_id] = config
+            _auth_failures.pop(tenant_id, None)
         return _clients[tenant_id]
 
 
@@ -70,12 +74,20 @@ def get_client_for_tenant(tenant_id: str) -> Scm:
     section name, or the tenant's ``label`` (see :func:`resolve_tenant_id`).
 
     Raises TenantNotFoundError if the tenant was never initialised (the message
-    lists the valid tenants) or if a label matches more than one tenant.
+    lists the valid tenants) or if a label matches more than one tenant, and
+    AuthenticationError (with the SDK's reason) if its client creation failed.
     """
     tsg = resolve_tenant_id(tenant_id, strict=True)
     with _lock:
         client = _clients.get(tsg)
+        failure = _auth_failures.get(tsg)
     if client is None:
+        if failure:
+            raise AuthenticationError(
+                f"Tenant {tenant_id!r} is configured but its SCM client failed to "
+                f"authenticate: {failure}. Check the service account credentials, "
+                "then restart the server."
+            )
         raise TenantNotFoundError(
             f"Tenant {tenant_id!r} is not configured or not yet loaded. "
             f"Valid tenants: {_describe_known(_known_tenants(include_configured=True))}"

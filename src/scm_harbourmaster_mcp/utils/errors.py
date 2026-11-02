@@ -51,6 +51,18 @@ class ValidationError(ScmMcpError):
     """Input failed Pydantic or SCM validation."""
 
 
+def exception_text(exc: BaseException) -> str:
+    """Return a non-blank description of *exc*.
+
+    pan-scm-sdk's APIError.__str__ only renders `details`/`http_status_code`/
+    `error_code` — when all three are unset (e.g. a bare 404 with no response
+    body, or an OAuth `invalid_client` at session creation) it returns "" even
+    though the real text lives in exc.message. Fall back to that attribute so
+    callers never see a blank error string.
+    """
+    return str(exc) or str(getattr(exc, "message", "") or "") or "(no error detail available)"
+
+
 def handle_scm_exception(exc: Exception, **log_context: Any) -> str:
     """Convert an SDK exception into a user-friendly error string and log it.
 
@@ -58,11 +70,7 @@ def handle_scm_exception(exc: Exception, **log_context: Any) -> str:
     Unexpected errors are logged at ERROR with a full stack trace.
     """
     name = type(exc).__name__
-    # pan-scm-sdk's APIError.__str__ only renders `details`/`http_status_code`/
-    # `error_code` — when all three are unset (e.g. a bare 404 with no response
-    # body) it returns "" even though the real text lives in exc.message.
-    # Fall back to that attribute so callers never see a blank error string.
-    msg = str(exc) or str(getattr(exc, "message", "") or "") or "(no error detail available)"
+    msg = exception_text(exc)
     formatted = f"[{name}] {msg}"
 
     if name in _EXPECTED_EXCEPTION_NAMES:

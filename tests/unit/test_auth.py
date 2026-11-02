@@ -17,8 +17,10 @@ def clear_client_cache() -> None:
     import scm_harbourmaster_mcp.auth.oauth as oauth_module
 
     oauth_module._clients.clear()
+    oauth_module._auth_failures.clear()
     yield
     oauth_module._clients.clear()
+    oauth_module._auth_failures.clear()
 
 
 class TestClientCaching:
@@ -60,3 +62,49 @@ class TestClientCaching:
 
         with pytest.raises(TenantNotFoundError):
             get_client_for_tenant("does-not-exist")
+
+
+class TestAuthFailureMessages:
+    """pan-scm-sdk's APIError.__str__ is blank when only `message` is set."""
+
+    def _failing_config(self) -> TenantConfig:
+        return TenantConfig(tenant_id="1234567890", client_id="svc@iam", client_secret="secret")
+
+    def test_failure_reason_not_blank(self) -> None:
+        from scm.exceptions import APIError
+
+        from scm_harbourmaster_mcp.auth.oauth import get_scm_client
+        from scm_harbourmaster_mcp.utils.errors import AuthenticationError
+
+        err = APIError("Failed to create session: (invalid_client) Client authentication failed")
+        assert str(err) == ""
+        with (
+            patch("scm_harbourmaster_mcp.auth.oauth.Scm", side_effect=err),
+            pytest.raises(AuthenticationError, match="invalid_client"),
+        ):
+            get_scm_client(self._failing_config())
+
+    def test_lookup_reports_stored_failure(self) -> None:
+        from scm.exceptions import APIError
+
+        from scm_harbourmaster_mcp.auth.oauth import get_client_for_tenant, get_scm_client
+        from scm_harbourmaster_mcp.utils.errors import AuthenticationError
+
+        err = APIError("Failed to create session: (invalid_client) Client authentication failed")
+        with (
+            patch("scm_harbourmaster_mcp.auth.oauth.Scm", side_effect=err),
+            pytest.raises(AuthenticationError),
+        ):
+            get_scm_client(self._failing_config())
+        with pytest.raises(AuthenticationError, match="invalid_client"):
+            get_client_for_tenant("1234567890")
+
+    def test_success_clears_stored_failure(self) -> None:
+        import scm_harbourmaster_mcp.auth.oauth as oauth_module
+        from scm_harbourmaster_mcp.auth.oauth import get_client_for_tenant, get_scm_client
+
+        oauth_module._auth_failures["1234567890"] = "stale"
+        with patch("scm_harbourmaster_mcp.auth.oauth.Scm", return_value=MagicMock()):
+            client = get_scm_client(self._failing_config())
+        assert get_client_for_tenant("1234567890") is client
+        assert "1234567890" not in oauth_module._auth_failures

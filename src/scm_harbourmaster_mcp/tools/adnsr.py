@@ -31,6 +31,7 @@ from ..utils.write_safety import (
     normalize_ticket_ref,
     ticket_ref_error,
 )
+from .insights import _refresh_token
 
 logger = get_logger(__name__)
 
@@ -110,6 +111,7 @@ def register_adnsr_tools(mcp: FastMCP, get_client: Any) -> None:
         session = getattr(client, "session", None)
         if not session:
             return "Error: no HTTP session available on SCM client."
+        _refresh_token(client)
 
         valid = {
             "profiles",
@@ -197,6 +199,7 @@ def register_adnsr_tools(mcp: FastMCP, get_client: Any) -> None:
         session = getattr(client, "session", None)
         if not session:
             return "Error: no HTTP session available on SCM client."
+        _refresh_token(client)
 
         if not name or not name.strip():
             return "Error: name is required."
@@ -268,6 +271,7 @@ def register_adnsr_tools(mcp: FastMCP, get_client: Any) -> None:
         session = getattr(client, "session", None)
         if not session:
             return "Error: no HTTP session available on SCM client."
+        _refresh_token(client)
 
         if not serial or not serial.strip():
             return (
@@ -345,6 +349,7 @@ def register_adnsr_tools(mcp: FastMCP, get_client: Any) -> None:
         session = getattr(client, "session", None)
         if not session:
             return "Error: no HTTP session available on SCM client."
+        _refresh_token(client)
 
         if not serial or not serial.strip():
             return "Error: serial is required."
