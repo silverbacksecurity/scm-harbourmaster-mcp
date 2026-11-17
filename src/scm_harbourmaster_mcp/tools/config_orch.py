@@ -12,12 +12,12 @@ Reference: pan.dev endpoint catalog, openapi-specs/sase/config-orch/
 
 from __future__ import annotations
 
-import contextlib
 import json
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
+from ..utils import scm_rest
 from ..utils.formatting import format_result as _fmt
 from ..utils.logging import get_logger
 from ..utils.tool_decorator import scm_tool
@@ -25,7 +25,7 @@ from ..utils.tool_decorator import scm_tool
 logger = get_logger(__name__)
 
 _CONFIG_ORCH_BASE = "https://api.sase.paloaltonetworks.com"
-_NOT_LICENSED_STATUSES = frozenset({401, 403, 404, 424})
+_NOT_LICENSED_STATUSES = scm_rest.NOT_LICENSED
 
 # Allowed write actions
 _ACTIONS = ("list", "get", "create", "update", "delete")
@@ -39,25 +39,7 @@ _READ_ACTIONS = ("list", "get")
 
 def _bearer_session(client: Any) -> Any:
     """Return a plain ``requests.Session`` with a fresh Bearer token."""
-    import requests as _requests
-
-    oauth = getattr(client, "oauth_client", None)
-    if oauth is not None:
-        with contextlib.suppress(Exception):
-            if getattr(oauth, "is_expired", False):
-                oauth.refresh_token()
-
-    token = None
-    sdk_session = getattr(client, "session", None)
-    if sdk_session is not None:
-        raw = getattr(sdk_session, "token", None)
-        if raw:
-            token = raw.get("access_token")
-
-    sess = _requests.Session()
-    if token:
-        sess.headers["Authorization"] = f"Bearer {token}"
-    return sess
+    return scm_rest.bearer_session(client)
 
 
 def _rest_call(
@@ -71,27 +53,7 @@ def _rest_call(
 
     Returns (status_code, data_or_None, error_message).
     """
-    try:
-        if method == "GET":
-            resp = session.get(url, timeout=timeout)
-        elif method == "POST":
-            resp = session.post(url, json=json_body, timeout=timeout)
-        elif method == "PUT":
-            resp = session.put(url, json=json_body, timeout=timeout)
-        elif method == "DELETE":
-            resp = session.delete(url, timeout=timeout)
-        else:
-            return -1, None, f"Unknown method: {method}"
-    except Exception as exc:
-        return -1, None, str(exc)
-
-    if resp.status_code in _NOT_LICENSED_STATUSES:
-        return resp.status_code, None, ""
-
-    try:
-        return resp.status_code, resp.json(), ""
-    except Exception:
-        return resp.status_code, None, resp.text[:500]
+    return scm_rest.call(session, method, url, json_body=json_body, timeout=timeout)
 
 
 def _check_write_safety(action: str, dry_run: bool, ticket_ref: str) -> str:

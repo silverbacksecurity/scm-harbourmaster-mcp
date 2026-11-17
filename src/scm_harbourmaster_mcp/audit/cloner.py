@@ -61,6 +61,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from ..utils import scm_rest
 from ..utils.logging import get_logger
 from .clone_preflight import (
     _API_FOLDER_ALIASES,
@@ -1248,23 +1249,10 @@ def _rest_create_fallback(
     return _RestResource(session, f"{base}{endpoint}")
 
 
-# pan-scm-sdk (0.15.1) create()/update() serialise these without by_alias, so
-# aliased fields never reach SCM and are dropped without an error: a URL
-# profile's "continue" action, a HIP object's "is" criteria, vulnerability
-# rules' "vendor-id".  They are pushed over REST with the keys renamed instead.
-_ALIASED_KEYS: dict[str, dict[str, str]] = {
-    "url_access_profile": {"continue_": "continue"},
-    "hip_object": {"is_": "is"},
-    "vulnerability_protection_profile": {"vendor_id": "vendor-id"},
-}
-
-
-def _rename_keys(value: Any, renames: dict[str, str]) -> Any:
-    if isinstance(value, dict):
-        return {renames.get(k, k): _rename_keys(v, renames) for k, v in value.items()}
-    if isinstance(value, list):
-        return [_rename_keys(v, renames) for v in value]
-    return value
+# Resources whose aliased fields pan-scm-sdk drops on create()/update(); they
+# are pushed over REST with the keys renamed instead (see utils/scm_rest.py).
+_ALIASED_KEYS = scm_rest.SDK_DROPPED_ALIASES
+_rename_keys = scm_rest.rename_keys
 
 
 class _AliasedRestResource(_RestResource):

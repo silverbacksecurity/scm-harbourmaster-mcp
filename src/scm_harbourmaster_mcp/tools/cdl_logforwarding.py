@@ -10,11 +10,11 @@ Reference: pan.dev endpoint catalog, openapi-specs/cdl/logforwarding/
 
 from __future__ import annotations
 
-import contextlib
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
+from ..utils import scm_rest
 from ..utils.formatting import format_result as _fmt
 from ..utils.logging import get_logger
 from ..utils.tool_decorator import scm_tool
@@ -23,7 +23,7 @@ logger = get_logger(__name__)
 
 _CDL_BASE = "https://api.sase.paloaltonetworks.com"
 _CDL_PATH = "/logging-service/logforwarding/v1"
-_NOT_LICENSED_STATUSES = frozenset({401, 403, 404, 424})
+_NOT_LICENSED_STATUSES = scm_rest.NOT_LICENSED
 
 _PROFILE_TYPES = ("email", "https", "syslog")
 _PROFILE_PATHS = {
@@ -40,25 +40,7 @@ _PROFILE_PATHS = {
 
 def _bearer_session(client: Any) -> Any:
     """Return a plain ``requests.Session`` with a fresh Bearer token."""
-    import requests as _requests
-
-    oauth = getattr(client, "oauth_client", None)
-    if oauth is not None:
-        with contextlib.suppress(Exception):
-            if getattr(oauth, "is_expired", False):
-                oauth.refresh_token()
-
-    token = None
-    sdk_session = getattr(client, "session", None)
-    if sdk_session is not None:
-        raw = getattr(sdk_session, "token", None)
-        if raw:
-            token = raw.get("access_token")
-
-    sess = _requests.Session()
-    if token:
-        sess.headers["Authorization"] = f"Bearer {token}"
-    return sess
+    return scm_rest.bearer_session(client)
 
 
 def _rest_get(session: Any, url: str, params: dict | None = None) -> dict | list | None:

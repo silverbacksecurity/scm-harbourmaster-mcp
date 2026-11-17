@@ -70,13 +70,17 @@ class MockSDKResource:
         self._resource_name = resource_name or "mock_resource"
         self._update_calls: list[dict[str, Any]] = []
 
-    def fetch(self, name: str = "", folder: str = "") -> MagicMock:  # noqa: ARG002
-        obj = MagicMock()
-        obj.model_dump.return_value = dict(self._fetch_data)
-        return obj
+    def rest_get(self) -> Any:
+        return {"data": [dict(self._fetch_data)]}
 
-    def update(self, data: dict[str, Any]) -> None:
-        self._update_calls.append(data)
+    @property
+    def ENDPOINT(self) -> str:  # noqa: N802 - mirrors the SDK attribute
+        return f"/config/security/v1/{self._resource_name}"
+
+    def update(self, data: Any) -> None:
+        # The real SDK update() takes a pydantic model and fails on a dict;
+        # SSR writes must go through client.put instead.
+        raise AttributeError("'dict' object has no attribute 'model_dump'")
 
 
 def _make_mock_client(
@@ -93,6 +97,40 @@ def _make_mock_client(
     client.anti_spyware_profile = MockSDKResource(asp_data or _ANTI_SPYWARE_PROFILE, "asp")
     client.vulnerability_protection_profile = MockSDKResource(vp_data or _VULN_PROFILE, "vp")
     client.decryption_rule = MockSDKResource(decrypt_data or _DECRYPT_RULE, "decrypt")
+
+    def _get(endpoint: str, params: dict[str, Any] | None = None) -> Any:  # noqa: ARG001
+        # Looked up at call time so tests can swap a resource after creation.
+        for attr in (
+            "url_category",
+            "anti_spyware_profile",
+            "vulnerability_protection_profile",
+            "decryption_rule",
+        ):
+            res = getattr(client, attr)
+            if endpoint == res.ENDPOINT:
+                return res.rest_get()
+        raise RuntimeError(f"unexpected GET {endpoint}")
+
+    client.get.side_effect = _get
+
+    def _put(url: str, json: dict[str, Any] | None = None, **_kw: Any) -> dict[str, Any]:
+        # SCM replaces the object on PUT, so a later read-back sees the change.
+        for attr in (
+            "url_category",
+            "anti_spyware_profile",
+            "vulnerability_protection_profile",
+            "decryption_rule",
+        ):
+            res = getattr(client, attr)
+            if url.startswith(f"{res.ENDPOINT}/"):
+                if not client._drop_puts.get(attr):
+                    # The PUT body carries no id (it is in the URL); SCM keeps it.
+                    res._fetch_data = {"id": res._fetch_data.get("id"), **(json or {})}
+                return {}
+        raise RuntimeError(f"unexpected PUT {url}")
+
+    client._drop_puts = {}
+    client.put.side_effect = _put
 
     # Inject SSR config
     client._ssr_objects = ssr_objects or {
@@ -374,7 +412,53 @@ def test_url_allow_execute(monkeypatch: Any) -> None:
     assert result["status"] == "applied"
     assert result["commit_required"] is True
     # Verify update was called
-    assert len(client.url_category._update_calls) == 1
+    client.put.assert_called_once()
+    endpoint = client.put.call_args.args[0]
+    body = client.put.call_args.kwargs["json"]
+    assert endpoint == f"/config/security/v1/url_category/{_URL_CATEGORY['id']}"
+    assert "newsite.com" in body["list"]
+    assert "id" not in body and body["folder"] == "Shared"
+
+
+def test_threat_exception_execute_keeps_vendor_id(monkeypatch: Any) -> None:
+    """A vulnerability profile's rule vendor filter must survive the update.
+
+    The API's JSON field is ``vendor_id``; the SDK model's ``vendor-id``
+    alias is rejected by SCM, so the key must be sent unrenamed.
+    """
+    vp = {**_VULN_PROFILE, "rules": [{"name": "r1", "vendor_id": ["microsoft"], "cve": None}]}
+    client = _make_mock_client(vp_data=vp)
+    result = _invoke(
+        monkeypatch,
+        client,
+        operation="threat-exception",
+        target="67890",
+        ticket_ref="INC-7",
+        dry_run=False,
+    )
+    assert result["status"] == "applied"
+    bodies = {c.args[0].split("/")[-2]: c.kwargs["json"] for c in client.put.call_args_list}
+    assert bodies["vp"]["rules"] == [{"name": "r1", "vendor_id": ["microsoft"]}]
+    assert any(e["name"] == "67890" for e in bodies["vp"]["threat_exception"])
+    assert any(e["name"] == "67890" for e in bodies["asp"]["threat_exception"])
+
+
+def test_ssl_decrypt_execute_uses_api_field_names(monkeypatch: Any) -> None:
+    rule = {**_DECRYPT_RULE, "from": ["trust"], "to": ["untrust"]}
+    client = _make_mock_client(decrypt_data=rule)
+    result = _invoke(
+        monkeypatch,
+        client,
+        operation="ssl-decrypt-exclude",
+        target="Health-Portals",
+        ticket_ref="INC-8",
+        dry_run=False,
+    )
+    assert result["status"] == "applied"
+    body = client.put.call_args.kwargs["json"]
+    assert body["from"] == ["trust"] and body["to"] == ["untrust"]
+    assert "Health-Portals" in body["category"]
+    assert client.put.call_args.kwargs["params"] == {"position": "pre"}
 
 
 def test_threat_exception_missing_profile_config(monkeypatch: Any) -> None:
@@ -422,7 +506,9 @@ def test_validate_threat_id() -> None:
 
 
 class _ExplodingResource:
-    def fetch(self, name: str = "", folder: str = "") -> Any:  # noqa: ARG002
+    ENDPOINT = "/config/security/v1/exploding"
+
+    def rest_get(self) -> Any:
         raise RuntimeError("boom: profile fetch failed")
 
 
@@ -448,8 +534,8 @@ def test_threat_exception_noop_does_not_require_commit(monkeypatch: Any) -> None
     """already_present on every profile means nothing changed — no commit needed."""
     existing = {"name": "12345", "action": {"allow": {}}}
     client = _make_mock_client(
-        asp_data={"name": "SSR-AntiSpyware", "threat_exception": [dict(existing)]},
-        vp_data={"name": "SSR-VulnProtection", "threat_exception": [dict(existing)]},
+        asp_data={"id": "x1", "name": "SSR-AntiSpyware", "threat_exception": [dict(existing)]},
+        vp_data={"id": "x1", "name": "SSR-VulnProtection", "threat_exception": [dict(existing)]},
     )
     result = _invoke(
         monkeypatch,
@@ -496,3 +582,64 @@ def test_unmatched_tenant_id_gets_no_other_tenants_ssr_config() -> None:
         # empty tenant_id keeps the single-tenant fallback
         assert _get_ssr_config("") == {"url_allow_list": "Other-Tenant-List"}
         assert _resolve_default_folder("") == "Other-Folder"
+
+
+def test_threat_remove_last_exception_omits_empty_list(monkeypatch: Any) -> None:
+    """SCM rejects ``threat_exception: []``; removing the last entry omits the field."""
+    client = _make_mock_client(ssr_objects={"anti_spyware_profile": "SSR-AntiSpyware"})
+    result = _invoke(
+        monkeypatch,
+        client,
+        operation="threat-exception",
+        target="12345",
+        ticket_ref="INC-9",
+        action="remove",
+        dry_run=False,
+    )
+    assert result["status"] == "applied"
+    assert "threat_exception" not in client.put.call_args.kwargs["json"]
+
+
+def test_threat_exception_readback_mismatch_is_partial_not_applied(monkeypatch: Any) -> None:
+    """If SCM does not show the change on read-back, that profile is an error.
+
+    The anti-spyware profile lands; the vulnerability profile's PUT is accepted
+    but not reflected. The result must be ``partial`` with no commit requested.
+    """
+    client = _make_mock_client()
+    client._drop_puts = {"vulnerability_protection_profile": True}
+    result = _invoke(
+        monkeypatch,
+        client,
+        operation="threat-exception",
+        target="67890",
+        ticket_ref="INC-10",
+        dry_run=False,
+    )
+    assert result["status"] == "partial"
+    assert result["commit_required"] is False
+    assert any("read-back" in e for e in result["errors"])
+    assert "SSR-AntiSpyware" in result["profiles"]
+
+
+def test_threat_exception_put_failure_on_one_profile_is_partial(monkeypatch: Any) -> None:
+    client = _make_mock_client()
+    real_put = client.put.side_effect
+
+    def _fail_vp(url: str, **kw: Any) -> Any:
+        if "/vp/" in url:
+            raise RuntimeError("SCM 500 on vulnerability profile")
+        return real_put(url, **kw)
+
+    client.put.side_effect = _fail_vp
+    result = _invoke(
+        monkeypatch,
+        client,
+        operation="threat-exception",
+        target="67890",
+        ticket_ref="INC-11",
+        dry_run=False,
+    )
+    assert result["status"] == "partial"
+    assert result["commit_required"] is False
+    assert result["errors"]

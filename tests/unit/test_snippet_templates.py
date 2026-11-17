@@ -147,7 +147,7 @@ class TestSdkModels:
     def test_sent_keys_match_the_api_aliases(self, key: str) -> None:
         # create() dumps without by_alias, so a field whose API name differs
         # (an alias) goes out under its Python name. The only such field the
-        # snippets set is the vulnerability rules' vendor_id (API: vendor-id),
+        # snippets set is the vulnerability rules' vendor_id (API field: vendor_id),
         # an SDK quirk inherited from the NCSC/NIST payloads — always ["any"],
         # which is also the API default.
         for sdk_attr, payload in ALL_OBJECTS[key]:

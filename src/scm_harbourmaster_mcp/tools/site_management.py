@@ -33,6 +33,7 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 from ..audit.extractor import _bearer_session_for
+from ..utils import scm_rest
 from ..utils.formatting import format_result as _fmt
 from ..utils.logging import get_logger
 from ..utils.tool_decorator import scm_tool
@@ -40,7 +41,7 @@ from ..utils.tool_decorator import scm_tool
 logger = get_logger(__name__)
 
 _BASE = "https://api.strata.paloaltonetworks.com/config/setup/device-onboarding/v1"
-_NOT_LICENSED_STATUSES = frozenset({401, 403, 404, 424})
+_NOT_LICENSED_STATUSES = scm_rest.NOT_LICENSED
 
 _RESOURCE_TYPES = ("site", "property", "onboarding-rule", "site-group")
 _ACTIONS = ("list", "get", "create", "update", "delete", "move")
@@ -74,27 +75,7 @@ def _rest_call(
     Returns (status_code, data_or_None, error_message). 401/403/404/424 are
     treated as "not licensed / no data" rather than raised.
     """
-    try:
-        if method == "GET":
-            resp = session.get(url, params=params, timeout=timeout)
-        elif method == "POST":
-            resp = session.post(url, json=json_body, params=params, timeout=timeout)
-        elif method == "PUT":
-            resp = session.put(url, json=json_body, timeout=timeout)
-        elif method == "DELETE":
-            resp = session.delete(url, params=params, timeout=timeout)
-        else:
-            return -1, None, f"Unknown method: {method}"
-    except Exception as exc:
-        return -1, None, str(exc)
-
-    if resp.status_code in _NOT_LICENSED_STATUSES:
-        return resp.status_code, None, ""
-
-    try:
-        return resp.status_code, resp.json(), ""
-    except Exception:
-        return resp.status_code, None, resp.text[:500]
+    return scm_rest.call(session, method, url, json_body=json_body, params=params, timeout=timeout)
 
 
 def _check_write_safety(action: str, dry_run: bool, ticket_ref: str) -> str:

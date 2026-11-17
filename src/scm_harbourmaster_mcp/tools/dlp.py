@@ -20,6 +20,7 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
+from ..utils import scm_rest
 from ..utils.errors import handle_scm_exception
 from ..utils.logging import get_logger
 from ..utils.tool_decorator import scm_tool
@@ -37,28 +38,14 @@ _DLP_BASE = "https://api.dlp.paloaltonetworks.com"
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-_NOT_LICENSED_STATUSES = frozenset({401, 403, 404, 424})
+_NOT_LICENSED_STATUSES = scm_rest.NOT_LICENSED
 
 
-def _exc_status(exc: Any) -> int | None:
-    resp = getattr(exc, "response", None)
-    return getattr(resp, "status_code", None)
+_exc_status = scm_rest.exc_status
 
 
 def _rest_get(session: Any, url: str, params: dict | None = None) -> list[dict]:
-    try:
-        resp = session.get(url, params=params, timeout=(5, 15))
-    except Exception as exc:
-        if _exc_status(exc) in _NOT_LICENSED_STATUSES:
-            return []
-        raise
-    if resp.status_code in _NOT_LICENSED_STATUSES:
-        return []
-    resp.raise_for_status()
-    data = resp.json()
-    if isinstance(data, list):
-        return data
-    return data.get("data", data.get("items", data.get("patterns", data.get("profiles", []))))
+    return scm_rest.get_list(session, url, params, keys=("data", "items", "patterns", "profiles"))
 
 
 def _dlp_company_id(session: Any) -> str:

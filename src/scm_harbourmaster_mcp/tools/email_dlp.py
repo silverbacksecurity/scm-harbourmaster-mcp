@@ -10,11 +10,11 @@ Reference: pan.dev endpoint catalog, openapi-specs/email-dlp/
 
 from __future__ import annotations
 
-import contextlib
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
+from ..utils import scm_rest
 from ..utils.formatting import format_result as _fmt
 from ..utils.logging import get_logger
 from ..utils.tool_decorator import scm_tool
@@ -22,7 +22,7 @@ from ..utils.tool_decorator import scm_tool
 logger = get_logger(__name__)
 
 _EMAIL_DLP_BASE = "https://api.us-west1.email.dlp.paloaltonetworks.com"
-_NOT_LICENSED_STATUSES = frozenset({401, 403, 404, 424})
+_NOT_LICENSED_STATUSES = scm_rest.NOT_LICENSED
 
 
 # ---------------------------------------------------------------------------
@@ -32,25 +32,7 @@ _NOT_LICENSED_STATUSES = frozenset({401, 403, 404, 424})
 
 def _bearer_session(client: Any) -> Any:
     """Return a plain ``requests.Session`` with a fresh Bearer token."""
-    import requests as _requests
-
-    oauth = getattr(client, "oauth_client", None)
-    if oauth is not None:
-        with contextlib.suppress(Exception):
-            if getattr(oauth, "is_expired", False):
-                oauth.refresh_token()
-
-    token = None
-    sdk_session = getattr(client, "session", None)
-    if sdk_session is not None:
-        raw = getattr(sdk_session, "token", None)
-        if raw:
-            token = raw.get("access_token")
-
-    sess = _requests.Session()
-    if token:
-        sess.headers["Authorization"] = f"Bearer {token}"
-    return sess
+    return scm_rest.bearer_session(client)
 
 
 class _EmailDlpError(Exception):

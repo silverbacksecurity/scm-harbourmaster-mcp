@@ -18,6 +18,7 @@ from mcp.server.fastmcp import FastMCP
 
 from ..config.region import insights_default, known_region, normalise_region
 from ..config.region import resolve_region as _shared_resolve_region
+from ..utils import scm_rest
 from ..utils.errors import handle_scm_exception
 from ..utils.formatting import format_result as _fmt
 from ..utils.logging import get_logger
@@ -142,17 +143,7 @@ def _refresh_token(client: Any) -> None:
     scm_mobile_user_stats) — always attempt an unconditional refresh so a
     long-lived server session never hits TokenExpiredError mid-request.
     """
-    oauth = getattr(client, "oauth_client", None)
-    if oauth is None:
-        return
-    try:
-        oauth.refresh_token()
-    except Exception:
-        try:
-            if oauth.is_expired or oauth.token_expires_soon:
-                oauth.refresh_token()
-        except Exception:  # noqa: S110 - best-effort; the request surfaces auth errors
-            pass
+    scm_rest.refresh_token(client)
 
 
 def _insights_call(

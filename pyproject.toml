@@ -58,7 +58,12 @@ build-backend = "hatchling.build"
 # 78.x vendors jaraco.context 5.3.0 (CVE-2026-23949) and wheel 0.45.1
 # (CVE-2026-24049), which fail the Docker image's Trivy scan; 82+ vendors
 # fixed copies. Drop this once the SDK relaxes or removes the pin.
-override-dependencies = ["setuptools>=82"]
+# oauthlib: pan-scm-sdk 0.15.1 pins oauthlib<4.0.0. 3.3.1 carries
+# CVE-2026-49272 and CVE-2026-118669 (HIGH; fixed in 4.0.1 / 4.0.0) and
+# CVE-2026-49265. We only use the client-credentials grant, which works
+# unchanged on 4.x. Drop this once the SDK relaxes its pin.
+# setuptools 84.0.0 carries GHSA-xmj3-9gf7-h52w (fixed in 84.1.0).
+override-dependencies = ["setuptools>=84.1.0", "oauthlib>=4.0.0"]
 
 [tool.hatch.version]
 source = "vcs"

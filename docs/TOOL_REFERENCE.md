@@ -4,7 +4,7 @@
 
 All tools authenticate via Bearer-token OAuth (SASE client credentials) configured in `settings.toml` / `.secrets.toml`.
 
-**<!-- tool-count -->192<!-- /tool-count --> tools** across <!-- module-count -->44<!-- /module-count --> modules.
+**<!-- tool-count -->194<!-- /tool-count --> tools** across <!-- module-count -->44<!-- /module-count --> modules.
 
 ## Table of Contents
 
@@ -4148,6 +4148,87 @@ Args:
 | `folder` | `str` | `'Shared'` |
 | `action` | `str` | `'sinkhole'` |
 | `log_queries` | `bool` | `True` |
+| `dry_run` | `bool` | `True` |
+| `ticket_ref` | `str` | `''` |
+
+### `scm_adnsr_custom_fqdn`
+
+Create, update or delete an ADNSR custom FQDN list.
+
+```
+Uses ``/adns-resolver/v1/custom-fqdns`` (POST, PUT and DELETE by ID).
+A custom FQDN list only holds names; it takes effect through a profile
+override, which ``scm_adnsr_profile_override`` sets.
+
+**Update replaces the whole list.** The FQDNs you pass become the full
+contents; anything not in ``fqdns`` is removed. There is no merge.
+
+Args:
+    action: create | update | delete.
+    name: List name (4-128 characters). Required for create. On update
+          the current name is kept when this is empty; a value renames
+          the list.
+    fqdns: One FQDN per line. Required for create and update; on update
+           this is the complete new list.
+    description: Optional description (max 256 characters). On update
+                 the current description is kept when this is empty.
+    custom_fqdn_id: List ID. Required for update and delete.
+    dry_run: If True (default), validate and show the request without
+             sending a write. Update and delete read the current list first.
+    ticket_ref: Mandatory change-ticket reference (never sent to SCM).
+    tenant_id: SCM tenant ID. Defaults to active tenant.
+
+**Write safety (SSR pattern):** ``dry_run=True`` by default;
+``ticket_ref`` is mandatory.
+```
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `tenant_id` | `str` | `''` |
+| `action` | `str` | `'create'` |
+| `name` | `str` | `''` |
+| `fqdns` | `str` | `''` |
+| `description` | `str` | `''` |
+| `custom_fqdn_id` | `str` | `''` |
+| `dry_run` | `bool` | `True` |
+| `ticket_ref` | `str` | `''` |
+
+### `scm_adnsr_profile_override`
+
+Attach, change or detach a custom FQDN list on an ADNSR profile.
+
+```
+A custom FQDN list (``scm_adnsr_custom_fqdn``) has no effect until a
+profile references it through a ``custom_fqdn_overrides`` entry. This
+tool reads the profile (``GET /adns-resolver/v1/profiles/{id}``), adds,
+updates or removes the entry for one list, and PUTs the whole profile
+back (the API replaces the profile, so every other field, category
+override and EDL override is carried over unchanged).
+
+**Requires Advanced DNS Security Resolver licence.**
+
+Args:
+    profile: Profile ID, or exact profile name.
+    custom_fqdn: Custom FQDN list ID, or exact list name.
+    operation: attach (add or update the override) | detach (remove it).
+    action: Action for the list on attach — allow, block (default),
+            sinkhole or alert. Ignored for detach.
+    dry_run: If True (default), show the override section before and
+             after without writing.
+    ticket_ref: Mandatory change-ticket reference (never sent to SCM).
+    tenant_id: SCM tenant ID. Defaults to active tenant.
+
+**Write safety (SSR pattern):** ``dry_run=True`` by default;
+``ticket_ref`` is mandatory.
+```
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `tenant_id` | `str` | `''` |
+| `profile` | `str` | `—` |
+| `custom_fqdn` | `str` | `—` |
+| `operation` | `str` | `'attach'` |
+| `action` | `str` | `'block'` |
 | `dry_run` | `bool` | `True` |
 | `ticket_ref` | `str` | `''` |
 

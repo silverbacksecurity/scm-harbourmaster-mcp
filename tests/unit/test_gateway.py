@@ -215,6 +215,7 @@ NOT_PATHS = {
     "destination_zones",
     "dlp_profile",  # scm_create_genai_snippet: an Enterprise DLP profile name
     "max_paths",
+    "profile",  # scm_adnsr_profile_override: an ADNSR profile ID or name
     "profile_group_name",
     "profile_id",
     "profile_setting",

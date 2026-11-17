@@ -21,7 +21,8 @@ from scm_harbourmaster_mcp.planner import (
 from scm_harbourmaster_mcp.planner.manifest import VALID_DOMAINS
 
 # Write tools per the Phase 1 spec (ROADMAP + docs/planner-agent/TOOL_MANIFEST.md),
-# extended with the write tools added since: scm_ssr_execute, scm_adnsr_profile_create.
+# extended with the write tools added since: scm_ssr_execute, scm_adnsr_profile_create,
+# scm_adnsr_custom_fqdn, scm_adnsr_profile_override.
 EXPECTED_WRITE_TOOLS = {
     "scm_commit",
     "scm_security_rule_create",
@@ -56,6 +57,8 @@ EXPECTED_WRITE_TOOLS = {
     "scm_restart",
     "scm_ssr_execute",
     "scm_adnsr_profile_create",
+    "scm_adnsr_custom_fqdn",
+    "scm_adnsr_profile_override",
     "scm_dns_security_lookup",
     "scm_config_orch_bandwidth",
     "scm_config_orch_profiles",

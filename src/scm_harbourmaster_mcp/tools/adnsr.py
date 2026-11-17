@@ -4,6 +4,8 @@ MCP tools for Advanced DNS Security Resolver (ADNSR) and NGFW Operations APIs.
 Tools:
     scm_adnsr_list          — list ADNSR profiles, internal domains, connection sources
     scm_adnsr_profile_create — create an ADNSR DNS security profile
+    scm_adnsr_custom_fqdn   — create/update/delete a custom FQDN list
+    scm_adnsr_profile_override — attach/detach a custom FQDN list on a profile
     scm_adnsr_internal_domains — list/manage internal domain bypass configurations
     scm_ngfw_local_config_list — list local config versions pushed to an NGFW device
     scm_ngfw_local_config_get  — fetch the XML configuration file for a specific version
@@ -17,6 +19,7 @@ guidance rather than generic errors.
 from __future__ import annotations
 
 import json
+import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -74,6 +77,78 @@ def _check_license(status: int, body: Any) -> str | None:
             return f"{msg}. {detail}".strip(". ")
         return str(body)[:200] if body else "Access denied"
     return None
+
+
+# IDs go into URL paths. requests collapses "../" segments, so an unchecked ID
+# could point a PUT or DELETE at a different resource.
+_SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+_SINKHOLE_FIELDS = ("custom_sinkhole_id", "is_custom_sinkhole")
+_LIST_PAGE = 1000
+
+_OVERRIDE_ACTIONS = {"allow", "block", "sinkhole", "alert"}
+
+# profile-input (PUT body) accepts only these fields; id, timestamps and
+# read_only come back on GET but are rejected on write (additionalProperties false).
+_PROFILE_INPUT_FIELDS = ("name", "description", "safesearch_enabled", "youtube_restricted_mode")
+_OVERRIDE_INPUT_FIELDS = {
+    "custom_fqdn_overrides": {"id", "action", "custom_sinkhole_id", "is_custom_sinkhole"},
+    "edl_overrides": {"id", "action", "custom_sinkhole_id", "is_custom_sinkhole"},
+    "category_overrides": {"category_id", "action", "custom_sinkhole_id", "is_custom_sinkhole"},
+}
+
+
+def _adnsr_item(session: Any, collection: str, obj_id: str) -> tuple[int, Any, dict[str, Any]]:
+    """GET one ADNSR object by ID. The item is {} unless the response is the
+    ``{"item": {...}}`` envelope for exactly that ID (sub-resources such as
+    ``/profiles/categories`` answer 200 with a different shape)."""
+    if not _SAFE_ID.match(obj_id):
+        return 400, "invalid ID", {}
+    status, body = _adnsr_get(session, f"/{collection}/{obj_id}")
+    item = body.get("item") if status == 200 and isinstance(body, dict) else None
+    if isinstance(item, dict) and str(item.get("id", "")) == obj_id:
+        return status, body, item
+    return status, body, {}
+
+
+def _adnsr_resolve(
+    session: Any, collection: str, ref: str
+) -> tuple[dict[str, Any], tuple[int, Any, str] | None]:
+    """Find one ADNSR object by ID, falling back to an exact name match.
+
+    Returns (object, None) or ({}, (status, body, reason)).
+    """
+    status, body, item = _adnsr_item(session, collection, ref)
+    if item:
+        return item, None
+    if status == 403:
+        return {}, (status, body, "access denied")
+
+    matches: list[dict[str, Any]] = []
+    offset = 0
+    while True:
+        status, body = _adnsr_get(
+            session, f"/{collection}", {"limit": str(_LIST_PAGE), "offset": str(offset)}
+        )
+        if status != 200:
+            return {}, (status, body, f"could not be read (HTTP {status}): {str(body)[:200]}")
+        rows = body.get("data") if isinstance(body, dict) else body
+        rows = rows if isinstance(rows, list) else []
+        matches += [r for r in rows if isinstance(r, dict) and r.get("name") == ref]
+        offset += len(rows)
+        total = body.get("total") if isinstance(body, dict) else None
+        if len(rows) < _LIST_PAGE or (isinstance(total, int) and offset >= total):
+            break
+
+    if not matches:
+        return {}, (404, body, "not found (no matching ID or name)")
+    if len(matches) > 1:
+        ids = ", ".join(str(m.get("id")) for m in matches[:10])
+        return {}, (409, body, f"is ambiguous: {len(matches)} objects share that name (IDs: {ids})")
+    row_id = str(matches[0].get("id", ""))
+    status, body, item = _adnsr_item(session, collection, row_id)
+    if not item:
+        return {}, (status, body, f"matched by name but ID `{row_id}` could not be read")
+    return item, None
 
 
 def register_adnsr_tools(mcp: FastMCP, get_client: Any) -> None:
@@ -249,6 +324,350 @@ def register_adnsr_tools(mcp: FastMCP, get_client: Any) -> None:
             f"Action: **{action}**  |  Log queries: **{log_queries}**  |  Folder: **{folder}**\n\n"
             "Run `scm_adnsr_list` to verify, then apply the profile to your Prisma Access "
             "mobile user or remote network configuration."
+        )
+
+    @mcp.tool()
+    @tool
+    def scm_adnsr_custom_fqdn(
+        client: Any,
+        tenant_id: str,
+        action: str = "create",
+        name: str = "",
+        fqdns: str = "",
+        description: str = "",
+        custom_fqdn_id: str = "",
+        dry_run: bool = True,
+        ticket_ref: str = "",
+    ) -> str:
+        """Create, update or delete an ADNSR custom FQDN list.
+
+        Uses ``/adns-resolver/v1/custom-fqdns`` (POST, PUT and DELETE by ID).
+        A custom FQDN list only holds names; it takes effect through a profile
+        override, which ``scm_adnsr_profile_override`` sets.
+
+        **Update replaces the whole list.** The FQDNs you pass become the full
+        contents; anything not in ``fqdns`` is removed. There is no merge.
+
+        Args:
+            action: create | update | delete.
+            name: List name (4-128 characters). Required for create. On update
+                  the current name is kept when this is empty; a value renames
+                  the list.
+            fqdns: One FQDN per line. Required for create and update; on update
+                   this is the complete new list.
+            description: Optional description (max 256 characters). On update
+                         the current description is kept when this is empty.
+            custom_fqdn_id: List ID. Required for update and delete.
+            dry_run: If True (default), validate and show the request without
+                     sending a write. Update and delete read the current list first.
+            ticket_ref: Mandatory change-ticket reference (never sent to SCM).
+            tenant_id: SCM tenant ID. Defaults to active tenant.
+
+        **Write safety (SSR pattern):** ``dry_run=True`` by default;
+        ``ticket_ref`` is mandatory.
+        """
+        err = ticket_ref_error(ticket_ref)
+        if err:
+            return f"Error: {err}"
+        ticket_ref = normalize_ticket_ref(ticket_ref)
+
+        session = getattr(client, "session", None)
+        if not session:
+            return "Error: no HTTP session available on SCM client."
+        _refresh_token(client)
+
+        action = (action or "").strip().lower()
+        if action not in {"create", "update", "delete"}:
+            return "Error: action must be one of create, update, delete."
+
+        custom_fqdn_id = custom_fqdn_id.strip()
+        if action in {"update", "delete"}:
+            if not custom_fqdn_id:
+                return f"Error: custom_fqdn_id is required for {action}."
+            if not _SAFE_ID.match(custom_fqdn_id):
+                return "Error: custom_fqdn_id may only contain letters, digits, '-' and '_'."
+
+        domains: list[str] = []
+        if action in {"create", "update"}:
+            domains = sorted({line.strip().lower() for line in fqdns.splitlines() if line.strip()})
+            if not domains:
+                return "Error: fqdns must contain at least one FQDN (one per line)."
+            too_long = [d for d in domains if len(d) > 255]
+            if too_long:
+                return f"Error: FQDNs longer than 255 characters: {', '.join(too_long[:5])}"
+            if action == "create" and not name.strip():
+                return "Error: name is required for create."
+            if name and not 4 <= len(name.strip()) <= 128:
+                return "Error: name must be 4-128 characters."
+            if description and len(description) > 256:
+                return "Error: description must be 256 characters or fewer."
+
+        base = f"{_ADNSR_BASE}/custom-fqdns"
+        target = f"{base}/{custom_fqdn_id}" if action != "create" else base
+
+        current: dict[str, Any] | None = None
+        if action in {"update", "delete"}:
+            status, body, current = _adnsr_item(session, "custom-fqdns", custom_fqdn_id)
+            if not current:
+                lic_err = _check_license(status, body)
+                if lic_err:
+                    return f"**ADNSR custom FQDN {action} — {lic_err}**{_ADNSR_LICENSE_HINT}"
+                return f"Error {status}: list {custom_fqdn_id} not found or not readable: {str(body)[:300]}"
+
+        # PUT takes the same body as POST (name and fqdns both required), so an
+        # update keeps the current name and description unless new ones are given.
+        form_data: dict[str, str] = {}
+        if action != "delete":
+            keep = current or {}
+            new_name = name.strip() or str(keep.get("name") or "")
+            new_description = description or str(keep.get("description") or "")
+            if not new_name:
+                return "Error: the current list has no name; pass name."
+            form_data["name"] = new_name
+            if new_description:
+                form_data["description"] = new_description
+        plan: dict[str, Any] = {"action": action, "target": target, "fields": dict(form_data)}
+        if domains:
+            plan["fqdn_count"] = len(domains)
+            plan["fqdns"] = domains
+
+        if dry_run:
+            lines = [
+                f"## ADNSR Custom FQDN {action.capitalize()} — DRY-RUN",
+                "",
+                f"Ticket ref: {ticket_ref}",
+                "",
+                f"Would {action.upper()} `{target}`",
+                "",
+                f"```json\n{json.dumps(plan, indent=2)}\n```",
+            ]
+            if current:
+                total = current.get("total_fqdns")
+                if action == "update":
+                    lines += [
+                        "",
+                        f"**This replaces the whole list.** It holds "
+                        f"{total if total is not None else 'an unknown number of'} FQDN(s) now "
+                        f"and will hold {len(domains)}. Anything not in `fqdns` is removed.",
+                    ]
+                lines += [
+                    "",
+                    "Current list (the read returns the first page of FQDNs only; "
+                    "output may be cut short):"
+                    f"\n\n```json\n{json.dumps(current, indent=2)[:2000]}\n```",
+                ]
+            lines += ["", DRY_RUN_HINT]
+            return "\n".join(lines)
+
+        audit_write(
+            "scm_adnsr_custom_fqdn",
+            ticket_ref,
+            tenant_id,
+            action=action,
+            custom_fqdn_id=custom_fqdn_id,
+            name=form_data.get("name", ""),
+            fqdn_count=len(domains),
+        )
+
+        # Multipart upload: the FQDN list goes as a text file. Drop any
+        # session-level JSON Content-Type so requests sets the multipart boundary.
+        headers = {"Content-Type": None}
+        if action == "delete":
+            resp = session.delete(target, headers=headers, timeout=(10, 30))
+        else:
+            files = {"fqdns": ("fqdns.txt", "\n".join(domains) + "\n", "text/plain")}
+            send = session.post if action == "create" else session.put
+            resp = send(
+                base if action == "create" else target,
+                data=form_data,
+                files=files,
+                headers=headers,
+                timeout=(10, 30),
+            )
+
+        if resp.status_code == 403:
+            try:
+                body = resp.json()
+            except Exception:
+                body = {"message": resp.text}
+            lic_err = _check_license(403, body)
+            return f"**ADNSR custom FQDN {action} — {lic_err}**{_ADNSR_LICENSE_HINT}"
+
+        if resp.status_code not in (200, 201, 204):
+            return f"Error {resp.status_code}: {resp.text[:500]}"
+
+        if action == "delete":
+            return (
+                f"✅ ADNSR custom FQDN list `{custom_fqdn_id}` deleted.\n\nTicket ref: {ticket_ref}"
+            )
+
+        try:
+            result = resp.json()
+        except Exception:
+            result = {}
+        item = result.get("data", result) if isinstance(result, dict) else {}
+        new_id = item.get("id", custom_fqdn_id) if isinstance(item, dict) else custom_fqdn_id
+        return (
+            f"✅ ADNSR custom FQDN list `{item.get('name', name) if isinstance(item, dict) else name}` "
+            f"{'created' if action == 'create' else 'updated'} (id: `{new_id}`), "
+            f"{len(domains)} FQDN(s).\n\nTicket ref: {ticket_ref}\n\n"
+            "Verify with `scm_adnsr_list` resource `custom-fqdns`."
+        )
+
+    @mcp.tool()
+    @tool
+    def scm_adnsr_profile_override(
+        client: Any,
+        tenant_id: str,
+        profile: str,
+        custom_fqdn: str,
+        operation: str = "attach",
+        action: str = "block",
+        dry_run: bool = True,
+        ticket_ref: str = "",
+    ) -> str:
+        """Attach, change or detach a custom FQDN list on an ADNSR profile.
+
+        A custom FQDN list (``scm_adnsr_custom_fqdn``) has no effect until a
+        profile references it through a ``custom_fqdn_overrides`` entry. This
+        tool reads the profile (``GET /adns-resolver/v1/profiles/{id}``), adds,
+        updates or removes the entry for one list, and PUTs the whole profile
+        back (the API replaces the profile, so every other field, category
+        override and EDL override is carried over unchanged).
+
+        **Requires Advanced DNS Security Resolver licence.**
+
+        Args:
+            profile: Profile ID, or exact profile name.
+            custom_fqdn: Custom FQDN list ID, or exact list name.
+            operation: attach (add or update the override) | detach (remove it).
+            action: Action for the list on attach — allow, block (default),
+                    sinkhole or alert. Ignored for detach.
+            dry_run: If True (default), show the override section before and
+                     after without writing.
+            ticket_ref: Mandatory change-ticket reference (never sent to SCM).
+            tenant_id: SCM tenant ID. Defaults to active tenant.
+
+        **Write safety (SSR pattern):** ``dry_run=True`` by default;
+        ``ticket_ref`` is mandatory.
+        """
+        err = ticket_ref_error(ticket_ref)
+        if err:
+            return f"Error: {err}"
+        ticket_ref = normalize_ticket_ref(ticket_ref)
+
+        session = getattr(client, "session", None)
+        if not session:
+            return "Error: no HTTP session available on SCM client."
+        _refresh_token(client)
+
+        operation = (operation or "").strip().lower()
+        if operation not in {"attach", "detach"}:
+            return "Error: operation must be attach or detach."
+        action = (action or "").strip().lower()
+        if operation == "attach" and action not in _OVERRIDE_ACTIONS:
+            return f"Error: action must be one of {', '.join(sorted(_OVERRIDE_ACTIONS))}."
+        if not profile.strip():
+            return "Error: profile is required."
+        if not custom_fqdn.strip():
+            return "Error: custom_fqdn is required."
+
+        resolved: dict[str, Any] = {}
+        for label, path, ref in (
+            ("profile", "profiles", profile.strip()),
+            ("custom FQDN list", "custom-fqdns", custom_fqdn.strip()),
+        ):
+            found, problem = _adnsr_resolve(session, path, ref)
+            if problem:
+                lic_err = _check_license(problem[0], problem[1])
+                if lic_err:
+                    return f"**ADNSR profile override — {lic_err}**{_ADNSR_LICENSE_HINT}"
+                return f"Error: {label} `{ref}` {problem[2]}"
+            resolved[label] = found
+        current = resolved["profile"]
+        fqdn_list = resolved["custom FQDN list"]
+        profile_id = str(current["id"])
+        list_id = str(fqdn_list["id"])
+        if current.get("read_only"):
+            return f"Error: profile `{current.get('name', profile_id)}` is read-only."
+
+        body = {k: current[k] for k in _PROFILE_INPUT_FIELDS if current.get(k) is not None}
+        for key, allowed in _OVERRIDE_INPUT_FIELDS.items():
+            if isinstance(current.get(key), list):
+                body[key] = [
+                    {k: v for k, v in o.items() if k in allowed}
+                    for o in current[key]
+                    if isinstance(o, dict)
+                ]
+
+        before = [dict(o) for o in body.get("custom_fqdn_overrides", [])]
+        existing = next((o for o in before if o.get("id") == list_id), None)
+        entry: dict[str, Any] = {}
+        if operation == "attach":
+            entry = dict(existing or {})
+            entry.update({"id": list_id, "action": action})
+            if action != "sinkhole":
+                for field in _SINKHOLE_FIELDS:
+                    entry.pop(field, None)
+            # Replace in place so the order of the other overrides is untouched.
+            overrides = [entry if o.get("id") == list_id else o for o in before]
+            if existing is None:
+                overrides.append(entry)
+        else:
+            overrides = [o for o in before if o.get("id") != list_id]
+        if operation == "detach" and existing is None:
+            return (
+                f"Nothing to do: list `{fqdn_list.get('name', list_id)}` is not attached to "
+                f"profile `{current.get('name', profile_id)}`."
+            )
+        if operation == "attach" and existing == entry:
+            return (
+                f"Nothing to do: list `{fqdn_list.get('name', list_id)}` is already attached to "
+                f"profile `{current.get('name', profile_id)}` with action `{action}`."
+            )
+        body["custom_fqdn_overrides"] = overrides
+
+        target = f"{_ADNSR_BASE}/profiles/{profile_id}"
+        if dry_run:
+            return (
+                f"## ADNSR Profile Override {operation.capitalize()} — DRY-RUN — "
+                f"`{current.get('name', profile_id)}`\n\n"
+                f"Ticket ref: {ticket_ref}\n\n"
+                f"Would PUT `{target}` (full profile; other fields unchanged). "
+                f"List: `{fqdn_list.get('name', list_id)}` (`{list_id}`).\n\n"
+                f"custom_fqdn_overrides before:\n\n```json\n{json.dumps(before, indent=2)}\n```\n\n"
+                f"custom_fqdn_overrides after:\n\n```json\n{json.dumps(overrides, indent=2)}\n```\n\n"
+                f"{DRY_RUN_HINT}"
+            )
+
+        audit_write(
+            "scm_adnsr_profile_override",
+            ticket_ref,
+            tenant_id,
+            operation=operation,
+            profile_id=profile_id,
+            custom_fqdn_id=list_id,
+            action=action if operation == "attach" else "",
+        )
+        resp = session.put(target, json=body, timeout=(10, 30))
+
+        if resp.status_code == 403:
+            try:
+                err_body = resp.json()
+            except Exception:
+                err_body = {"message": resp.text}
+            lic_err = _check_license(403, err_body)
+            return f"**ADNSR profile override — {lic_err}**{_ADNSR_LICENSE_HINT}"
+
+        if resp.status_code not in (200, 201, 204):
+            return f"Error {resp.status_code}: {resp.text[:500]}"
+
+        verb = "attached to" if operation == "attach" else "detached from"
+        suffix = f" with action **{action}**" if operation == "attach" else ""
+        return (
+            f"✅ Custom FQDN list `{fqdn_list.get('name', list_id)}` {verb} ADNSR profile "
+            f"`{current.get('name', profile_id)}`{suffix}.\n\nTicket ref: {ticket_ref}\n\n"
+            "Verify with `scm_adnsr_list` resource `profiles`."
         )
 
     @mcp.tool()

@@ -8,6 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **ADNSR custom FQDN list writes.** `scm_adnsr_custom_fqdn` creates, updates
+  and deletes Advanced DNS Security Resolver custom FQDN lists via
+  `/adns-resolver/v1/custom-fqdns`. The FQDNs are sent as a multipart text
+  file, lower-cased and de-duplicated. An update replaces the whole list and
+  keeps the current name and description unless new ones are given; the dry
+  run shows the current and new FQDN counts. It follows the SSR write pattern:
+  `dry_run=True` by default and a mandatory `ticket_ref`. Not yet exercised
+  against a live tenant.
+- **ADNSR profile overrides for custom FQDN lists.**
+  `scm_adnsr_profile_override` attaches, changes or detaches a custom FQDN
+  list on an ADNSR profile, which is what makes a list take effect. It reads
+  the profile, edits only `custom_fqdn_overrides`, and writes the whole
+  profile back via `PUT /adns-resolver/v1/profiles/{id}`, keeping category
+  and EDL overrides and the other settings. The action is allow, block,
+  sinkhole or alert. Profile and list are given by ID or exact name; a name
+  shared by several objects is refused. Not yet exercised against a live
+  tenant: the spec does not confirm that an override's `id` is the list ID.
 - **URL drift check between custom URL categories and Prisma Browser.**
   `scm_pab_url_drift` compares the custom URL categories that NGFW and Prisma
   Access policy use with the URL lists on Prisma Browser application objects,
@@ -83,7 +100,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     bypasses the 2-minute snapshot cache, which could otherwise serve the
     apply's pre-push extraction as "after".
 
+### Changed
+- **Shared helpers for direct SCM REST calls.** `utils/scm_rest.py` now holds
+  the token refresh, bearer session, "not licensed" status set and request
+  helpers that ten tool modules each carried a copy of, plus the field-name
+  map for the resources pan-scm-sdk serialises without aliases. Tool
+  behaviour is unchanged.
+
 ### Fixed
+- **`scm_ssr_execute` writes failed against the real SDK.** Every applied
+  (non-dry-run) operation — URL allow/block list, threat exception and
+  SSL-decrypt exclusion — passed a plain dict to pan-scm-sdk's `update()`,
+  which needs a model and raised `AttributeError`. The writes now go through
+  SCM over REST instead. Objects are also read over REST, because the SDK
+  cannot read back a profile once it has a threat exception with an action.
+  Removing a profile's last threat exception now works (SCM rejects an empty
+  list). Dry runs were not affected. Proven live on a lab tenant for the URL
+  lists, the vulnerability profile and the no-decrypt rule.
+- **Cloning a vulnerability profile with rules failed.** The clone renamed a
+  rule's `vendor_id` to `vendor-id`, following pan-scm-sdk's model alias, but
+  the API's field is `vendor_id` and SCM rejected the profile with "missing
+  'vendor-id'". The rename is removed.
 - **Job result tools no longer list other jobs' IDs.** On an unknown job ID,
   `scm_asbuilt_result`, `scm_asbuilt_verify`, `scm_drift_result` and
   `scm_config_index_result` replied with every active job ID. These tools

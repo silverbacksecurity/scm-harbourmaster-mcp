@@ -52,9 +52,11 @@ RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund
 # ── Base runtime stage ────────────────────────────────────────────────────────
 FROM python:3.12-slim@sha256:05cda9777409a9c3ffddd94a4c476b79f0769a0b4857f0c7ed9226b6800b0d6f AS base
 
+# Upgrade first: the digest-pinned base can lag Debian security fixes (Trivy HIGH).
 # tini runs as PID 1 so SIGTERM (docker stop, scm_restart) reaches the server:
 # Python as PID 1 with no handler would ignore it.
 RUN apt-get update && \
+    apt-get upgrade -y --no-install-recommends && \
     apt-get install -y --no-install-recommends tini && \
     rm -rf /var/lib/apt/lists/*
 
@@ -104,6 +106,7 @@ USER root
 # Debian's Chromium (security-updated with the distro) instead of puppeteer's
 # downloaded build; fonts so diagram labels aren't tofu.
 RUN apt-get update && \
+    apt-get upgrade -y --no-install-recommends && \
     apt-get install -y --no-install-recommends nodejs chromium fonts-dejavu-core && \
     rm -rf /var/lib/apt/lists/*
 COPY --from=mermaid-build /mermaid/node_modules /app/mermaid/node_modules

@@ -16,33 +16,12 @@ from __future__ import annotations
 import contextlib
 from typing import Any
 
+from . import scm_rest
+
 
 def _bearer_session(client: Any) -> Any:
-    """Return a plain ``requests.Session`` with a fresh Bearer token.
-
-    Extracts the token from the SDK client's OAuth session (refreshing first if
-    expired) and builds a standard requests.Session — the same pattern used by
-    ``extractor._bearer_session_for`` and ``compliance._bearer_session``.
-    """
-    import requests as _requests
-
-    oauth = getattr(client, "oauth_client", None)
-    if oauth is not None:
-        with contextlib.suppress(Exception):
-            if getattr(oauth, "is_expired", False):
-                oauth.refresh_token()
-
-    token = None
-    sdk_session = getattr(client, "session", None)
-    if sdk_session is not None:
-        raw = getattr(sdk_session, "token", None)
-        if raw:
-            token = raw.get("access_token")
-
-    sess = _requests.Session()
-    if token:
-        sess.headers["Authorization"] = f"Bearer {token}"
-    return sess
+    """Return a plain ``requests.Session`` with a fresh Bearer token."""
+    return scm_rest.bearer_session(client)
 
 
 def probe_family(

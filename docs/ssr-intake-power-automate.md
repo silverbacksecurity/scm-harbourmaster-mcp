@@ -57,6 +57,7 @@ Responses:
 | HTTP | Meaning | Flow handling |
 |---|---|---|
 | 200 | `status: planned` (dry-run diff) or `status: applied` | proceed |
+| 200 | `status: partial` (threat-exception: some profiles changed, others failed; `commit_required` is false) | notify ops, do not commit |
 | 400 | malformed request — missing fields, bad JSON | notify requester, stop |
 | 401 | auth failure | ops alert — key rotation drift |
 | 403 | webhook disabled (`SCM_MCP_HTTP_SSR_WEBHOOK` unset) | ops alert |

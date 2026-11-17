@@ -59,6 +59,7 @@ _RELOAD_EXCLUDED = {
 _RELOAD_ORDER = [
     "scm_harbourmaster_mcp.utils.logging",
     "scm_harbourmaster_mcp.utils.errors",
+    "scm_harbourmaster_mcp.utils.scm_rest",
     "scm_harbourmaster_mcp.utils.family_probe",
     "scm_harbourmaster_mcp.utils.formatting",
     "scm_harbourmaster_mcp.utils.validation",

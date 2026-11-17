@@ -116,7 +116,19 @@ scm_adnsr_list:
   idempotent: true
   retry_policy: retry
   scope: tenant
+scm_adnsr_custom_fqdn:
+  access: write
+  domain: threat_coverage
+  idempotent: false
+  retry_policy: fail_fast
+  scope: tenant
 scm_adnsr_profile_create:
+  access: write
+  domain: threat_coverage
+  idempotent: false
+  retry_policy: fail_fast
+  scope: tenant
+scm_adnsr_profile_override:
   access: write
   domain: threat_coverage
   idempotent: false

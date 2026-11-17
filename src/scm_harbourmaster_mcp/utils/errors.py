@@ -15,6 +15,7 @@ _EXPECTED_EXCEPTION_NAMES = frozenset(
         "ObjectNotPresentError",
         "InvalidObjectError",
         "NotFoundError",
+        "ObjectNotFoundError",
         "NameNotUniqueError",
         "MissingQueryParameterError",
         "HTTPStatusError",

@@ -15,6 +15,7 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 from ..auth.oauth import get_tenant_meta, list_loaded_tenants
+from ..utils import scm_rest
 from ..utils.logging import get_logger
 from ..utils.tool_decorator import scm_tool
 
@@ -505,12 +506,10 @@ _ZTNA_BASE = "https://api.sase.paloaltonetworks.com/sse/connector/v2.0/api"
 _BROWSER_BASE = "https://api.sase.paloaltonetworks.com/seb-api/v1"
 
 
-_NOT_LICENSED_STATUSES = frozenset({401, 403, 404, 424})
+_NOT_LICENSED_STATUSES = scm_rest.NOT_LICENSED
 
 
-def _exc_status(exc: Any) -> int | None:
-    resp = getattr(exc, "response", None)
-    return getattr(resp, "status_code", None)
+_exc_status = scm_rest.exc_status
 
 
 def _bearer_session(client: Any) -> Any:
@@ -528,47 +527,11 @@ def _bearer_session(client: Any) -> Any:
          handles it correctly).
       2. Build a standard requests.Session with the refreshed bearer token.
     """
-    import requests as _requests
-
-    oauth = getattr(client, "oauth_client", None)
-
-    # Step 1: trigger a token refresh through the SDK if needed
-    if oauth is not None:
-        import contextlib
-
-        with contextlib.suppress(Exception):
-            if oauth.is_expired:
-                with contextlib.suppress(Exception):
-                    oauth.refresh_token()
-
-    # Step 2: extract the current bearer token from the OAuth2Session
-    token = None
-    sdk_session = getattr(client, "session", None)
-    if sdk_session is not None:
-        raw = getattr(sdk_session, "token", None)
-        if raw:
-            token = raw.get("access_token")
-
-    sess = _requests.Session()
-    if token:
-        sess.headers["Authorization"] = f"Bearer {token}"
-    return sess
+    return scm_rest.bearer_session(client)
 
 
 def _rest_get(session: Any, url: str, params: dict | None = None) -> list[dict]:
-    try:
-        resp = session.get(url, params=params, timeout=(5, 10))
-    except Exception as exc:
-        if _exc_status(exc) in _NOT_LICENSED_STATUSES:
-            return []
-        raise
-    if resp.status_code in _NOT_LICENSED_STATUSES:
-        return []
-    resp.raise_for_status()
-    data = resp.json()
-    if isinstance(data, list):
-        return data
-    return data.get("data", data.get("items", []))
+    return scm_rest.get_list(session, url, params, timeout=(5, 10))
 
 
 def register_casb_dlp_tools(mcp: FastMCP, get_client: Any) -> None:

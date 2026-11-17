@@ -30,6 +30,7 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 from ..config.settings import load_all_tenant_configs
+from ..utils import scm_rest
 from ..utils.errors import handle_scm_exception
 from ..utils.logging import get_logger
 
@@ -199,8 +200,7 @@ def _handle_url_list(
         )
 
     # Fetch current state
-    obj = client.url_category.fetch(name=obj_name, folder=folder)
-    before_data = obj.model_dump()
+    before_data = scm_rest.get_object(client, "url_category", obj_name, folder)
     current_list: list[str] = list(before_data.get("list") or [])
 
     target_clean = target.strip()
@@ -251,7 +251,7 @@ def _handle_url_list(
     note = f"SSR {action}: {target} — {ticket_ref}"
     update_payload = {**after_data, "description": _append_note(desc, note)}
 
-    client.url_category.update(update_payload)
+    scm_rest.put_object(client, "url_category", update_payload)
     logger.info("ssr_url_list_applied", operation=operation, target=target, obj=obj_name)
 
     return _response(
@@ -306,9 +306,9 @@ def _handle_threat_exception(
             continue
 
         try:
-            resource = getattr(client, sdk_attr)
-            profile = resource.fetch(name=profile_name, folder=folder)
-            before_data = profile.model_dump()
+            # Raw REST read: the SDK model cannot parse a profile that
+            # already has a threat exception with an action.
+            before_data = scm_rest.get_object(client, sdk_attr, profile_name, folder)
             exceptions: list[dict[str, Any]] = list(before_data.get("threat_exception") or [])
 
             if action == "add":
@@ -334,7 +334,22 @@ def _handle_threat_exception(
                 desc = before_data.get("description") or ""
                 note = f"SSR threat-exception {action}: {target} — {ticket_ref}"
                 update_payload = {**after_data, "description": _append_note(desc, note)}
-                resource.update(update_payload)
+                if not exceptions:
+                    # SCM rejects an empty list ("entry attribute name is
+                    # missing"); omitting the field clears the exceptions.
+                    update_payload.pop("threat_exception", None)
+                scm_rest.put_object(client, sdk_attr, update_payload)
+                # Read back before reporting success. Whether SCM clears a
+                # field that is omitted from a PUT is not live-proven, so the
+                # change must be visible on the object SCM now holds.
+                landed_obj = scm_rest.get_object(client, sdk_attr, profile_name, folder)
+                landed = {str(e.get("name")) for e in landed_obj.get("threat_exception") or []}
+                wanted = {str(e.get("name")) for e in exceptions}
+                if landed != wanted:
+                    raise RuntimeError(
+                        "read-back does not show the threat exception change "
+                        f"(expected {sorted(wanted)}, SCM has {sorted(landed)})"
+                    )
                 logger.info("ssr_threat_applied", profile=profile_name, target=target)
                 results[profile_name] = {"before": before_data, "after": after_data}
 
@@ -345,7 +360,16 @@ def _handle_threat_exception(
     # Machine-first contract: if every configured profile errored, nothing was
     # (or would be) changed — status MUST say so, or an orchestrator reading
     # "applied" would proceed to commit a no-op.
-    status = "error" if errors and not results else "planned" if dry_run else "applied"
+    # "partial": some profiles changed and others failed. Not "applied", and no
+    # commit is requested, so an orchestrator cannot push a half-applied change.
+    if errors and not results:
+        status = "error"
+    elif errors:
+        status = "partial"
+    elif dry_run:
+        status = "planned"
+    else:
+        status = "applied"
     already_present = all(r.get("already_present") for r in results.values()) if results else False
     already_absent = all(r.get("already_absent") for r in results.values()) if results else False
     # Consistent with the URL/SSL handlers: True whenever a change was made or
@@ -354,6 +378,7 @@ def _handle_threat_exception(
         "after" in r and not r.get("already_present") and not r.get("already_absent")
         for r in results.values()
     )
+    commit_required = changed and not errors
 
     return _response(
         "threat-exception",
@@ -363,7 +388,7 @@ def _handle_threat_exception(
         status,
         already_present=already_present,
         already_absent=already_absent,
-        commit_required=changed,
+        commit_required=commit_required,
         extra={"profiles": results, "errors": errors or None},
     )
 
@@ -396,8 +421,9 @@ def _handle_ssl_decrypt(
             "Add `ssl_decrypt_exclude_rule` to ssr_objects for this tenant.",
         )
 
-    rule = client.decryption_rule.fetch(name=rule_name, folder=folder)
-    before_data = rule.model_dump()
+    before_data = scm_rest.get_object(
+        client, "decryption_rule", rule_name, folder, params={"position": "pre"}
+    )
     categories: list[str] = list(before_data.get("category") or [])
 
     if action == "add":
@@ -445,7 +471,7 @@ def _handle_ssl_decrypt(
     note = f"SSR ssl-decrypt {action}: {target} — {ticket_ref}"
     update_payload = {**after_data, "description": _append_note(desc, note)}
 
-    client.decryption_rule.update(update_payload)
+    scm_rest.put_object(client, "decryption_rule", update_payload, params={"position": "pre"})
     logger.info("ssr_ssl_decrypt_applied", target=target, rule=rule_name)
 
     return _response(

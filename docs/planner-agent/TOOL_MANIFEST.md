@@ -53,23 +53,23 @@ One entry per MCP tool (currently 141):
 ## Domain groupings (context-load budget)
 
 Sub-plans load one domain's tools (~128-tool Copilot Studio ceiling; spec
-target ≤ ~20 per domain, hard cap 25 enforced in tests):
+target ≤ ~20 per domain, hard cap 30 enforced in tests):
 
 | Domain | Tools |
 | --- | --- |
-| deployment | 20 |
-| config_change | 20 |
-| posture_compliance | 20 |
-| sdwan | 21 |
-| operational_health | 25 |
-| threat_coverage | 14 |
-| pab | 6 |
-| dlp | 5 |
-| identity | 4 |
-| certificates | 3 |
-| licensing | 3 |
+| deployment | 30 |
+| config_change | 29 |
+| posture_compliance | 25 |
+| sdwan | 29 |
+| operational_health | 30 |
+| threat_coverage | 17 |
+| pab | 11 |
+| dlp | 9 |
+| identity | 5 |
+| certificates | 5 |
+| licensing | 4 |
 
-## `access: write` tools (29)
+## `access: write` tools (33)
 
 Everything not listed here is `read`.
 
@@ -104,6 +104,8 @@ Everything not listed here is `read`.
 | `scm_restart` | also a Planner recovery action (with approval) |
 | `scm_ssr_execute` | the one idempotent write (already_present semantics; dry_run default) |
 | `scm_adnsr_profile_create` | |
+| `scm_adnsr_custom_fqdn` | ADNSR custom FQDN list create/update/delete — `delete` is permanent |
+| `scm_adnsr_profile_override` | attach/detach a custom FQDN list on an ADNSR profile (full-profile PUT) |
 | `scm_compliance_framework` | Compliance Center framework CRUD — `delete` is permanent |
 | `scm_planner_run` | Phase 3b conversational run — can orchestrate writes named in its approved_write_tools list |
 

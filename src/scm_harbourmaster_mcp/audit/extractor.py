@@ -21,6 +21,7 @@ from concurrent.futures import ALL_COMPLETED, ThreadPoolExecutor, wait
 from typing import Any
 
 from ..resources.endpoint_catalog import find_endpoint
+from ..utils import scm_rest
 from ..utils.logging import get_logger
 from .models import AuditSnapshot, is_predefined
 
@@ -985,13 +986,10 @@ _ZTNA_BASE = f"{_SCM_API_HOST}/sse/connector/v2.0/api"
 _BROWSER_BASE = f"{_SCM_API_HOST}/seb-api/v1"
 
 
-_NOT_LICENSED_STATUSES = frozenset({401, 403, 404, 424})
+_NOT_LICENSED_STATUSES = scm_rest.NOT_LICENSED
 
 
-def _exc_status(exc: Exception) -> int | None:
-    """Extract HTTP status code from a requests/httpx HTTPError, or None."""
-    resp = getattr(exc, "response", None)
-    return getattr(resp, "status_code", None)
+_exc_status = scm_rest.exc_status
 
 
 def _rest_list(
@@ -1111,27 +1109,7 @@ def _bearer_session_for(client: Any) -> Any:
     if expired) and build a standard requests.Session so SSE/SEB API calls
     work reliably.
     """
-    import requests as _requests
-
-    oauth = getattr(client, "oauth_client", None)
-    if oauth is not None:
-        import contextlib
-
-        with contextlib.suppress(Exception):
-            if oauth.is_expired:  # @property — no parentheses
-                oauth.refresh_token()
-
-    token = None
-    sdk_session = getattr(client, "session", None)
-    if sdk_session is not None:
-        raw = getattr(sdk_session, "token", None)
-        if raw:
-            token = raw.get("access_token")
-
-    sess = _requests.Session()
-    if token:
-        sess.headers["Authorization"] = f"Bearer {token}"
-    return sess
+    return scm_rest.bearer_session(client)
 
 
 def extract_ztna_connectors(client: Any, snap: AuditSnapshot) -> AuditSnapshot:
