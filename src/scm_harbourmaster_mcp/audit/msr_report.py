@@ -336,6 +336,7 @@ class MsrData:
     mu_month_window: str = ""
     adem_summary: dict[str, Any] = field(default_factory=dict)  # agent scores, 3d snapshot
     threat_summary: dict[str, Any] = field(default_factory=dict)  # blocked-event counts
+    cert_rows: list[dict[str, Any]] = field(default_factory=list)  # TLS cert expiry
 
     # source name → error string; sources absent from BOTH this and `gathered`
     # were not attempted
@@ -425,6 +426,18 @@ def _exec_summary(data: MsrData, stats: dict[str, Any]) -> list[str]:
                 f"🟡 **Compliance score declined** {first:.0f} → {last:.0f}"
                 f" ({data.compliance_framework_name or 'benchmarked framework'}, 30d)."
             )
+    cert_soon = [r for r in data.cert_rows if r.get("status") in ("EXPIRED", "CRITICAL")]
+    if cert_soon:
+        ssl_ca = [r for r in cert_soon if r.get("ssl_ca")]
+        extra = (
+            f", including {len(ssl_ca)} SSL-inspection CA(s) (decryption stops silently on expiry)"
+            if ssl_ca
+            else ""
+        )
+        bullets.append(
+            f"🔴 **{len(cert_soon)} certificate(s) expired or expiring within 30 days**{extra}"
+            " — see Certificates."
+        )
     hot = [
         r
         for r in data.bw_month_rows
@@ -637,6 +650,34 @@ def render_msr_report(data: MsrData) -> str:  # noqa: C901
         ]
     else:
         lines.append("No licence data returned.")
+
+    # ── 6b. Certificates ────────────────────────────────────────────────
+    lines += ["", "## 6b. Certificate Expiry", ""]
+    if "certificates" in data.errors:
+        lines.append(f"> ⚠️ Certificate data unavailable: {data.errors['certificates']}")
+    elif data.cert_rows:
+        flagged = [
+            r
+            for r in data.cert_rows
+            if r["status"] in ("EXPIRED", "CRITICAL", "WARNING", "CAUTION")
+        ]
+        if flagged:
+            lines += [
+                "| Certificate | Type | SSL-inspect CA | Expires | Days left | Status |",
+                "|---|---|---|---|---|---|",
+            ]
+            for r in flagged[:25]:
+                days_s = str(r["days"]) if r["days"] is not None else "?"
+                lines.append(
+                    f"| {r['name']} | {r['type']} | {'🔑 yes' if r['ssl_ca'] else '—'} "
+                    f"| {str(r['expires'])[:10]} | {days_s} | {r['status']} |"
+                )
+            if len(flagged) > 25:
+                lines.append(f"| ... | *({len(flagged) - 25} more)* | | | | |")
+        else:
+            lines.append(f"All {len(data.cert_rows)} certificates valid for 90+ days. ✅")
+    else:
+        lines.append("No certificate objects found for this tenant.")
 
     # ── 7. Bandwidth ────────────────────────────────────────────────────
     lines += ["", "## 7. Bandwidth Consumption vs Allocation", ""]

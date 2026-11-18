@@ -890,3 +890,87 @@ class TestInsightsTryGuard:
         assert "bandwidth_month" not in data.errors
         assert data.bw_month_rows[0]["location"] == "UK"
         assert "month filter unsupported" in data.bw_month_window
+
+
+class TestCertificates:
+    """Certificate expiry section (rows come from ops.collect_cert_rows)."""
+
+    @staticmethod
+    def _row(name: str, days: int | None, status: str, ssl_ca: bool = False) -> dict:
+        return {
+            "name": name,
+            "type": "CA" if ssl_ca else "Leaf",
+            "ssl_ca": ssl_ca,
+            "expires": "2026-12-01",
+            "days": days,
+            "status": status,
+            "location": "Shared",
+        }
+
+    def test_collect_cert_rows_dedupes_and_sorts(self) -> None:
+        import time
+
+        from scm_harbourmaster_mcp.tools import ops
+
+        soon = str(int(time.time()) + 10 * 86400)
+        later = str(int(time.time()) + 400 * 86400)
+        certs = [
+            {"id": "a", "name": "later", "expiry_epoch": later},
+            {"id": "b", "name": "ssl-fwd-ca", "common_name": "x", "ca": True, "expiry_epoch": soon},
+        ]
+        with patch.object(ops, "_fetch_certs", return_value=certs):
+            rows = ops.collect_cert_rows(MagicMock())
+        # same ids returned for every folder -> de-duplicated
+        assert [r["name"] for r in rows] == ["ssl-fwd-ca", "later"]
+        assert rows[0]["ssl_ca"] is True
+        assert len(rows[0]["expires"]) == 10 and rows[0]["expires"][4] == "-"
+        assert rows[0]["status"] == "CRITICAL"
+        assert rows[1]["status"] == "OK"
+
+    def test_ssl_inspect_requires_ca_flag(self) -> None:
+        from scm_harbourmaster_mcp.tools.ops import is_ssl_inspect_ca
+
+        assert is_ssl_inspect_ca({"ca": True, "name": "SSL-Decrypt-CA"})
+        assert not is_ssl_inspect_ca({"ca": False, "name": "ssl-leaf"})
+        assert not is_ssl_inspect_ca({"ca": True, "name": "root"})
+
+    def test_render_flags_expiring_certs_and_exec_summary(self) -> None:
+        data = _base_data()
+        data.cert_rows = [
+            self._row("fwd-ca", 5, "CRITICAL", ssl_ca=True),
+            self._row("fine", 300, "OK"),
+        ]
+        md = render_msr_report(data)
+        assert "## 6b. Certificate Expiry" in md
+        assert "fwd-ca" in md and "🔑 yes" in md
+        assert "SSL-inspection CA" in md  # exec-summary bullet
+        assert "| fine |" not in md  # OK certs are not listed
+
+    def test_render_all_valid_and_error_and_empty(self) -> None:
+        data = _base_data()
+        data.cert_rows = [self._row("fine", 300, "OK")]
+        assert "valid for 90+ days" in render_msr_report(data)
+        data.cert_rows = []
+        assert "No certificate objects" in render_msr_report(data)
+        data.errors["certificates"] = "boom"
+        assert "Certificate data unavailable: boom" in render_msr_report(data)
+
+    def test_gather_records_cert_failure_without_aborting(self) -> None:
+        from scm_harbourmaster_mcp.tools.msr import gather_msr_data
+
+        client = MagicMock()
+        with (
+            patch(
+                "scm_harbourmaster_mcp.tools.msr.collect_cert_rows",
+                side_effect=RuntimeError("cert api down"),
+            ),
+            patch(
+                "scm_harbourmaster_mcp.tools.msr._resolve_tenant_meta",
+                return_value=("T", "t-1", "eu"),
+            ),
+            patch("scm_harbourmaster_mcp.tools.msr._get_ssr_config", return_value={}),
+            patch("scm_harbourmaster_mcp.tools.msr.fetch_licenses", return_value=[]),
+            patch("scm_harbourmaster_mcp.tools.msr._compliance_get", return_value=[]),
+        ):
+            data = gather_msr_data(client, month="2026-06", include_insights=False)
+        assert data.errors["certificates"] == "cert api down"

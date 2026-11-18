@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Certificate expiry in the monthly service report.** `scm_msr_report` has a
+  new "6b. Certificate Expiry" section listing certificates that are expired or
+  expire within 90 days, with SSL-inspection CAs flagged. The executive summary
+  gets a red bullet for anything expired or due within 30 days. The
+  SSL-inspection-CA check is shared with `scm_cert_lifecycle`. Proven live on
+  one lab tenant in markdown and DOCX.
 - **ADNSR custom FQDN list writes.** `scm_adnsr_custom_fqdn` creates, updates
   and deletes Advanced DNS Security Resolver custom FQDN lists via
   `/adns-resolver/v1/custom-fqdns`. The FQDNs are sent as a multipart text

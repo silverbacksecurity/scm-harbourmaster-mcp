@@ -70,6 +70,14 @@ def _days_until_epoch(epoch_str: str) -> int | None:
         return None
 
 
+def _epoch_to_date(epoch_str: Any) -> str:
+    """Epoch seconds → 'YYYY-MM-DD' (UTC); '' when unparseable."""
+    try:
+        return datetime.fromtimestamp(int(epoch_str), UTC).strftime("%Y-%m-%d")
+    except (ValueError, TypeError, OverflowError, OSError):
+        return ""
+
+
 def _parse_expiry_str(exp: str) -> int | None:
     """Parse 'YYYY-MM-DDTHH:MM:SS' or 'YYYY-MM-DD HH:MM:SS' to days remaining."""
     if not exp or exp in ("None", ""):
@@ -157,6 +165,50 @@ def _fetch_certs(session: Any, folder: str) -> list[dict]:
     except Exception:
         pass
     return []
+
+
+_SSL_INSPECT_KEYWORDS = frozenset(
+    {"ssl", "inspect", "decrypt", "forward-proxy", "intercept", "tls-ca"}
+)
+
+
+def is_ssl_inspect_ca(cert: dict[str, Any]) -> bool:
+    """True for a CA cert whose name/CN suggests it is an SSL-inspection CA."""
+    if not cert.get("ca"):
+        return False
+    name_lower = (cert.get("name", "") + " " + cert.get("common_name", "")).lower()
+    return any(kw in name_lower for kw in _SSL_INSPECT_KEYWORDS)
+
+
+def collect_cert_rows(session: Any, warn_days: int = 90) -> list[dict[str, Any]]:
+    """Fetch certs across the standard folders and return de-duplicated rows.
+
+    Each row: name, type (CA/Leaf), ssl_ca, expires, days, status, location.
+    Sorted soonest-expiring first. Fetch failures yield no rows for that folder.
+    """
+    seen: set[str] = set()
+    rows: list[dict[str, Any]] = []
+    for folder in _CERT_FOLDERS:
+        for c in _fetch_certs(session, folder):
+            cid = str(c.get("id", c.get("name", "")))
+            if cid in seen:
+                continue
+            seen.add(cid)
+            days = _days_until_epoch(c.get("expiry_epoch", ""))
+            rows.append(
+                {
+                    "name": c.get("name", "?"),
+                    "type": "CA" if c.get("ca") else "Leaf",
+                    "ssl_ca": is_ssl_inspect_ca(c),
+                    "expires": _epoch_to_date(c.get("expiry_epoch", ""))
+                    or c.get("not_valid_after", "?"),
+                    "days": days,
+                    "status": _status(days, warn_days),
+                    "location": c.get("snippet") or c.get("folder") or "?",
+                }
+            )
+    rows.sort(key=lambda r: r["days"] if r["days"] is not None else 99_999)
+    return rows
 
 
 def _quick_list(session: Any, path: str, params: dict) -> list[dict]:
@@ -931,16 +983,6 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
             return f"Error: {handle_scm_exception(exc)}"
 
         ts = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
-        _SSL_INSPECT_KEYWORDS = frozenset(
-            {"ssl", "inspect", "decrypt", "forward-proxy", "intercept", "tls-ca"}
-        )
-
-        def _is_ssl_inspect_ca(cert: dict[str, Any]) -> bool:
-            if not cert.get("ca"):
-                return False
-            name_lower = (cert.get("name", "") + " " + cert.get("common_name", "")).lower()
-            return any(kw in name_lower for kw in _SSL_INSPECT_KEYWORDS)
-
         # Summary table data: (label, total, critical+expired, ssl_ca_critical, worst_days)
         summary_rows: list[dict[str, Any]] = []
         detail_sections: list[str] = []
@@ -1001,7 +1043,7 @@ def register_ops_tools(mcp: FastMCP, get_client: Any) -> None:
                         "name": c.get("name", "?"),
                         "cn": c.get("common_name", c.get("name", "?"))[:30],
                         "type": "CA" if c.get("ca") else "Leaf",
-                        "ssl_ca": _is_ssl_inspect_ca(c),
+                        "ssl_ca": is_ssl_inspect_ca(c),
                         "issuer_cn": issuer_cn[:30],
                         "expires": c.get("not_valid_after", "?"),
                         "days": days,

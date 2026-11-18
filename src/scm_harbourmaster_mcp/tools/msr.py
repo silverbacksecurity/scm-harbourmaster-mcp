@@ -43,7 +43,7 @@ from ..utils.tool_decorator import scm_tool
 from .compliance import _compliance_get
 from .insights import _INSIGHTS_BASE_V3, _insights_call, _refresh_token, region_header
 from .mt_monitor import _BASE as _MT_BASE
-from .ops import _licence_rows
+from .ops import _licence_rows, collect_cert_rows
 from .posture import _incidents_for_tenant
 from .ssr import _get_ssr_config, _resolve_default_folder
 
@@ -405,6 +405,16 @@ def gather_msr_data(
             data.errors["security_events"] = "no threat rows returned (Monitor API)"
     except Exception as exc:
         data.errors["security_events"] = str(exc)
+
+    # ── Certificate expiry ──────────────────────────────────────────────
+    try:
+        session = getattr(client, "session", None)
+        if session is None:
+            raise RuntimeError("client has no HTTP session")
+        data.cert_rows = collect_cert_rows(session)
+        data.gathered.append(f"certificates — {len(data.cert_rows)} objects (Config API)")
+    except Exception as exc:
+        data.errors["certificates"] = str(exc)
 
     # ── Compliance (framework scores + 30-day trend annex) ────────────
     try:
