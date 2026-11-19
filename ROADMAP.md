@@ -9,6 +9,13 @@ do about it.
 
 ## Recently shipped
 
+- **File-blocking profile tools** (2026-11-19) — `scm_file_blocking_apps` and
+  `scm_file_blocking_profile` (`tools/file_blocking.py`). Profile CRUD with
+  the SSR write pattern (dry run default, mandatory `ticket_ref`, no commit),
+  all-offenders pre-validation of applications against the `file_type_ident`
+  set, and delete refused while a profile group references the profile.
+  Proven live on a lab tenant.
+
 - **Config Cleanup API + CIDR-aware rule-shadow detection** (2026-08-15) —
   `scm_zerohit_rules` (`tools/config_cleanup.py`) covers pan.dev's brand-new
   Config Cleanup API (zero-hit security/NAT rules, async analysis status
@@ -252,6 +259,15 @@ also deleted two duplicate `network-services _R3_v1.2.yaml` specs. There
 were no AIRS spec changes. `pan-scm-sdk` 0.15.1 and `prisma-sase` 6.8.1b1
 are still the latest. `mcp` 2.3.0 is out, and we stay capped below 2 until
 the migration blockers are dealt with. New candidates are listed below._
+
+- **File-blocking follow-ups** — the eligible-app set matches the write API
+  (1089 accepted == 1089 flagged), but the SCM UI reportedly lists 1746;
+  explain the gap. Pre-warm the catalogue at server start if the first
+  "still loading" reply proves annoying. Add a
+  `file_type` allowlist if a catalogue source turns up (today it is syntax
+  checked only). The profile-group reference check on delete covers the
+  same container only. Clone and backup handling of file-blocking profiles
+  is unaffected.
 
 - **SAA writes** — create, update and delete for applications, groups,
   profiles and policies. Session disconnect (`:disconnect` and

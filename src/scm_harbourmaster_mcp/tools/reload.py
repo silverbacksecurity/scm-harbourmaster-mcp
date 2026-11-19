@@ -95,6 +95,7 @@ _RELOAD_ORDER = [
     "scm_harbourmaster_mcp.audit.asbuilt_verify",
     "scm_harbourmaster_mcp.audit.config_index",
     "scm_harbourmaster_mcp.tools.ssr",
+    "scm_harbourmaster_mcp.tools.file_blocking",
     "scm_harbourmaster_mcp.tools.service_status",
     "scm_harbourmaster_mcp.tools.ai_advisor",
     "scm_harbourmaster_mcp.tools.csp_licensing",

@@ -571,6 +571,26 @@ scm_estate_check:
     per tenant) and returns immediately - re-invoking spawns a duplicate sweep.
     Read-only by construction (no approver wired). Each tenant takes ~2-3 min;
     digest lands at plans/estate-<stamp>.md.'
+scm_file_blocking_apps:
+  access: read
+  domain: threat_coverage
+  idempotent: true
+  known_failure_modes: Lists the whole applications catalogue (11k rows, every app twice,
+    ~60-90 s cold, cached 6 h per tenant).  Eligibility = file_type_ident; derived from
+    content, the write API is the authority.  Container apps never eligible.
+  retry_policy: retry
+  scope: tenant
+scm_file_blocking_profile:
+  access: write
+  domain: threat_coverage
+  idempotent: false
+  known_failure_modes: Config security API (config/security/v1/file-blocking-profiles).  Writes
+    use SSR pattern - dry_run default, mandatory ticket_ref, no commit.  API reports only
+    the first invalid application keyword (API_I00013); the tool pre-validates all.  Update
+    replaces the whole rules list; PUT keeps folder in body.  Folder listing may 403 for
+    the service account.
+  retry_policy: fail_fast
+  scope: tenant
 scm_folder_get:
   access: read
   domain: deployment

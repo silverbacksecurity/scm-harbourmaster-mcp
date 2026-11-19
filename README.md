@@ -7,7 +7,7 @@
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 
-MCP (Model Context Protocol) server for **Palo Alto Networks Strata Cloud Manager (SCM)**, built for Managed Security Service Providers. Exposes <!-- tool-count -->194<!-- /tool-count --> SCM operations as MCP tools consumable by Claude Desktop, Cursor, Copilot Studio, or any MCP-compatible AI assistant.
+MCP (Model Context Protocol) server for **Palo Alto Networks Strata Cloud Manager (SCM)**, built for Managed Security Service Providers. Exposes <!-- tool-count -->196<!-- /tool-count --> SCM operations as MCP tools consumable by Claude Desktop, Cursor, Copilot Studio, or any MCP-compatible AI assistant.
 
 ---
 
@@ -178,7 +178,7 @@ Add to `~/.config/Claude/claude_desktop_config.json`:
 }
 ```
 
-Restart Claude Desktop. The server registers as <!-- tool-count -->194<!-- /tool-count --> tools in Cowork mode.
+Restart Claude Desktop. The server registers as <!-- tool-count -->196<!-- /tool-count --> tools in Cowork mode.
 
 ### Cursor / VS Code
 
@@ -504,6 +504,8 @@ List all tenants, their auth status, and which licences are expiring soonest.
 | `scm_security_rule_create` | Create a security rule |
 | `scm_security_rule_delete` | Delete a security rule |
 | `scm_anti_spyware_profile_list` | List anti-spyware profiles |
+| `scm_file_blocking_apps` | Which applications a file-blocking rule may name (`file_type_ident` apps); check a list of names up front or page the eligible set; the first call per tenant can answer "still loading" for under a minute, then it is cached 6 h |
+| `scm_file_blocking_profile` | List, get, create, update or delete file-blocking profiles; dry run by default, mandatory `ticket_ref`, every bad application reported at once, delete refused while a profile group references the profile |
 | `scm_url_category_list` | List URL categories |
 
 ### Network

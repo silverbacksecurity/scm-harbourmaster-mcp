@@ -39,6 +39,7 @@ from .tools.deployment import register_deployment_tools
 from .tools.dlp import register_dlp_tools
 from .tools.dns_security import register_dns_security_tools
 from .tools.email_dlp import register_email_dlp_tools
+from .tools.file_blocking import register_file_blocking_tools
 from .tools.insights import register_insights_tools
 from .tools.msr import register_msr_tools
 from .tools.mssp import register_casb_dlp_tools, register_mssp_tools, register_ngfw_airs_tools
@@ -192,6 +193,7 @@ def _registrars(
         "register_application_tag_tools": lambda m: register_application_tag_tools(m, get_client),
         "register_security_tools": lambda m: register_security_tools(m, get_client),
         "register_ssr_tools": lambda m: register_ssr_tools(m, get_client),
+        "register_file_blocking_tools": lambda m: register_file_blocking_tools(m, get_client),
         "register_network_tools": lambda m: register_network_tools(m, get_client),
         "register_deployment_tools": lambda m: register_deployment_tools(m, get_client),
         "register_setup_tools": lambda m: register_setup_tools(m, get_client),

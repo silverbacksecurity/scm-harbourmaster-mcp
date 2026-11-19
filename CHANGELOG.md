@@ -8,6 +8,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **File-blocking profile tools.** `scm_file_blocking_apps` answers which
+  applications a file-blocking rule may name: it checks a list of names and
+  returns a verdict per name (eligible, transfer-only, container, other
+  non-eligible, or unknown with close matches), or pages the eligible set.
+  `scm_file_blocking_profile` lists, gets, creates, updates and deletes
+  file-blocking profiles (`config/security/v1/file-blocking-profiles`) in a
+  folder, snippet or device. Writes follow the SSR pattern: `dry_run=True` by
+  default, mandatory `ticket_ref` (dry runs included), no commit. The write
+  API reports only the first bad application per request, so the tool
+  pre-validates every rule and lists all bad apps in one error. Non-eligible
+  apps are hard-blocked unless `skip_app_check=True`. An update replaces the
+  whole rules list and re-reads the profile to confirm it persisted. Delete is
+  refused while a profile group in the same container references the profile.
+  Eligible apps are those with `file_type_ident` set; that set is validated
+  against the write API (1089 accepted, 1089 flagged), but the SCM UI reportedly
+  lists more (1746) and the gap is unexplained. The catalogue is cached for 6 h per
+  tenant. The first fetch requests all pages at once (about 40-70 s, down from
+  61-68 s); calls wait up to 45 s, then say the catalogue is still loading while
+  the fetch finishes in the background, so a client with a 60 s timeout is not
+  cut off. Profile validation then notes that the app check was skipped and the
+  API decides. Proven
+  live on a lab tenant.
 - **Certificate expiry in the monthly service report.** `scm_msr_report` has a
   new "6b. Certificate Expiry" section listing certificates that are expired or
   expire within 90 days, with SSL-inspection CAs flagged. The executive summary

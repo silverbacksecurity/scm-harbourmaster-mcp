@@ -69,6 +69,8 @@ _TIMEOUT = (5, 120)
 _PAGE = 1000
 _MAX_PAGES = 40
 _PAGE_WORKERS = 10
+# Ceiling for the prefetch wave: 12 concurrent 1000-row pages ran clean live.
+_PREFETCH_WORKERS_MAX = 16
 _SOURCE_WORKERS = 6
 
 # The config API reports the Prisma Access container as "Shared" on objects,
@@ -930,8 +932,49 @@ def _page_rows(body: Any) -> list[dict[str, Any]]:
     return [r for r in page if isinstance(r, dict)] if isinstance(page, list) else []
 
 
-def _list_rows(session: Any, url: str, folder: str) -> tuple[list[dict[str, Any]], str]:
-    """Every row of a paginated list call, or ([], error) when it fails."""
+def _list_rows_prefetch(
+    session: Any, url: str, folder: str, pages: int
+) -> tuple[list[dict[str, Any]], str]:
+    """Fetch the first *pages* pages at once, then walk on while pages are full.
+
+    Skips the serial first-page wait of :func:`_list_rows` (~18 s on the
+    applications list); the gateway throttles smaller pages, so keep _PAGE.
+    """
+    pages = max(1, min(pages, _MAX_PAGES))
+    with ThreadPoolExecutor(max_workers=min(pages, _PREFETCH_WORKERS_MAX)) as pool:
+        wave = list(pool.map(lambda i: _page(session, url, folder, i * _PAGE), range(pages)))
+    rows: list[dict[str, Any]] = []
+    last = 0
+    for body, err in wave:
+        if err:
+            return [], err
+        page = _page_rows(body)
+        rows.extend(page)
+        last = len(page)
+    offset = pages * _PAGE
+    while last >= _PAGE and offset < _PAGE * _MAX_PAGES:
+        body, err = _page(session, url, folder, offset)
+        if err:
+            return [], err
+        page = _page_rows(body)
+        rows.extend(page)
+        last = len(page)
+        offset += _PAGE
+    if last >= _PAGE:
+        return rows, f"stopped after {_MAX_PAGES} pages"
+    return rows, ""
+
+
+def _list_rows(
+    session: Any, url: str, folder: str, prefetch_pages: int = 0
+) -> tuple[list[dict[str, Any]], str]:
+    """Every row of a paginated list call, or ([], error) when it fails.
+
+    ``prefetch_pages`` > 0 requests that many pages concurrently up front
+    instead of learning the total from page one (see _list_rows_prefetch).
+    """
+    if prefetch_pages > 0:
+        return _list_rows_prefetch(session, url, folder, prefetch_pages)
     body, err = _page(session, url, folder, 0)
     if err:
         return [], err
@@ -958,6 +1001,10 @@ def _list_rows(session: Any, url: str, folder: str) -> tuple[list[dict[str, Any]
         if len(page) < _PAGE:
             return rows, ""
     return rows, f"stopped after {_MAX_PAGES} pages"
+
+
+# Public name for other modules (the paginated, parallel list fetch).
+list_rows = _list_rows
 
 
 def fetch_target_inventory(

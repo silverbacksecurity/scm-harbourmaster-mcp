@@ -55,6 +55,7 @@ DESTRUCTIVE_TOOLS: frozenset[str] = frozenset(
         "scm_application_tags",  # action=delete; update replaces an entry's tags
         "scm_software_upgrade_manage",  # action=delete; schedules reboot firewalls
         "scm_saa_session_disconnect",  # terminates live user sessions
+        "scm_file_blocking_profile",  # action=delete; update replaces all rules
         "scm_ssr_execute",  # action=remove drops entries from managed objects
         "scm_planner_run",  # may execute approved write tools, including deletes
         "mssp_evict_tenant",  # drops a cached tenant client

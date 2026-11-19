@@ -4,7 +4,7 @@
 
 All tools authenticate via Bearer-token OAuth (SASE client credentials) configured in `settings.toml` / `.secrets.toml`.
 
-**<!-- tool-count -->194<!-- /tool-count --> tools** across <!-- module-count -->44<!-- /module-count --> modules.
+**<!-- tool-count -->196<!-- /tool-count --> tools** across <!-- module-count -->45<!-- /module-count --> modules.
 
 ## Table of Contents
 
@@ -38,6 +38,7 @@ All tools authenticate via Bearer-token OAuth (SASE client credentials) configur
 - [Csp Licensing](#csp-licensing)
 - [Dns Security](#dns-security)
 - [Email Dlp](#email-dlp)
+- [File Blocking](#file-blocking)
 - [Insights](#insights)
 - [Msr](#msr)
 - [Mt Monitor](#mt-monitor)
@@ -5393,6 +5394,113 @@ Returns:
 | `report_id` | `str` | `''` |
 | `status` | `str` | `''` |
 | `limit` | `int` | `50` |
+
+---
+
+## File Blocking
+
+_MCP tools for file-blocking profiles and the applications they can match._
+
+### `scm_file_blocking_apps`
+
+Which applications can a file-blocking rule name?
+
+```
+The write API accepts only applications whose ``file_type_ident`` flag
+is true; transfer-only apps and container apps are rejected, and the API
+reports just the first bad name per request.  Use ``check`` to test a
+list of names up front.  First call per tenant fetches the whole
+applications catalogue (~60-90 s, 11k rows), then it is cached for 6 h.
+
+With ``check``: a verdict per name (eligible, not_eligible_transfer_only,
+container, not_eligible, unknown with close matches).  Without it: a
+paged list of eligible apps filtered by name/category/subcategory
+(``include_all=True`` also lists the non-eligible ones).
+
+Args:
+    check: Exact application names to test (max 200).
+    name_contains: Case-insensitive substring filter on the name.
+    category: Exact category filter (case-insensitive).
+    subcategory: Exact subcategory filter (case-insensitive).
+    limit: Page size, 1-500 (default 100).
+    offset: Page offset.
+    refresh: Bypass the cache (use after a content release).
+    include_all: Also list non-eligible apps, with an eligible field.
+    tenant_id: SCM tenant ID.
+```
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `tenant_id` | `str` | `''` |
+| `check` | `list[str] \| None` | `None` |
+| `name_contains` | `str` | `''` |
+| `category` | `str` | `''` |
+| `subcategory` | `str` | `''` |
+| `limit` | `int` | `100` |
+| `offset` | `int` | `0` |
+| `refresh` | `bool` | `False` |
+| `include_all` | `bool` | `False` |
+
+### `scm_file_blocking_profile`
+
+List and manage file-blocking security profiles.
+
+```
+Actions:
+  * ``list`` - profiles in a folder/snippet/device (optional ``name``
+    substring filter).
+  * ``get`` - one profile by ``profile_id``, or ``name`` + container.
+  * ``create`` - new profile from ``rules_json``.
+  * ``update`` - replace the profile's rules (``rules_json`` is the FULL
+    new list; no partial patching) and/or ``description``.
+  * ``delete`` - remove a profile; refused while a profile group in the
+    same container references it.
+
+``rules_json`` is a JSON list of ``{"name", "action", "application",
+"direction", "file_type"}``; defaults are action alert, application
+["any"], direction both, file_type ["any"].  Applications are
+pre-validated against the tenant's catalogue (see
+scm_file_blocking_apps; first call per tenant can take up to a minute and then reports "still loading"; the check is skipped with a note) and ALL offenders
+are reported together.  ``skip_app_check=True`` bypasses that check and
+lets the API decide (it reports only the first bad name).  file_type is
+checked for syntax only.
+
+**Write safety (SSR pattern):** ``dry_run=True`` by default; a dry run
+reads only and returns the planned request.  ``ticket_ref`` is
+mandatory for every write action (dry runs included), is logged, and
+is never sent to SCM.  No commit is performed: run scm_commit.
+
+Args:
+    action: list (default), get, create, update or delete.
+    folder: Folder container (pass only one of folder, snippet, device).
+    snippet: Snippet container.
+    device: Device container.
+    name: Profile name (create/update/delete/get target; list filter).
+    profile_id: Profile UUID (get/update/delete).
+    description: Profile description (create/update).
+    rules_json: JSON list of rules (create; update replaces all rules).
+    dry_run: If True (default), preview a write without applying it.
+    ticket_ref: Mandatory change-ticket reference for writes.
+    skip_app_check: Skip the application eligibility pre-check.
+    limit: Maximum rows returned by list.
+    tenant_id: SCM tenant ID.
+```
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `tenant_id` | `str` | `''` |
+| `action` | `str` | `'list'` |
+| `folder` | `str` | `''` |
+| `snippet` | `str` | `''` |
+| `device` | `str` | `''` |
+| `name` | `str` | `''` |
+| `profile_id` | `str` | `''` |
+| `description` | `str \| None` | `None` |
+| `rules_json` | `str` | `''` |
+| `dry_run` | `bool` | `True` |
+| `ticket_ref` | `str` | `''` |
+| `skip_app_check` | `bool` | `False` |
+| `limit` | `int` | `200` |
 
 ---
 

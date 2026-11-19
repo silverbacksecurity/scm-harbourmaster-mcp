@@ -46,6 +46,7 @@ TOOLSETS: dict[str, tuple[str, ...]] = {
     "security": (
         "register_security_tools",
         "register_ssr_tools",
+        "register_file_blocking_tools",
         "register_policy_optimizer_tools",
         "register_config_cleanup_tools",
         "register_dns_security_tools",

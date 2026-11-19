@@ -30,6 +30,7 @@ EXPECTED_WRITE_TOOLS = {
     "scm_address_create",
     "scm_address_delete",
     "scm_application_tags",
+    "scm_file_blocking_profile",
     "dlp_restore",
     "scm_config_rollback",
     "scm_config_snapshot_delete",
