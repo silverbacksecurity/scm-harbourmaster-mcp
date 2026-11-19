@@ -9,7 +9,7 @@
 # Base images are pinned by digest; Dependabot (docker ecosystem) bumps them.
 
 # ── Build stage ───────────────────────────────────────────────────────────────
-FROM python:3.12-slim@sha256:05cda9777409a9c3ffddd94a4c476b79f0769a0b4857f0c7ed9226b6800b0d6f AS builder
+FROM python:3.15-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928 AS builder
 
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:0.11.21@sha256:ff07b86af50d4d9391d9daf4ff89ce427bc544f9aae87057e69a1cc0aa369946 /uv /usr/local/bin/uv
@@ -36,7 +36,7 @@ RUN uv sync --frozen --no-dev --no-editable
 # ── mermaid-cli build stage ───────────────────────────────────────────────────
 # npm only lives here; the full image gets the installed node_modules and the
 # Debian nodejs runtime. puppeteer is told never to download a browser.
-FROM python:3.12-slim@sha256:05cda9777409a9c3ffddd94a4c476b79f0769a0b4857f0c7ed9226b6800b0d6f AS mermaid-build
+FROM python:3.15-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928 AS mermaid-build
 RUN apt-get update && \
     apt-get install -y --no-install-recommends nodejs npm && \
     rm -rf /var/lib/apt/lists/*
@@ -50,7 +50,7 @@ RUN npm install -g --no-audit --no-fund npm@11.17.0
 RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund
 
 # ── Base runtime stage ────────────────────────────────────────────────────────
-FROM python:3.12-slim@sha256:05cda9777409a9c3ffddd94a4c476b79f0769a0b4857f0c7ed9226b6800b0d6f AS base
+FROM python:3.15-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928 AS base
 
 # Upgrade first: the digest-pinned base can lag Debian security fixes (Trivy HIGH).
 # tini runs as PID 1 so SIGTERM (docker stop, scm_restart) reaches the server:
