@@ -3,7 +3,7 @@
   "private": true,
   "description": "mermaid-cli for the full image's AS-BUILT/HLD diagrams. Chromium comes from Debian, so puppeteer never downloads a browser.",
   "dependencies": {
-    "@mermaid-js/mermaid-cli": "11.17.0",
+    "@mermaid-js/mermaid-cli": "11.17.1",
     "puppeteer": "24.43.1",
     "extract-zip": "file:./stubs/extract-zip"
   },
