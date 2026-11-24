@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`scm_pqc_audit`: read-only post-quantum VPN audit.** Reads IKE gateways,
+  IKE/IPsec crypto profiles and IPsec tunnels over raw REST (the SDK drops
+  `pq_ppk`, `pq_kem` and `ake`) and classifies each gateway and tunnel as
+  `protected`, `fallback`, `vulnerable` or `unsupported`. Field names come from
+  the pan.dev spec and are not yet verified on a live tenant. No write path.
 - **Security profile write tools.**
   `scm_threat_profile` lists, gets, creates, updates and deletes anti-spyware
   and vulnerability-protection profiles including threat exceptions.

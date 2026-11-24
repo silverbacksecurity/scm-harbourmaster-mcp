@@ -57,6 +57,7 @@ TOOLSETS: dict[str, tuple[str, ...]] = {
     ),
     "network": (
         "register_network_tools",
+        "register_pqc_audit_tools",
         "register_config_orch_tools",
         "register_site_management_tools",
         "register_software_upgrade_tools",

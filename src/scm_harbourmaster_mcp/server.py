@@ -57,6 +57,7 @@ from .tools.panorama_migrate import register_panorama_migrate_tools
 from .tools.planner_tools import register_planner_tools
 from .tools.policy_optimizer import register_policy_optimizer_tools
 from .tools.posture import register_posture_tools
+from .tools.pqc_audit import register_pqc_audit_tools
 from .tools.profile_group import register_profile_group_tools
 from .tools.region_detect import register_region_tools
 from .tools.reload import register_reload_tool
@@ -203,6 +204,7 @@ def _registrars(
         "register_security_profile_tools": lambda m: register_security_profile_tools(m, get_client),
         "register_profile_group_tools": lambda m: register_profile_group_tools(m, get_client),
         "register_network_tools": lambda m: register_network_tools(m, get_client),
+        "register_pqc_audit_tools": lambda m: register_pqc_audit_tools(m, get_client),
         "register_deployment_tools": lambda m: register_deployment_tools(m, get_client),
         "register_setup_tools": lambda m: register_setup_tools(m, get_client),
         "register_audit_tools": lambda m: register_audit_tools(m, get_client),

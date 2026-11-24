@@ -4,7 +4,7 @@
 
 All tools authenticate via Bearer-token OAuth (SASE client credentials) configured in `settings.toml` / `.secrets.toml`.
 
-**<!-- tool-count -->200<!-- /tool-count --> tools** across <!-- module-count -->49<!-- /module-count --> modules.
+**<!-- tool-count -->201<!-- /tool-count --> tools** across <!-- module-count -->50<!-- /module-count --> modules.
 
 ## Table of Contents
 
@@ -48,6 +48,7 @@ All tools authenticate via Bearer-token OAuth (SASE client credentials) configur
 - [Panorama Migrate](#panorama-migrate)
 - [Planner Tools](#planner-tools)
 - [Policy Optimizer](#policy-optimizer)
+- [Pqc Audit](#pqc-audit)
 - [Profile Group](#profile-group)
 - [Region Detect](#region-detect)
 - [Security Profile](#security-profile)
@@ -6474,6 +6475,39 @@ Returns:
 | `tenant_id` | `str` | `''` |
 | `rule_id` | `str` | `—` |
 | `manager_hostname` | `str` | `'cloud_managed'` |
+
+---
+
+## Pqc Audit
+
+_Read-only post-quantum VPN audit: ``scm_pqc_audit``._
+
+### `scm_pqc_audit`
+
+Audit IPsec VPN post-quantum protection (read-only).
+
+```
+Reports, per IKE gateway and per tunnel, whether RFC 8784 PPK and
+RFC 9370 ML-KEM are configured, and classifies each as ``protected``
+(ML-KEM with classical ciphers blocked, or a mandatory PPK),
+``fallback`` (configured but a classical peer can still connect),
+``vulnerable`` (nothing configured) or ``unsupported`` (IKEv1).
+Also lists crypto profiles that carry ML-KEM and gateways no tunnel
+uses.  Give exactly one of ``folder``, ``snippet`` or ``device``.
+
+Args:
+    tenant_id: SCM tenant ID.
+    folder: SCM folder.
+    snippet: Snippet name.
+    device: Device serial.
+```
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `tenant_id` | `str` | `''` |
+| `folder` | `str` | `''` |
+| `snippet` | `str` | `''` |
+| `device` | `str` | `''` |
 
 ---
 

@@ -961,6 +961,14 @@ scm_posture_report:
   idempotent: true
   retry_policy: retry
   scope: tenant
+scm_pqc_audit:
+  access: read
+  domain: posture_compliance
+  idempotent: true
+  known_failure_modes: Raw REST (the SDK drops pq_ppk, pq_kem and ake). Field names are from
+    the pan.dev spec and not yet verified on a live tenant. Candidate vs running state is not checked.
+  retry_policy: retry
+  scope: tenant
 scm_reload:
   access: write
   domain: operational_health

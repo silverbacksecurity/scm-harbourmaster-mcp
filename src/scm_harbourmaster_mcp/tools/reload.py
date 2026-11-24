@@ -101,6 +101,7 @@ _RELOAD_ORDER = [
     "scm_harbourmaster_mcp.tools.security_profile",
     "scm_harbourmaster_mcp.tools.object_crud",
     "scm_harbourmaster_mcp.tools.profile_group",
+    "scm_harbourmaster_mcp.tools.pqc_audit",
     "scm_harbourmaster_mcp.tools.service_status",
     "scm_harbourmaster_mcp.tools.ai_advisor",
     "scm_harbourmaster_mcp.tools.csp_licensing",
