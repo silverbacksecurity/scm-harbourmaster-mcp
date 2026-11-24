@@ -32,6 +32,7 @@ EXPECTED_WRITE_TOOLS = {
     "scm_application_tags",
     "scm_file_blocking_profile",
     "scm_threat_profile",
+    "scm_object",
     "scm_security_profile",
     "scm_profile_group",
     "dlp_restore",

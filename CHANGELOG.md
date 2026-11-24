@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **Security profile write tools (not yet verified against a live tenant).**
+- **Security profile write tools.**
   `scm_threat_profile` lists, gets, creates, updates and deletes anti-spyware
   and vulnerability-protection profiles including threat exceptions.
   `scm_security_profile` does the same for WildFire/antivirus (`antivirus` is
@@ -24,7 +24,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the profile's own container, plus Mobile Users and Remote Networks for
   top-level folders, so deleting a profile in a top-level folder or snippet
   needs `acknowledge_unscanned_scope=True`. Field names and enums come from
-  the pan.dev specs and SDK models; nothing has been run against a live tenant.
+  the pan.dev specs and SDK models. Verified live on lab tenants: a profile
+  group takes at most one profile per member type, SCM drops `notes` on
+  vulnerability exceptions (both now rejected), and WildFire `rules` are
+  optional.
+- **`scm_object`: address group, service, service group and tag CRUD.** One
+  generic tool (`kind` = `address_group`, `service`, `service_group`, `tag`)
+  over raw REST, using the profile tools' validate/merge/read-back engine,
+  now in `tools/_crud_engine.py`. Writes follow the SSR pattern: `dry_run=True`
+  by default, mandatory `ticket_ref` (dry runs included), no commit. Static
+  group members must exist in the group's scope and nested groups may not
+  form a cycle. Delete is refused while a group or a security, NAT,
+  decryption or app-override rule (pre and post) references the object; the
+  reference table is the clone preflight's, and tag deletes also check
+  dynamic group filters. The response lists what was and was not scanned, a
+  failed lookup refuses the delete, and a top-level folder or snippet needs
+  `acknowledge_unscanned_scope`. Renames are refused because rules reference
+  objects by name. Verified live on a lab tenant. Addresses keep `scm_address_*`; EDLs and application
+  groups/filters are not covered yet.
 - **File-blocking profile tools.** `scm_file_blocking_apps` answers which
   applications a file-blocking rule may name: it checks a list of names and
   returns a verdict per name (eligible, transfer-only, container, other

@@ -40,6 +40,7 @@ TOOLSETS: dict[str, tuple[str, ...]] = {
     CORE_TOOLSET: ("register_setup_tools",),
     "objects": (
         "register_object_tools",
+        "register_object_crud_tools",
         "register_application_tag_tools",
         "register_config_index_tools",
     ),

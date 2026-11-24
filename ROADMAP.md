@@ -9,6 +9,25 @@ do about it.
 
 ## Recently shipped
 
+- **Object CRUD tool** (2026-11-20, verified live) - `scm_object`
+  (`tools/object_crud.py`) covers address groups, services, service groups and
+  tags as one generic tool, on the profile tools' engine (now
+  `tools/_crud_engine.py`). `config_change` is now at its 30-tool ceiling.
+  Delete refuses while a group or a security, NAT, decryption or app-override
+  rule references the object (the clone preflight's reference table).
+  Live-verified 2026-11-20 on a lab tenant: create, merge-update, get and
+  delete for all four kinds with matching read-backs; predefined members
+  (`service-http`) resolve; the nested-group cycle check; and the delete
+  guard refused a tag (dynamic filter and service group tag), a service
+  (service group) and a nested address group, then allowed each delete once
+  the reference was gone.
+  Follow-ups:
+  - EDLs, application groups and application filters (the filter's `tagging`
+    field is missing from the SDK), then HIP objects.
+  - A rename helper that rewrites references (today `update` refuses a rename).
+  - The tool tops out the `config_change` domain, so the next write tool needs
+    a domain split in the planner manifest.
+
 - **Security profile write tools** (2026-11-20, verified live) -
   `scm_threat_profile`, `scm_security_profile` and `scm_profile_group`
   (`tools/threat_profile.py`, `tools/security_profile.py`,

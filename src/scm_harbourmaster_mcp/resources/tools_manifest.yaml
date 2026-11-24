@@ -809,6 +809,20 @@ scm_nist_gap:
   idempotent: true
   retry_policy: retry
   scope: tenant
+scm_object:
+  access: write
+  domain: config_change
+  idempotent: false
+  known_failure_modes: Generic CRUD for address groups, services, service groups and tags over
+    raw REST.  Writes use SSR pattern - dry_run default, mandatory ticket_ref, no commit.
+    Body keys are whitelisted from the pan.dev objects spec.  Group members must exist in
+    scope and nested groups may not cycle.  Delete scans same-container references
+    (groups, security/NAT/decryption/app-override rules, pre and post; plus Mobile Users and
+    Remote Networks for a top-level folder) and is refused on a lookup error; a real delete in
+    a top-level folder or snippet also needs acknowledge_unscanned_scope=true.  Renames are
+    refused.  Update merges; read-back reports verified.
+  retry_policy: fail_fast
+  scope: tenant
 scm_object_search:
   access: read
   domain: config_change

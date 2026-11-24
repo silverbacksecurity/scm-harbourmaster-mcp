@@ -508,7 +508,7 @@ _Translate a Panorama device group into an SCM folder, then document what change
 
 ## 38. Security Profiles & Profile Groups
 
-_Create and maintain anti-spyware, vulnerability, WildFire/antivirus, URL access, decryption and zone protection profiles, and the profile groups that bundle them. Not yet verified against a live tenant. Every write is a dry run until you say otherwise, and `ticket_ref` is mandatory._
+_Create and maintain anti-spyware, vulnerability, WildFire/antivirus, URL access, decryption and zone protection profiles, and the profile groups that bundle them. Every write is a dry run until you say otherwise, and `ticket_ref` is mandatory._
 
 268. "List the anti-spyware profiles in the Lab folder for Acme Corp."
 269. "Create a vulnerability profile `strict-vuln` in the Lab folder that blocks critical and high severity on clients and servers, ticket ref CHG-3001. Dry run first and show me the planned request."

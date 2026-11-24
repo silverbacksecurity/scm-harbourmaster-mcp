@@ -47,6 +47,7 @@ from .tools.mt_interconnect import register_spi_tools
 from .tools.mt_monitor import register_mt_monitor_tools
 from .tools.ncsc_baseline import register_ncsc_tools
 from .tools.network import register_network_tools
+from .tools.object_crud import register_object_crud_tools
 from .tools.objects import register_object_tools
 from .tools.ops import register_ops_tools
 from .tools.pab import register_pab_tools
@@ -198,6 +199,7 @@ def _registrars(
         "register_ssr_tools": lambda m: register_ssr_tools(m, get_client),
         "register_file_blocking_tools": lambda m: register_file_blocking_tools(m, get_client),
         "register_threat_profile_tools": lambda m: register_threat_profile_tools(m, get_client),
+        "register_object_crud_tools": lambda m: register_object_crud_tools(m, get_client),
         "register_security_profile_tools": lambda m: register_security_profile_tools(m, get_client),
         "register_profile_group_tools": lambda m: register_profile_group_tools(m, get_client),
         "register_network_tools": lambda m: register_network_tools(m, get_client),

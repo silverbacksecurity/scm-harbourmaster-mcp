@@ -57,6 +57,7 @@ DESTRUCTIVE_TOOLS: frozenset[str] = frozenset(
         "scm_saa_session_disconnect",  # terminates live user sessions
         "scm_file_blocking_profile",  # action=delete; update replaces all rules
         "scm_threat_profile",  # action=delete; update replaces rules/exceptions
+        "scm_object",  # action=delete; update replaces lists and one-of objects
         "scm_security_profile",  # action=delete; update replaces lists and one-of objects
         "scm_profile_group",  # action=delete; update replaces each member list given
         "scm_ssr_execute",  # action=remove drops entries from managed objects
