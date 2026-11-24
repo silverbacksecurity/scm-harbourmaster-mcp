@@ -672,6 +672,15 @@ scm_adem_query:
     support (endpoint-type, response-type enums, filter requirements) varies
     across endpoints; agent_properties and route_hops need a filter naming a
     real agent_uuid/site_id/probe_uuid or they 400.'
+scm_iot:
+  access: read
+  domain: posture_compliance
+  idempotent: true
+  known_failure_modes: Unlicensed tenants answer 404 and are reported as licensed false. 60 requests a minute, and
+    summary makes several. v1 device/list total is the page size, so devices use v2. Alert, vulnerability and
+    policy item shapes are passed through unseen (no lab tenant has any).
+  retry_policy: retry
+  scope: tenant
 scm_ipsec_tunnel_list:
   access: read
   domain: deployment

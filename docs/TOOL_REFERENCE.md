@@ -4,7 +4,7 @@
 
 All tools authenticate via Bearer-token OAuth (SASE client credentials) configured in `settings.toml` / `.secrets.toml`.
 
-**<!-- tool-count -->201<!-- /tool-count --> tools** across <!-- module-count -->50<!-- /module-count --> modules.
+**<!-- tool-count -->202<!-- /tool-count --> tools** across <!-- module-count -->51<!-- /module-count --> modules.
 
 ## Table of Contents
 
@@ -40,6 +40,7 @@ All tools authenticate via Bearer-token OAuth (SASE client credentials) configur
 - [Email Dlp](#email-dlp)
 - [File Blocking](#file-blocking)
 - [Insights](#insights)
+- [Iot Security](#iot-security)
 - [Msr](#msr)
 - [Mt Monitor](#mt-monitor)
 - [Object Crud](#object-crud)
@@ -5614,6 +5615,75 @@ Returns:
 | `download_id` | `str` | `''` |
 | `api_version` | `str` | `'v2'` |
 | `region` | `str` | `''` |
+
+---
+
+## Iot Security
+
+_Read-only Enterprise IoT / Device Security tool: ``scm_iot``._
+
+### `scm_iot`
+
+Read Enterprise IoT / Device Security data (read-only).
+
+```
+An unlicensed tenant returns ``licensed: false``. Limit: 60 requests a
+minute, and ``summary`` makes several.
+
+Actions:
+  * ``summary`` - device counts by category, vertical, risk and site, plus alert, vulnerability, site and subnet totals.
+  * ``devices`` - inventory. ``fields`` is empty for a compact key set,
+    ``all`` for every key, or a comma-separated API projection (max 50
+    names from the device attributes list; some response keys such as
+    ``ml_risk_level`` are not valid projection names);
+    ``site``, ``sort_field`` and ``sort_direction`` go to the API;
+    ``category``, ``profile``, ``risk_level`` and ``text`` (name, IP,
+    MAC, profile, vendor) filter client-side over the first 2000
+    devices and say when that truncates.
+  * ``device`` - one device by ``ip`` or ``mac``, with alert summary.
+  * ``alerts`` - active alerts (``resolved=yes`` for resolved);
+    ``stime`` sets the start of the time range.
+  * ``vulnerabilities`` - ``group_by`` is ``vulnerability`` or
+    ``device``; filters ``severity``, ``status``, ``name``;
+    ``include_device_ids`` adds the affected device IDs.
+  * ``policy_recommendations`` - activated rule recommendations,
+    optionally for one ``profile``.
+  * ``sites``, ``subnets`` - supporting lists.
+  * ``tags`` - ``tag_source`` is ``tenant`` or ``predefined``.
+  * ``profile_mapping`` - device profile to category and vertical;
+    ``name`` or ``profile`` filters by profile, ``category`` by category.
+
+Args:
+    tenant_id: SCM tenant ID.
+    action: One of the actions above.
+    limit: Maximum items returned (1-1000).
+    offset: Items to skip.
+```
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `tenant_id` | `str` | `''` |
+| `action` | `str` | `'summary'` |
+| `ip` | `str` | `''` |
+| `mac` | `str` | `''` |
+| `fields` | `str` | `''` |
+| `site` | `str` | `''` |
+| `sort_field` | `str` | `''` |
+| `sort_direction` | `str` | `''` |
+| `category` | `str` | `''` |
+| `profile` | `str` | `''` |
+| `risk_level` | `str` | `''` |
+| `text` | `str` | `''` |
+| `resolved` | `str` | `'no'` |
+| `severity` | `str` | `''` |
+| `status` | `str` | `''` |
+| `name` | `str` | `''` |
+| `group_by` | `str` | `'vulnerability'` |
+| `include_device_ids` | `bool` | `False` |
+| `stime` | `str` | `''` |
+| `tag_source` | `str` | `'tenant'` |
+| `limit` | `int` | `100` |
+| `offset` | `int` | `0` |
 
 ---
 

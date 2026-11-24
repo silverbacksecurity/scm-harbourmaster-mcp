@@ -91,7 +91,7 @@ TOOLSETS: dict[str, tuple[str, ...]] = {
         "register_pab_transfer_tools",
         "register_pab_msp_tools",
     ),
-    "ngfw": ("register_ngfw_airs_tools", "register_adnsr_tools"),
+    "ngfw": ("register_ngfw_airs_tools", "register_adnsr_tools", "register_iot_tools"),
     "dlp": ("register_dlp_tools", "register_email_dlp_tools"),
     "sdwan": ("register_sdwan_tools",),
     "ops": (

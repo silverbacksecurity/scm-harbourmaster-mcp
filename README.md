@@ -7,7 +7,7 @@
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 
-MCP (Model Context Protocol) server for **Palo Alto Networks Strata Cloud Manager (SCM)**, built for Managed Security Service Providers. Exposes <!-- tool-count -->201<!-- /tool-count --> SCM operations as MCP tools consumable by Claude Desktop, Cursor, Copilot Studio, or any MCP-compatible AI assistant.
+MCP (Model Context Protocol) server for **Palo Alto Networks Strata Cloud Manager (SCM)**, built for Managed Security Service Providers. Exposes <!-- tool-count -->202<!-- /tool-count --> SCM operations as MCP tools consumable by Claude Desktop, Cursor, Copilot Studio, or any MCP-compatible AI assistant.
 
 ---
 
@@ -178,7 +178,7 @@ Add to `~/.config/Claude/claude_desktop_config.json`:
 }
 ```
 
-Restart Claude Desktop. The server registers as <!-- tool-count -->201<!-- /tool-count --> tools in Cowork mode.
+Restart Claude Desktop. The server registers as <!-- tool-count -->202<!-- /tool-count --> tools in Cowork mode.
 
 ### Cursor / VS Code
 
@@ -521,6 +521,7 @@ List all tenants, their auth status, and which licences are expiring soonest.
 | `scm_nat_rule_get` | Fetch a single NAT rule |
 | `scm_ike_gateway_list` | List IKE gateways |
 | `scm_pqc_audit` | Read-only post-quantum VPN audit of one folder, snippet or device: per IKE gateway and tunnel, RFC 8784 PPK mode and RFC 9370 ML-KEM (`ake`) state, classified protected, fallback, vulnerable or unsupported (IKEv1); lists ML-KEM crypto profiles and unused gateways |
+| `scm_iot` | Read-only Enterprise IoT / Device Security: `summary` (device counts by category, vertical, risk and site, plus alert, vulnerability, site and subnet totals), `devices` (v2 inventory, compact keys, client-side filters), `device` (by IP or MAC), `alerts`, `vulnerabilities`, `policy_recommendations`, `sites`, `subnets`, `tags`, `profile_mapping`; an unlicensed tenant returns `licensed: false` |
 | `scm_ipsec_tunnel_list` | List IPSec tunnels |
 | `scm_dns_server_list` | List DNS server profiles |
 

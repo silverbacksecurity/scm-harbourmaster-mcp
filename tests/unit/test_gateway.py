@@ -221,6 +221,7 @@ NOT_PATHS = {
     "profile_setting",
     "profile_type",
     "skip_already_profiled",
+    "sort_direction",  # scm_iot: asc or desc, not a directory
     "snapshot",  # scm_config_rollback: an SCM named-snapshot name, not a file
     "syslog_profile",
     "timeout",

@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`scm_iot`: read-only Enterprise IoT / Device Security.** One tool, ten actions
+  (`summary`, `devices`, `device`, `alerts`, `vulnerabilities`,
+  `policy_recommendations`, `sites`, `subnets`, `tags`, `profile_mapping`) over
+  the `/iot/pub` API with the SCM bearer token. An unlicensed tenant (404) is
+  reported as `licensed: false`. Verified live on a licensed lab tenant with
+  devices and on an empty one. Found live: `v1 device/list` returns the page
+  size as `total` (devices use v2); `policy/recommendation` and `profile/mapping`
+  need `customerid` set to the TSG ID; `tag/list` needs `source`; the API
+  rejects `ml_risk_level` and `site_name` as projection fields. Alert,
+  vulnerability and policy item shapes are passed through, because no lab
+  tenant has any. No write path.
 - **`scm_pqc_audit`: read-only post-quantum VPN audit.** Reads IKE gateways,
   IKE/IPsec crypto profiles and IPsec tunnels over raw REST (the SDK drops
   `pq_ppk`, `pq_kem` and `ake`) and classifies each gateway and tunnel as

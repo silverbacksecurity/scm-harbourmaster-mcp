@@ -41,6 +41,7 @@ from .tools.dns_security import register_dns_security_tools
 from .tools.email_dlp import register_email_dlp_tools
 from .tools.file_blocking import register_file_blocking_tools
 from .tools.insights import register_insights_tools
+from .tools.iot_security import register_iot_tools
 from .tools.msr import register_msr_tools
 from .tools.mssp import register_casb_dlp_tools, register_mssp_tools, register_ngfw_airs_tools
 from .tools.mt_interconnect import register_spi_tools
@@ -205,6 +206,7 @@ def _registrars(
         "register_profile_group_tools": lambda m: register_profile_group_tools(m, get_client),
         "register_network_tools": lambda m: register_network_tools(m, get_client),
         "register_pqc_audit_tools": lambda m: register_pqc_audit_tools(m, get_client),
+        "register_iot_tools": lambda m: register_iot_tools(m, get_client),
         "register_deployment_tools": lambda m: register_deployment_tools(m, get_client),
         "register_setup_tools": lambda m: register_setup_tools(m, get_client),
         "register_audit_tools": lambda m: register_audit_tools(m, get_client),
