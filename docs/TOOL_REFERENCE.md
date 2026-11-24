@@ -4,7 +4,7 @@
 
 All tools authenticate via Bearer-token OAuth (SASE client credentials) configured in `settings.toml` / `.secrets.toml`.
 
-**<!-- tool-count -->196<!-- /tool-count --> tools** across <!-- module-count -->45<!-- /module-count --> modules.
+**<!-- tool-count -->199<!-- /tool-count --> tools** across <!-- module-count -->48<!-- /module-count --> modules.
 
 ## Table of Contents
 
@@ -47,12 +47,15 @@ All tools authenticate via Bearer-token OAuth (SASE client credentials) configur
 - [Panorama Migrate](#panorama-migrate)
 - [Planner Tools](#planner-tools)
 - [Policy Optimizer](#policy-optimizer)
+- [Profile Group](#profile-group)
 - [Region Detect](#region-detect)
+- [Security Profile](#security-profile)
 - [Service Status](#service-status)
 - [Site Management](#site-management)
 - [Software Upgrade](#software-upgrade)
 - [Ssr](#ssr)
 - [Tenant Copy](#tenant-copy)
+- [Threat Profile](#threat-profile)
 
 ---
 
@@ -6386,6 +6389,88 @@ Returns:
 
 ---
 
+## Profile Group
+
+_``scm_profile_group``: CRUD for security profile groups._
+
+### `scm_profile_group`
+
+> **Not yet verified against a live tenant.** Field names and enums come from the pan.dev specs and the SDK models; no write has been run against SCM. Delete reference checks cover the group's own container plus Mobile Users and Remote Networks for top-level folders; deleting a group in a top-level folder or snippet needs `acknowledge_unscanned_scope`. In a snippet or device, member profiles that are not found are warnings (inherited profiles are not listed).
+
+List and manage security profile groups (``profile_setting.group`` targets).
+
+```
+Actions:
+  * ``list`` - groups in a folder/snippet/device (optional ``name``
+    substring filter); ``get`` returns the full body.
+  * ``get`` - one group by ``profile_id``, or ``name`` + container.
+  * ``create`` - new group from ``config_json``.
+  * ``update`` - merge ``config_json`` into the group.  Each member
+    type given replaces that type's whole list; types not given are
+    kept; a null value removes a type.
+  * ``delete`` - refused while a security rule (pre and post) in the
+    same container uses the group (a top-level folder also scans
+    Mobile Users and Remote Networks), or when that lookup fails.  A
+    group in a top-level folder or snippet needs
+    ``acknowledge_unscanned_scope`` for a real delete.  The response
+    lists what was and was not scanned.
+
+``config_json`` is an API-shaped JSON object whose keys are member
+types, each a list of profile names: spyware, vulnerability,
+virus_and_wildfire_analysis, url_filtering, file_blocking,
+dns_security, data_filtering, saas_security, ai_security.  Do not put
+id, folder, snippet or device in it; ``name`` may be given there or as
+the ``name`` argument.  Unknown keys and wrong types are reported
+together.
+
+On create and update every named profile is looked up in the group's
+container (inherited and predefined profiles included).  A name that
+does not exist is an error, unless ``allow_unresolved_members`` is
+true; a name that cannot be checked (SaaS/AI security have no list
+API, a failed or forbidden lookup) is a warning.
+
+**Write safety (SSR pattern):** ``dry_run=True`` by default; a dry run
+reads only and returns the planned request.  ``ticket_ref`` is
+mandatory for every write action (dry runs included), is logged, and
+is never sent to SCM.  Writes are read back (``verified``).  No commit
+is performed: run scm_commit.
+
+Args:
+    action: list (default), get, create, update or delete.
+    folder: Folder container (pass only one of folder, snippet, device).
+    snippet: Snippet container.
+    device: Device container.
+    name: Group name (create/update/delete/get target; list filter).
+    profile_id: Group UUID (get/update/delete).
+    config_json: JSON object with the member lists (create, update).
+    dry_run: If True (default), preview a write without applying it.
+    ticket_ref: Mandatory change-ticket reference for writes.
+    allow_unresolved_members: Treat member profiles that are not found as warnings.
+    acknowledge_unscanned_scope: delete only.  A group in a top-level folder
+        (All, Shared, Prisma Access, Global) or a snippet is inherited by
+        containers that cannot be enumerated; set True to delete it anyway.
+    limit: Maximum rows returned by list.
+    tenant_id: SCM tenant ID.
+```
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `tenant_id` | `str` | `''` |
+| `action` | `str` | `'list'` |
+| `folder` | `str` | `''` |
+| `snippet` | `str` | `''` |
+| `device` | `str` | `''` |
+| `name` | `str` | `''` |
+| `profile_id` | `str` | `''` |
+| `config_json` | `str` | `''` |
+| `dry_run` | `bool` | `True` |
+| `ticket_ref` | `str` | `''` |
+| `allow_unresolved_members` | `bool` | `False` |
+| `acknowledge_unscanned_scope` | `bool` | `False` |
+| `limit` | `int` | `200` |
+
+---
+
 ## Region Detect
 
 _mssp_detect_region — find which data region holds a tenant's data._
@@ -6420,6 +6505,107 @@ Args:
 | `tenant_id` | `str` | `''` |
 | `persist` | `bool` | `False` |
 | `refresh` | `bool` | `False` |
+
+---
+
+## Security Profile
+
+_One MCP tool for the simpler security-profile types._
+
+### `scm_security_profile`
+
+> **Not yet verified against a live tenant.** Field names and enums come from the pan.dev specs and the SDK models; no write has been run against SCM. Delete reference checks cover the profile's own container plus Mobile Users and Remote Networks for top-level folders; deleting such a profile needs `acknowledge_unscanned_scope`.
+
+List and manage antivirus, URL access, decryption and zone protection profiles.
+
+```
+Kinds: ``wildfire_antivirus`` (alias ``antivirus``: SCM has one
+"WildFire and anti-virus" profile type), ``url_access``, ``decryption``,
+``zone_protection``.  Anti-spyware, vulnerability and file-blocking
+profiles have their own tools.
+
+Actions:
+  * ``list`` - profiles in a folder/snippet/device (optional ``name``
+    substring filter); summary rows, use ``get`` for the full body.
+  * ``get`` - one profile by ``profile_id``, or ``name`` + container.
+  * ``create`` - new profile from ``config_json``.
+  * ``update`` - merge ``config_json`` into the existing profile.
+    Unspecified fields are kept; objects merge key by key, lists and
+    one-of objects (credential_enforcement.mode, scan[].action)
+    replace, and a null value removes that key.
+  * ``delete`` - refused while a referencing object exists (the
+    response states exactly what was scanned) or when the lookup fails.
+
+``config_json`` is an API-shaped JSON object.  Keys are validated
+against the API schema: unknown keys, wrong types and bad enum values
+are all reported together.  Do not put id, folder, snippet or device
+in it; ``name`` may be given there or as the ``name`` argument.
+Top-level fields per kind:
+  * wildfire_antivirus: description, packet_capture, mlav_exception
+    [{name, description, filename}], rules (required) [{name, analysis
+    public-cloud|private-cloud, application[], direction
+    download|upload|both, file_type[]}], threat_exception [{name,
+    notes}].  Name: letters, digits, . _ - (no spaces).
+  * url_access: description, alert/allow/block/continue/redirect
+    (category name lists), cloud_inline_cat, local_inline_cat,
+    credential_enforcement {alert, allow, block, continue, log_severity,
+    mode}, mlav_category_exception, log_container_page_only,
+    log_http_hdr_referer, log_http_hdr_user_agent, log_http_hdr_xff,
+    safe_search_enforcement.  Category names are checked against the
+    tenant's category lists (warning only).
+  * decryption: ssl_forward_proxy, ssl_inbound_proxy, ssl_no_proxy,
+    ssl_protocol_settings (all objects of true/false flags;
+    min_version/max_version are strings such as tls1-2).
+  * zone_protection: description, flood {tcp_syn, udp, sctp_init, icmp,
+    icmpv6, other_ip}, scan, scan_white_list, many *_discard / *_strip
+    flags, reject_non_syn_tcp and mptcp_option_strip (global|yes|no),
+    asymmetric_path (global|drop|bypass), ipv6, non_ip_protocol,
+    l2_sec_group_tag_protection.  Name max 31 characters.
+
+**Write safety (SSR pattern):** ``dry_run=True`` by default; a dry run
+reads only and returns the planned request.  ``ticket_ref`` is
+mandatory for every write action (dry runs included), is logged, and
+is never sent to SCM.  Writes are read back (``verified``).  No commit
+is performed: run scm_commit.
+
+Args:
+    kind: wildfire_antivirus (or antivirus), url_access, decryption, zone_protection.
+    action: list (default), get, create, update or delete.
+    folder: Folder container (pass only one of folder, snippet, device).
+    snippet: Snippet container.
+    device: Device container.
+    name: Profile name (create/update/delete/get target; list filter).
+    profile_id: Profile UUID (get/update/delete).
+    config_json: JSON object with the profile settings (create, update).
+    dry_run: If True (default), preview a write without applying it.
+    ticket_ref: Mandatory change-ticket reference for writes.
+    skip_category_check: url_access only: skip the URL category lookup.
+    acknowledge_unscanned_scope: delete only.  A profile in a top-level folder
+        (All, Shared, Prisma Access, Global) or a snippet is inherited by
+        containers that cannot all be enumerated.  Mobile Users and Remote
+        Networks are scanned for a top-level folder, but the scan stays incomplete,
+        so a real delete is refused unless this is True.  Dry runs show the
+        warning and the refusal reason.
+    limit: Maximum rows returned by list.
+    tenant_id: SCM tenant ID.
+```
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `tenant_id` | `str` | `''` |
+| `kind` | `str` | `—` |
+| `action` | `str` | `'list'` |
+| `folder` | `str` | `''` |
+| `snippet` | `str` | `''` |
+| `device` | `str` | `''` |
+| `name` | `str` | `''` |
+| `profile_id` | `str` | `''` |
+| `config_json` | `str` | `''` |
+| `dry_run` | `bool` | `True` |
+| `ticket_ref` | `str` | `''` |
+| `skip_category_check` | `bool` | `False` |
+| `acknowledge_unscanned_scope` | `bool` | `False` |
+| `limit` | `int` | `200` |
 
 ---
 
@@ -6837,3 +7023,110 @@ Args:
 | `copy_agent_version` | `bool` | `False` |
 | `dry_run` | `bool` | `True` |
 | `ticket_ref` | `str` | `''` |
+
+---
+
+## Threat Profile
+
+_MCP tool for anti-spyware and vulnerability-protection profiles._
+
+### `scm_threat_profile`
+
+> **Not yet verified against a live tenant.** Field names and enums come from the pan.dev specs and the SDK models; no write has been run against SCM. Delete reference checks cover the profile's own container plus Mobile Users and Remote Networks for top-level folders; deleting such a profile needs `acknowledge_unscanned_scope`.
+
+List and manage anti-spyware and vulnerability-protection profiles.
+
+```
+``kind`` is ``anti_spyware`` (config/security/v1/anti-spyware-profiles)
+or ``vulnerability`` (config/security/v1/vulnerability-protection-profiles).
+
+Actions:
+  * ``list`` - profiles in a folder/snippet/device (optional ``name``
+    substring filter).
+  * ``get`` - one profile (raw API fields, including threat exceptions)
+    by ``profile_id``, or ``name`` + container.
+  * ``create`` - new profile from ``rules_json`` (required for
+    vulnerability, optional for anti-spyware) and optional
+    ``threat_exceptions_json``.
+  * ``update`` - ``rules_json`` REPLACES the whole rules list,
+    ``threat_exceptions_json`` REPLACES the whole exception list
+    (``[]`` clears it), ``description`` replaces the description.
+    Anything not passed is preserved exactly as read from SCM,
+    including fields this tool does not edit (``cloud_inline_analysis``,
+    ``inline_exception_*``, ``mica_engine_spyware_enabled``).  The result
+    is read back and reported as ``verified``.
+  * ``delete`` - remove a profile; refused while a profile group in the
+    same container lists it, and refused if that lookup fails.  The
+    result lists what the reference check scanned and did NOT scan
+    (other folders/snippets, security rules, non-SCM configs).
+
+``rules_json`` is a JSON list of rule objects.  Fields (pan.dev spec):
+``name``, ``action``, ``severity`` (required list of critical, high,
+medium, low, informational, any), ``category`` (default any),
+``threat_name`` (default any; anti-spyware min 3 chars),
+``packet_capture`` (disable, single-packet, extended-capture).
+Vulnerability rules also take ``cve`` (list), ``host`` (any, client,
+server) and ``vendor_id`` (list; the API field is ``vendor_id``, NOT
+``vendor-id``; defaults ["any"]).  ``action`` is an object naming one
+action, e.g. ``{"alert": {}}`` or ``{"block_ip": {"track_by": "source",
+"duration": 300}}``; allow, alert, drop, reset_client, reset_server,
+reset_both, block_ip (vulnerability rules and all exceptions also accept
+default).  A bare string such as ``"reset-both"`` is accepted.
+
+``threat_exceptions_json`` is a JSON list of ``{"name": <threat id>,
+"action", "packet_capture", "exempt_ip": [ip, ...], "notes"}`` plus
+``time_attribute`` ``{"interval" 1-3600, "threshold" 1-65535,
+"track_by"}`` for vulnerability profiles.  Anti-spyware exceptions
+default packet_capture to disable.  Known API limit: an anti-spyware
+exception PUT only accepts threat IDs already seen in a created profile;
+the dry run warns when an update adds new IDs, and the read-back shows
+whether SCM accepted it.
+
+**Write safety (SSR pattern):** ``dry_run=True`` by default; a dry run
+reads only and returns the planned request.  ``ticket_ref`` is
+mandatory for every write action (dry runs included), is logged, and is
+never sent to SCM.  The container stays in the PUT body (a vulnerability
+PUT without it silently does nothing).  No commit is performed: run
+scm_commit.
+
+Args:
+    kind: anti_spyware (default) or vulnerability.
+    action: list (default), get, create, update or delete.
+    folder: Folder container (pass only one of folder, snippet, device).
+    snippet: Snippet container.
+    device: Device container.
+    name: Profile name (create/update/delete/get target; list filter).
+    profile_id: Profile UUID (get/update/delete).
+    description: Profile description (create/update).
+    rules_json: JSON list of rules (create; update replaces all rules).
+    threat_exceptions_json: JSON list of threat exceptions (create; update
+        replaces all; "[]" clears).
+    dry_run: If True (default), preview a write without applying it.
+    ticket_ref: Mandatory change-ticket reference for writes.
+    acknowledge_unscanned_scope: delete only.  A profile in a top-level folder
+        (All, Shared, Prisma Access, Global) or a snippet is inherited by
+        containers that cannot all be enumerated.  Mobile Users and Remote
+        Networks are scanned for a top-level folder, but the scan stays incomplete,
+        so a real delete is refused unless this is True.  Dry runs show the
+        warning and the refusal reason.
+    limit: Maximum rows returned by list.
+    tenant_id: SCM tenant ID.
+```
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `tenant_id` | `str` | `''` |
+| `kind` | `str` | `'anti_spyware'` |
+| `action` | `str` | `'list'` |
+| `folder` | `str` | `''` |
+| `snippet` | `str` | `''` |
+| `device` | `str` | `''` |
+| `name` | `str` | `''` |
+| `profile_id` | `str` | `''` |
+| `description` | `str \| None` | `None` |
+| `rules_json` | `str` | `''` |
+| `threat_exceptions_json` | `str` | `''` |
+| `dry_run` | `bool` | `True` |
+| `ticket_ref` | `str` | `''` |
+| `limit` | `int` | `200` |
+| `acknowledge_unscanned_scope` | `bool` | `False` |

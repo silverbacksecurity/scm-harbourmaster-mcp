@@ -6,7 +6,7 @@
 #
 # Regenerate/verify coverage: tests/unit/test_planner_manifest.py fails
 # whenever a registered tool lacks an entry here (or vice versa).
-# Tools: 173 | write: 32 | domains: 11
+# Tools: 175 | write: 34 | domains: 11
 
 dlp_backup:
   access: read
@@ -1009,11 +1009,38 @@ scm_saa_session_disconnect:
     unless their policy changes.
   retry_policy: fail_fast
   scope: tenant
+scm_profile_group:
+  access: write
+  domain: threat_coverage
+  idempotent: false
+  known_failure_modes: Security profile groups (config/security/v1/profile-groups).  Writes
+    use SSR pattern - dry_run default, mandatory ticket_ref, no commit.  Member profiles
+    are checked to exist in the container (inherited/predefined included); not found is an
+    error in a folder (a warning in a snippet/device, where inherited profiles are not
+    listed), unverifiable is a warning.  Update replaces each member list given.  Delete
+    scans same-container security rules (pre and post; plus Mobile Users and Remote Networks
+    for a top-level folder) and is refused on a lookup error; a real delete in a top-level
+    folder or snippet also needs acknowledge_unscanned_scope=true.
+  retry_policy: fail_fast
+  scope: tenant
 scm_saas_posture:
   access: read
   domain: posture_compliance
   idempotent: true
   retry_policy: retry
+  scope: tenant
+scm_security_profile:
+  access: write
+  domain: threat_coverage
+  idempotent: false
+  known_failure_modes: Generic CRUD for wildfire/antivirus, url_access, decryption and zone_protection
+    profiles over raw REST (SDK drops aliased fields).  Writes use SSR pattern - dry_run
+    default, mandatory ticket_ref, no commit.  Body keys are whitelisted from the pan.dev
+    specs.  Delete scans same-container references (profile groups, decryption rules,
+    zones; plus Mobile Users and Remote Networks for a top-level folder) and is refused on
+    a lookup error; a real delete in a top-level folder or snippet also needs
+    acknowledge_unscanned_scope=true.  Update merges; read-back reports verified.
+  retry_policy: fail_fast
   scope: tenant
 scm_security_rule_create:
   access: write
@@ -1126,6 +1153,19 @@ scm_tenant_dashboard:
   idempotent: true
   retry_policy: retry
   scope: cross_tenant
+scm_threat_profile:
+  access: write
+  domain: threat_coverage
+  idempotent: false
+  known_failure_modes: Config security API (anti-spyware-profiles, vulnerability-protection-profiles)
+    over raw REST (SDK cannot parse profiles with threat exceptions).  Writes use SSR pattern
+    - dry_run default, mandatory ticket_ref, no commit.  PUT keeps folder in body (vuln PUT
+    without it is a silent no-op); empty threat_exception rejected; anti-spyware exception PUT
+    only accepts IDs already seen in a created profile.  Delete reference check covers profile
+    groups in the same container (plus Mobile Users and Remote Networks for a top-level
+    folder); a real delete in a top-level folder or snippet needs acknowledge_unscanned_scope=true.
+  retry_policy: fail_fast
+  scope: tenant
 scm_tls_profile_manager:
   access: write
   domain: threat_coverage

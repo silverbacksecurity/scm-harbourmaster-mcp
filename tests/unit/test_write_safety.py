@@ -25,6 +25,7 @@ from scm_harbourmaster_mcp.tools.ncsc_baseline import register_ncsc_tools
 from scm_harbourmaster_mcp.tools.objects import register_object_tools
 from scm_harbourmaster_mcp.tools.ops import register_ops_tools
 from scm_harbourmaster_mcp.tools.security import register_security_tools
+from scm_harbourmaster_mcp.tools.threat_profile import register_threat_profile_tools
 from scm_harbourmaster_mcp.utils.write_safety import (
     TICKET_REF_REQUIRED,
     normalize_ticket_ref,
@@ -209,6 +210,18 @@ class TestSecurityRuleDelete:
         fn = _tool(register_security_tools, "scm_security_rule_delete", client)
         fn(name="allow-web", folder="Shared", dry_run=False, ticket_ref=TICKET)
         client.security_rule.delete.assert_called_once_with("r-1")
+
+
+class TestThreatProfile:
+    @pytest.mark.parametrize("action", ["create", "update", "delete"])
+    def test_missing_ticket_ref_rejected_even_for_dry_run(self, action: str) -> None:
+        client = MagicMock()
+        fn = _tool(register_threat_profile_tools, "scm_threat_profile", client)
+        out = fn(action=action, folder="Shared", name="p1")
+        assert "ticket_ref is mandatory" in out
+        client.post.assert_not_called()
+        client.put.assert_not_called()
+        client.delete.assert_not_called()
 
 
 # ── commit / push / rollback ──────────────────────────────────────────────
@@ -494,3 +507,30 @@ class TestExistingDryRunTools:
         )
         assert calls[0]["dry_run"] is True
         assert "ticket_ref" not in calls[0]
+
+
+@pytest.mark.parametrize("action", ["create", "update", "delete"])
+def test_profile_group_requires_ticket_ref(action: str) -> None:
+    from scm_harbourmaster_mcp.tools.profile_group import register_profile_group_tools
+
+    client = MagicMock()
+    fn = _tool(register_profile_group_tools, "scm_profile_group", client)
+    out = fn(action=action, folder="Shared", name="g", config_json="{}", dry_run=False)
+    assert "ticket_ref is mandatory" in out
+    client.post.assert_not_called()
+    client.put.assert_not_called()
+    client.delete.assert_not_called()
+
+
+@pytest.mark.parametrize("kind", ["antivirus", "url_access", "decryption", "zone_protection"])
+@pytest.mark.parametrize("action", ["create", "update", "delete"])
+def test_security_profile_requires_ticket_ref(kind: str, action: str) -> None:
+    from scm_harbourmaster_mcp.tools.security_profile import register_security_profile_tools
+
+    client = MagicMock()
+    fn = _tool(register_security_profile_tools, "scm_security_profile", client)
+    out = fn(kind=kind, action=action, folder="Shared", name="p", config_json="{}", dry_run=False)
+    assert "ticket_ref is mandatory" in out
+    client.post.assert_not_called()
+    client.put.assert_not_called()
+    client.delete.assert_not_called()

@@ -9,6 +9,24 @@ do about it.
 
 ## Recently shipped
 
+- **Security profile write tools** (2026-11-20, verified live) -
+  `scm_threat_profile`, `scm_security_profile` and `scm_profile_group`
+  (`tools/threat_profile.py`, `tools/security_profile.py`,
+  `tools/profile_group.py`), all raw REST with the SSR write pattern. Delete
+  reference checks cover only the profile's own container plus Mobile Users
+  and Remote Networks for top-level folders; such deletes need
+  `acknowledge_unscanned_scope`.
+  Live-verified 2026-11-20 on a lab tenant: create/update/delete, group
+  member listing (inherited and predefined included), the
+  `/config/security/v1` profile-groups base, threat exception clearing, the
+  delete reference guard, the URL `continue` round trip, and `antivirus`
+  being the same object as `wildfire_antivirus`. Found and fixed: a group
+  takes at most one profile per member type, and SCM silently drops `notes`
+  on vulnerability exceptions (now rejected).
+  Also verified live: the decryption and zone-protection kinds, the
+  top-level folder delete gate, and the API accepting a WildFire profile
+  without `rules` (so the tool no longer requires it).
+
 - **File-blocking profile tools** (2026-11-19) — `scm_file_blocking_apps` and
   `scm_file_blocking_profile` (`tools/file_blocking.py`). Profile CRUD with
   the SSR write pattern (dry run default, mandatory `ticket_ref`, no commit),

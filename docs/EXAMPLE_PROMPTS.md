@@ -505,6 +505,20 @@ _Translate a Panorama device group into an SCM folder, then document what change
 266. "Build the migration report for that migration: Panorama before, SCM after, every object's status and the impact register, as a Word document for sign-off."
 267. "From the migration report, list the HIGH-impact items and who owns each one."
 
+
+## 38. Security Profiles & Profile Groups
+
+_Create and maintain anti-spyware, vulnerability, WildFire/antivirus, URL access, decryption and zone protection profiles, and the profile groups that bundle them. Not yet verified against a live tenant. Every write is a dry run until you say otherwise, and `ticket_ref` is mandatory._
+
+268. "List the anti-spyware profiles in the Lab folder for Acme Corp."
+269. "Create a vulnerability profile `strict-vuln` in the Lab folder that blocks critical and high severity on clients and servers, ticket ref CHG-3001. Dry run first and show me the planned request."
+270. "That plan looks right, apply it for real with the same ticket ref."
+271. "Add a URL access profile `corp-web` that blocks the `malware` and `phishing` categories and alerts on `unknown`, ticket ref CHG-3002 - dry run."
+272. "List the profile groups in the Lab folder for Acme Corp."
+273. "Create a profile group `lab-standard` using strict-vuln, corp-web and our WildFire profile, ticket ref CHG-3003. Check every member exists and tell me which ones could not be checked."
+274. "Clone Acme Corp's `strict-vuln` profile into the Contoso Ltd Lab folder as `strict-vuln`: read it with get, then create it there, ticket ref CHG-3004, dry run first."
+275. "Delete the `old-spyware` anti-spyware profile from the Lab folder, ticket ref CHG-3005 - dry run and tell me what the reference check did and did not scan."
+276. "That profile is in the Shared folder: the dry run says the scope is not fully scanned. I have checked the other folders by hand, so delete it with the scope acknowledgement, ticket ref CHG-3006."
 ---
 
 *Generated against the 163-tool surface documented in [`TOOL_REFERENCE.md`](TOOL_REFERENCE.md). If a prompt references a feature your tenant isn't licensed for (AIRS, Secure Agentless Access, ZTNA Connector, Compliance Center, ADNSR, NGFW Operations, Posture Management, SPI, PAB), the tool reports that clearly instead of failing silently.*

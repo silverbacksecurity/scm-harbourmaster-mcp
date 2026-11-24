@@ -56,16 +56,19 @@ from .tools.panorama_migrate import register_panorama_migrate_tools
 from .tools.planner_tools import register_planner_tools
 from .tools.policy_optimizer import register_policy_optimizer_tools
 from .tools.posture import register_posture_tools
+from .tools.profile_group import register_profile_group_tools
 from .tools.region_detect import register_region_tools
 from .tools.reload import register_reload_tool
 from .tools.sdwan import register_sdwan_tools
 from .tools.security import register_security_tools
+from .tools.security_profile import register_security_profile_tools
 from .tools.service_status import register_service_status_tools
 from .tools.setup import register_setup_tools
 from .tools.site_management import register_site_management_tools
 from .tools.software_upgrade import register_software_upgrade_tools
 from .tools.ssr import register_ssr_tools
 from .tools.tenant_copy import register_tenant_copy_tools
+from .tools.threat_profile import register_threat_profile_tools
 from .toolsets import (
     ALWAYS_ON_TOOLS,
     PROFILES,
@@ -194,6 +197,9 @@ def _registrars(
         "register_security_tools": lambda m: register_security_tools(m, get_client),
         "register_ssr_tools": lambda m: register_ssr_tools(m, get_client),
         "register_file_blocking_tools": lambda m: register_file_blocking_tools(m, get_client),
+        "register_threat_profile_tools": lambda m: register_threat_profile_tools(m, get_client),
+        "register_security_profile_tools": lambda m: register_security_profile_tools(m, get_client),
+        "register_profile_group_tools": lambda m: register_profile_group_tools(m, get_client),
         "register_network_tools": lambda m: register_network_tools(m, get_client),
         "register_deployment_tools": lambda m: register_deployment_tools(m, get_client),
         "register_setup_tools": lambda m: register_setup_tools(m, get_client),

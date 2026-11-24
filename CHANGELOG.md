@@ -8,6 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Security profile write tools (not yet verified against a live tenant).**
+  `scm_threat_profile` lists, gets, creates, updates and deletes anti-spyware
+  and vulnerability-protection profiles including threat exceptions.
+  `scm_security_profile` does the same for WildFire/antivirus (`antivirus` is
+  an alias for the one "WildFire and anti-virus" type), URL access, decryption
+  and zone protection profiles from an API-shaped `config_json`.
+  `scm_profile_group` manages profile groups and checks that every member
+  profile exists (`allow_unresolved_members` downgrades that to a warning).
+  All three use raw REST, because the SDK drops aliased fields (URL `continue`,
+  vulnerability `vendor_id`) and cannot parse profiles with threat exceptions.
+  Writes follow the SSR pattern: `dry_run=True` by default, mandatory
+  `ticket_ref` (dry runs included), read-back `verified`, no commit. Delete is
+  refused while a referencing object exists. The reference check covers only
+  the profile's own container, plus Mobile Users and Remote Networks for
+  top-level folders, so deleting a profile in a top-level folder or snippet
+  needs `acknowledge_unscanned_scope=True`. Field names and enums come from
+  the pan.dev specs and SDK models; nothing has been run against a live tenant.
 - **File-blocking profile tools.** `scm_file_blocking_apps` answers which
   applications a file-blocking rule may name: it checks a list of names and
   returns a verdict per name (eligible, transfer-only, container, other
